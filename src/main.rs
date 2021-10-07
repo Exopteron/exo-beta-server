@@ -33,21 +33,21 @@ async fn main() -> anyhow::Result<()> {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>()?;
         systems::sync_positions(game, &mut server)?;
-        systems::update_local_health(game, &mut server)?;
-        systems::check_void(game, &mut server)?;
-        systems::check_dead(game, &mut server)?;
+        //systems::update_local_health(game, &mut server)?;
+        systems::tick_players(game, &mut server)?;
+        //systems::check_dead(game, &mut server)?;
         systems::rem_old_clients(game, &mut server)?;
         systems::spawn_players(game, &mut server)?;
         systems::update_positions(game, &mut server)?;
-        systems::chat_msgs(game, &mut server)?;
+/*         systems::chat_msgs(game, &mut server)?; */
         systems::ping(game, &mut server)?;
         systems::cull_players(game, &mut server)?;
         systems::time_update(game, &mut server)?;
         systems::block_updates(game, &mut server)?;
         let players = game.players.0.borrow().clone();
         for player in players.iter() {
-            systems::check_inv(game, &mut server, &mut player.1.borrow_mut())?;
-            systems::sync_inv(game, &mut server, &mut player.1.borrow_mut())?;
+/*             systems::check_inv(game, &mut server, player.1)?;
+            systems::sync_inv(game, &mut server, player.1)?; */
         }
         Ok(())
     });

@@ -1,5 +1,5 @@
-use crate::game::Player;
-use crate::game::{BlockPosition, DamageType, Game, ItemStack, Message};
+use crate::game::PlayerRef;
+use crate::game::{BlockPosition, DamageType, Game, ItemStack, Message, Position};
 use crate::network::ids::EntityID;
 use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::server::Server;
@@ -8,42 +8,49 @@ use std::sync::Arc;
 pub fn handle_packet(
     game: &mut Game,
     server: &mut Server,
-    player: &mut Player,
+    player: Arc<PlayerRef>,
     packet: ClientPacket,
 ) -> anyhow::Result<()> {
     match packet {
         ClientPacket::PlayerPacket(packet) => {
-            if player.dead {
+            if player.is_dead() {
                 return Ok(());
             }
-            player.position.on_ground = packet.on_ground;
-            player.last_position = player.position;
+            let mut pos = player.get_position();
+            pos.on_ground = packet.on_ground; // player.position.
+            let mut pos = pos.clone();
+            player.set_last_position(pos);
+            player.set_position(pos);
         }
         ClientPacket::PlayerLookPacket(packet) => {
-            if player.dead {
+            if player.is_dead() {
                 return Ok(());
             }
-            player.position.yaw = packet.yaw;
-            player.position.pitch = packet.pitch;
-            player.position.on_ground = packet.on_ground;
-            player.last_position = player.position;
+            let mut pos = player.get_position();
+            pos.yaw = packet.yaw;
+            pos.pitch = packet.pitch;
+            pos.on_ground = packet.on_ground;
+            let mut pos = pos.clone();
+            player.set_last_position(pos);
+            player.set_position(pos);
         }
         ClientPacket::PlayerPositionPacket(packet) => {
-            if player.dead {
+            if player.is_dead() {
                 return Ok(());
             }
-            player.position.x = packet.x;
-            player.position.y = packet.y;
-            player.position.stance = packet.stance;
-            player.position.z = packet.z;
-            player.position.on_ground = packet.on_ground;
-            let pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
-            if player.position.distance(&player.last_position) > 16.0 && player.last_position != pos
+            let mut pos = player.get_position();
+            pos.x = packet.x;
+            pos.y = packet.y;
+            pos.stance = packet.stance;
+            pos.z = packet.z;
+            pos.on_ground = packet.on_ground;
+            let mut pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
+/*             if pos.distance(&player.last_position) > 16.0 && player.last_position != pos
             {
-                log::info!("Position: {:?}", player.position);
-                if player.position.y < 0.0 || player.last_position.y < 0.0 {
+                log::info!("Position: {:?}", pos);
+                if pos.y < 0.0 || player.last_position.y < 0.0 {
                     player.last_position = pos;
-                    player.position = pos;
+                    pos = pos;
                 }
                 player.write(ServerPacket::PlayerPositionAndLook {
                     x: player.last_position.x,
@@ -54,29 +61,32 @@ pub fn handle_packet(
                     pitch: player.last_position.pitch,
                     on_ground: player.last_position.on_ground,
                 });
-                player.position = player.last_position;
+                pos = player.last_position;
                 return Ok(());
-            }
-            player.last_position = player.position;
+            } */
+            let mut pos = pos.clone();
+            player.set_last_position(pos);
+            player.set_position(pos);
         }
         ClientPacket::PlayerPositionAndLookPacket(packet) => {
-            if player.dead {
+            if player.is_dead() {
                 return Ok(());
             }
-            player.position.yaw = packet.yaw;
-            player.position.pitch = packet.pitch;
-            player.position.x = packet.x;
-            player.position.y = packet.y;
-            player.position.stance = packet.stance;
-            player.position.z = packet.z;
-            player.position.on_ground = packet.on_ground;
-            let pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
-            if player.position.distance(&player.last_position) > 16.0 && player.last_position != pos
+            let mut pos = player.get_position();
+            pos.yaw = packet.yaw;
+            pos.pitch = packet.pitch;
+            pos.x = packet.x;
+            pos.y = packet.y;
+            pos.stance = packet.stance;
+            pos.z = packet.z;
+            pos.on_ground = packet.on_ground;
+/*             let mut pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
+            if pos.distance(&player.last_position) > 16.0 && player.last_position != pos
             {
-                log::info!("Position: {:?}", player.position);
-                if player.position.y < 0.0 || player.last_position.y < 0.0 {
+                log::info!("Position: {:?}", pos);
+                if pos.y < 0.0 || player.last_position.y < 0.0 {
                     player.last_position = pos;
-                    player.position = pos;
+                    pos = pos;
                 }
                 player.write(ServerPacket::PlayerPositionAndLook {
                     x: player.last_position.x,
@@ -87,17 +97,19 @@ pub fn handle_packet(
                     pitch: player.last_position.pitch,
                     on_ground: player.last_position.on_ground,
                 });
-                player.position = player.last_position;
+                pos = player.last_position;
                 return Ok(());
-            }
-            player.last_position = player.position;
+            } */
+            let mut pos = pos.clone();
+            player.set_last_position(pos);
+            player.set_position(pos);
         }
         ClientPacket::EntityAction(packet) => match packet.action {
             1 => {
-                player.crouching = true;
+                player.set_crouching(true);
             }
             2 => {
-                player.crouching = false;
+                player.set_crouching(false);
             }
             _ => {}
         },
@@ -106,59 +118,67 @@ pub fn handle_packet(
                 return Ok(());
             }
             log::info!("Message: {}", message.message);
-            let slot = player
-                .inventory
+            let mut slot = player.get_inventory_slot(40)
+                .expect("Player doesn't have expected slot!"); /*
+                               .inventory
                 .items
                 .get_mut(&40)
-                .expect("Player doesn't have expected slot!");
+                */
             slot.id = 50;
             slot.count = 64;
-            let slot = player
-                .inventory
+            let mut slot = player.get_inventory_slot(41) /*
+                            .inventory
                 .items
                 .get_mut(&41)
+            */
                 .expect("Player doesn't have expected slot!");
             slot.id = 3;
             slot.count = 64;
-            let slot = player
-                .inventory
+            let mut slot = player.get_inventory_slot(42) /*
+                            .inventory
                 .items
                 .get_mut(&42)
+            */
                 .expect("Player doesn't have expected slot!");
             slot.id = 285;
             slot.count = 1;
+            drop(slot);
             if message.message.starts_with("/") {
                 message.message.remove(0);
-                let res = game.execute_command(player, &message.message)?;
-                player.chatbox.push(Message::new(&format!("Command returned code {}.", res)));
+                use std::ops::DerefMut;
+                let res = game.execute_command(player.unwrap().deref_mut(), &message.message)?;
+                player.send_message(Message::new(&format!("Command returned code {}.", res)));
             } else {
-                let message = Message::new(&format!("<{}> {}", player.username, message.message));
+                let message = Message::new(&format!("<{}> {}", player.get_username(), message.message));
                 for (id, player_iter) in game.players.0.borrow().clone() {
-                    if id == player.id {
-                        player.chatbox.push(message.clone());
+                    if id == player.get_id() {
+                        player.send_message(message.clone());
                     } else {
-                        let mut player = player_iter.borrow_mut();
-                        player.chatbox.push(message.clone());
+                        let mut player = player_iter;
+                        player.send_message(message.clone());
                     }
                 }
             }
         }
         ClientPacket::Respawn(_) => {
-            if !player.dead {
+            if !player.is_dead() {
                 player.disconnect("Sent respawn packet when alive.".to_string());
                 return Ok(());
             }
-            player.dead = false;
-            player.health = 20;
-            player.position.x = 3.0;
-            player.position.y = 20.0;
-            player.position.z = 5.0;
-            player.last_position = player.position;
-            player.write(ServerPacket::Respawn {
-                world: player.world,
+            player.set_dead(false);
+            player.set_health(20);
+            let mut pos = player.get_position();
+            pos.x = 3.0;
+            pos.y = 20.0;
+            pos.z = 5.0;
+            let mut pos = pos.clone();
+            player.set_last_position(pos);
+            player.set_position(pos);
+            player.write_packet(ServerPacket::Respawn {
+                world: player.get_world(),
             });
             //let id = player.id.0;
-            game.hide_player(&player)?;
+            game.hide_player(&player.unwrap())?;
             //game.broadcast_to_loaded(&player, ServerPacket::DestroyEntity { eid: id })?;
             //game.broadcast_packet(ServerPacket::EntityStatus { eid: player.id.0, entity_status: 0x00 })?;
         }
@@ -166,7 +186,7 @@ pub fn handle_packet(
             if packet.animate == 1 {
                 let len = game.players.0.borrow().len().clone();
                 for i in 0..len {
-                    if i as i32 == player.id.0 {
+                    if i as i32 == player.get_id().0 {
                         continue;
                     }
                     let list = game.players.0.borrow();
@@ -177,14 +197,13 @@ pub fn handle_packet(
                         } else {
                             continue;
                         };
-                    let mut player_new = list2.borrow_mut();
+                    let mut player_new = list2.unwrap();
                     drop(list);
-                    if let Some(_) = player_new
-                        .rendered_players
-                        .get(&(player.id, player.username.clone()))
+                    if let Some(_) = player_new.rendered_players
+                        .get(&(player.get_id(), player.get_username()))
                     {
                         player_new.write(ServerPacket::Animation {
-                            eid: player.id.0,
+                            eid: player.get_id().0,
                             animate: 1,
                         });
                     } else {
@@ -194,10 +213,10 @@ pub fn handle_packet(
             }
         }
         ClientPacket::Disconnect(_) => {
-            player.remove();
+            player.unwrap().remove();
         }
         ClientPacket::HoldingChange(packet) => {
-            player.held_slot = packet.slot_id;
+            player.set_held_slot(packet.slot_id);
         }
         ClientPacket::WindowClick(packet) => {
             if packet.window_id == 0 {
@@ -207,31 +226,27 @@ pub fn handle_packet(
                         packet.item_uses.unwrap(),
                         packet.item_count.unwrap(),
                     );
-                    if player
-                        .inventory
-                        .items
-                        .get(&(packet.slot as i8))
+                    if player.get_inventory_slot(packet.slot as i8)
                         .expect("Slot doesn't exist!")
-                        != &item
+                        != item
                     {
                         log::info!("Declined! Tried to get {}", packet.slot);
-                        crate::systems::sync_inv_force(game, server, player)?;
-                        player.write(ServerPacket::Transaction {
+                        player.sync_inventory();
+                        //crate::systems::sync_inv_force(game, server, player)?;
+                        player.write_packet(ServerPacket::Transaction {
                             window_id: 0,
                             action_number: packet.action_number,
                             accepted: false,
                         });
                         return Ok(());
                     }
-                    let invslot = player
-                        .inventory
-                        .items
-                        .get_mut(&(packet.slot as i8))
+                    let mut invslot = player.get_inventory_slot(packet.slot as i8)
                         .expect("Slot doesn't exist!");
                     if invslot.count == 0 {
-                        *invslot = ItemStack::default();
-                        crate::systems::sync_inv_force(game, server, player)?;
-                        player.write(ServerPacket::Transaction {
+                        player.set_inventory_slot(packet.slot as i8, ItemStack::default());
+                        player.sync_inventory();
+                        //crate::systems::sync_inv_force(game, server, player)?;
+                        player.write_packet(ServerPacket::Transaction {
                             window_id: 0,
                             action_number: packet.action_number,
                             accepted: false,
@@ -239,68 +254,68 @@ pub fn handle_packet(
                         return Ok(());
                     }
                     if invslot.id != 0 {
-                        if player.current_cursored_item.is_some()
-                            && invslot.id == player.current_cursored_item.as_ref().unwrap().id
+                        if player.get_current_cursored_item_mut().is_some()
+                            && invslot.id == player.get_current_cursored_item_mut().as_ref().unwrap().id
                             && packet.right_click == 0
                         {
                             //*invslot = ItemStack::default();
                             //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
                             invslot.count +=
-                                player.current_cursored_item.clone().unwrap().count.max(1);
-                            player.current_cursored_item = None;
+                                player.get_current_cursored_item_mut().as_ref().unwrap().count.max(1);
+                            *player.get_current_cursored_item_mut() = None;
                         } else {
-                            *invslot = ItemStack::default();
-                            player.current_cursored_item = Some(item.clone());
+                            player.set_inventory_slot(packet.slot as i8, ItemStack::default());
+                            *player.get_current_cursored_item_mut() = Some(item.clone());
                             /*                             player.write(ServerPacket::Transaction { window_id: 0, action_number: packet.action_number, accepted: false });
                             return Ok(()); */
                         }
                     } else {
-                        *invslot = ItemStack::default();
+                        player.set_inventory_slot(packet.slot as i8, ItemStack::default());
                     }
                 } else {
-                    if player.current_cursored_item.is_none()
-                        || (player.inventory.items.get(&(packet.slot as i8)).unwrap().id
-                            != player.current_cursored_item.clone().unwrap().id
-                            && player.inventory.items.get(&(packet.slot as i8)).unwrap().id != 0)
+                    if player.get_current_cursored_item_mut().is_none()
+                        || (player.get_inventory_slot(packet.slot as i8).unwrap().id
+                            != player.get_current_cursored_item_mut().clone().unwrap().id
+                            && player.get_inventory_slot(packet.slot as i8).unwrap().id != 0)
                     {
-                        crate::systems::sync_inv_force(game, server, player)?;
-                        player.write(ServerPacket::Transaction {
+                        player.sync_inventory();
+                        //crate::systems::sync_inv_force(game, server, player)?;
+                        player.write_packet(ServerPacket::Transaction {
                             window_id: 0,
                             action_number: packet.action_number,
                             accepted: false,
                         });
                         return Ok(());
                     }
-                    let mut curcurid = player.current_cursored_item.clone().unwrap();
-                    let mut invslot = player
-                        .inventory
-                        .items
-                        .get_mut(&(packet.slot as i8))
+                    let mut curcurid = player.get_current_cursored_item_mut().clone().unwrap();
+                    let mut invslot = player.get_inventory_slot(packet.slot as i8)
                         .expect("Slot doesn't exist!");
                     if invslot.id == curcurid.id {
                         invslot.count += curcurid.count;
                     }
                     if packet.right_click == 1 {
                         if curcurid.count <= 0 {
-                            crate::systems::sync_inv_force(game, server, player)?;
-                            player.write(ServerPacket::Transaction {
+                            player.sync_inventory();
+                            //crate::systems::sync_inv_force(game, server, player)?;
+                            player.write_packet(ServerPacket::Transaction {
                                 window_id: 0,
                                 action_number: packet.action_number,
                                 accepted: false,
                             });
                             return Ok(());
                         }
-                        *invslot = curcurid.clone();
+                        player.set_inventory_slot(packet.slot as i8, curcurid.clone());
+                        //*invslot = curcurid.clone();
                         invslot.count = 1;
                         curcurid.count -= 1;
                         if curcurid.count >= 1 {
-                            player.current_cursored_item = Some(curcurid);
+                            *player.get_current_cursored_item_mut() = Some(curcurid);
                         } else {
-                            player.current_cursored_item = None;
+                            *player.get_current_cursored_item_mut() = None;
                         }
                     } else {
-                        *invslot = curcurid.clone();
-                        player.current_cursored_item = None;
+                        player.set_inventory_slot(packet.slot as i8, curcurid.clone());
+                        *player.get_current_cursored_item_mut() = None;
                     }
                 }
                 //player.last_transaction_id = packet.action_number;
@@ -310,7 +325,7 @@ pub fn handle_packet(
                     packet.item_count,
                     packet.item_uses
                 );
-                player.write(ServerPacket::Transaction {
+                player.write_packet(ServerPacket::Transaction {
                     window_id: 0,
                     action_number: packet.action_number,
                     accepted: true,
@@ -318,8 +333,10 @@ pub fn handle_packet(
                 return Ok(());
             }
         }
+        // TODO don't use unwrap on the player
         ClientPacket::UseEntity(packet) => {
             let interval = std::time::Duration::from_millis(350);
+            let mut player = player.unwrap();
             if packet.left_click {
                 if player.since_last_attack + interval > std::time::Instant::now() {
                     return Ok(());
@@ -329,8 +346,7 @@ pub fn handle_packet(
                 let plrs = game.players.0.borrow();
                 let plr = plrs.get(&EntityID(packet.target)).clone();
                 if let Some(plr) = plr {
-                    let plr = plr.try_borrow_mut();
-                    if plr.is_ok() {
+                    if true {
                         let mut plr = plr.unwrap();
                         if plr.dead {
                             return Ok(());
@@ -340,7 +356,7 @@ pub fn handle_packet(
                                 damager: player.username.clone(),
                             },
                             1,
-                            Some(player),
+                            Some(&mut player),
                         );
                         use std::ops::Mul;
                         let arr = player.position.get_direction().mul(1980.0).to_array();
@@ -372,6 +388,7 @@ pub fn handle_packet(
             }
         }
         ClientPacket::PlayerBlockPlacement(mut packet) => {
+            let mut player = player.unwrap();
             let mut success = false;
             if packet.block_or_item_id >= 0 {
                 if packet.x == -1 && packet.y == -1 && packet.z == -1 {
@@ -387,7 +404,7 @@ pub fn handle_packet(
                     packet.damage.unwrap(),
                     packet.amount.unwrap(),
                 );
-                let held = player.get_item_in_hand();
+                let held = player.get_item_in_hand_mut().unwrap();
                 let despawn;
                 if item != *held && item_2 != *held {
                     log::info!("Not, comparing {:?} to {:?}", item, *held);
@@ -399,7 +416,8 @@ pub fn handle_packet(
                 log::info!("Block: {:?} {:?} {:?}", packet.x, packet.y, packet.z);
                 held.count -= 1;
                 if despawn {
-                    crate::systems::sync_inv_force(game, server, player)?;
+                    //player.sync_inventory();
+                    crate::systems::sync_inv_force(game, server, &mut player)?;
                 }
                 packet.y -= 1;
                 match packet.direction {
@@ -433,14 +451,14 @@ pub fn handle_packet(
                 } else {
                     return Ok(());
                 };
-                let pos = player.position.clone();
-                let held = player.get_item_in_hand();
+                let mut pos = player.position.clone();
+                let held = player.get_item_in_hand_mut().unwrap();
                 for user in game.players.0.borrow().iter() {
-                    let pos = user.1.try_borrow();
+/*                     let mut pos = user.1.try_borrow();
                     if pos.is_err() {
                         continue;
-                    }
-                    let pos = pos.unwrap().position.clone();
+                    } */
+                    //let mut pos = pos;
                     if pos.contains_block(crate::game::BlockPosition {
                         x: packet.x,
                         y: (packet.y + 1) as i32,
@@ -472,7 +490,7 @@ pub fn handle_packet(
                     });
                     return Ok(());
                 }
-                //let pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
+                //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
                 log::info!(
                     "Setting at X: {} Y: {} Z: {}",
                     packet.x,
@@ -504,7 +522,9 @@ pub fn handle_packet(
                 if !success {}
             }
         }
+        // TODO more usage of unwrap on the player im lazy
         ClientPacket::PlayerDigging(packet) => {
+            let mut player = player.unwrap();
             match packet.status {
                 0 => {
                     player.mining_block.block = BlockPosition {

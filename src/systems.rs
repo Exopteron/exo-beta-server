@@ -1,7 +1,8 @@
 use crate::server::Server;
-use crate::game::{Game, Player, Message, DamageType, ChunkCoords};
+use crate::game::{Game, PlayerRef, Player, Message, DamageType, ChunkCoords};
 use crate::network::ids::{EntityID, IDS};
 use crate::network::packet::{ClientPacket, ServerPacket};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 pub struct Systems {
     systems: Vec<Box<dyn FnMut(&mut crate::game::Game) -> anyhow::Result<()> + 'static>>,
@@ -34,7 +35,7 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         }
         for id in remove {
             let username = if let Some(plr) = game.players.0.borrow().get(&id) {
-                plr.borrow().username.clone()
+                plr.get_username() // borrow().username.clone()
             } else {
                 clients.remove(&id);
                 continue;
@@ -48,33 +49,42 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     }
     Ok(())
 }
-pub fn update_local_health(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+/* pub fn update_local_health(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let players = game.players.0.borrow();
     for player in players.iter() {
-        let mut cl = player.1.borrow_mut();
+        let mut cl = player.1;
         if cl.health != cl.last_health {
             let health = cl.health;
-            cl.write(ServerPacket::UpdateHealth { health: health as i16 });
+            cl.write_packet(ServerPacket::UpdateHealth { health: health as i16 });
             cl.last_health = cl.health;
         }
     }
     Ok(())
-}
+} */
 pub fn time_update(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     game.time += 1;
     game.time %= 24000;
     let players = game.players.0.borrow();
     for player in players.iter() {
-        let mut cl = player.1.borrow_mut();
-        cl.write(ServerPacket::TimeUpdate { time: game.time });
+/*         let mut cl = player.1.borrow_mut(); */
+        // cl.
+        player.1.write_packet(ServerPacket::TimeUpdate { time: game.time });
     }
     Ok(())
 }
-pub fn check_void(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+    let interval = Duration::from_millis(750);
+    let players = game.players.0.borrow().clone();
+    for player in players.iter() {
+        player.1.tick(game)?;
+    }
+    Ok(())
+}
+/* pub fn check_void(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let interval = Duration::from_millis(750);
     let players = game.players.0.borrow();
     for player in players.iter() {
-        let mut cl = player.1.borrow_mut();
+        let mut cl = player.1; // .borrow_mut();
         if cl.position.y <= 0.0 && !cl.dead {
             if cl.last_void_dmg + interval < Instant::now() {
                 cl.damage(DamageType::Void, 3, None);
@@ -84,7 +94,7 @@ pub fn check_void(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
+} */
 pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for _ in 0..game.block_updates.len() {
         let update = game.block_updates.pop().unwrap();
@@ -96,7 +106,7 @@ pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
     }
     Ok(())
 }
-pub fn check_dead(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+/* pub fn check_dead(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let players = game.players.0.borrow().clone();
     for player in players.iter() {
         let mut cl = player.1.borrow_mut();
@@ -123,13 +133,13 @@ pub fn check_dead(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         }
     }
     Ok(())
-}
-pub fn sync_inv_force(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
+} */
+ pub fn sync_inv_force(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
     player.write(ServerPacket::InvWindowItems { inventory: player.inventory.clone() });
     player.last_inventory = player.inventory.clone();
     Ok(())
 }
-pub fn check_chunks(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
+/* pub fn check_chunks(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
     //let len = player.loaded_chunks.len();
     let pos = player.position.clone();
     let mut packets = vec![];
@@ -166,8 +176,8 @@ pub fn check_chunks(game: &mut Game, server: &mut Server, player: &mut Player) -
         false
     });
     Ok(())
-}
-pub fn check_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
+} */
+/* pub fn check_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
     let len = player.inventory.items.len();
     for i in 0..len {
         let item = player.inventory.items.get_mut(&(i as i8)).unwrap();
@@ -177,14 +187,14 @@ pub fn check_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> a
         }
     }
     Ok(())
-}
-pub fn sync_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
+} */
+/* pub fn sync_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
     if player.inventory != player.last_inventory {
         player.write(ServerPacket::InvWindowItems { inventory: player.inventory.clone() });
         player.last_inventory = player.inventory.clone();
     }
     Ok(())
-}
+} */
 /*
             cl.health = 20;
             cl.position.x = 0.0;
@@ -193,20 +203,20 @@ pub fn sync_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> an
 */
 pub fn sync_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for player in game.players.0.borrow().iter() {
-        let mut player = player.1.borrow_mut();
-        let position = player.position;
-        if position != player.last_position {
-            player.write(ServerPacket::PlayerPositionAndLook {x: position.x, stance: position.stance, y: position.y, z: position.z, yaw: position.yaw, pitch: position.pitch, on_ground: position.on_ground});
+        let mut player = player.1;
+        let position = player.get_position_clone();
+        if position != player.get_last_position_clone() {
+            player.write_packet(ServerPacket::PlayerPositionAndLook {x: position.x, stance: position.stance, y: position.y, z: position.z, yaw: position.yaw, pitch: position.pitch, on_ground: position.on_ground});
         }
         //player.write(ServerPacket::PlayerTeleport { player_id: -1, position })?;
     }
     Ok(())
 }
-pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: &Player) -> anyhow::Result<()> {
+pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<PlayerRef>) -> anyhow::Result<()> {
     log::info!("update_crouch called!");
     let len = game.players.0.borrow().len().clone();
     for i in 0..len {
-        if i as i32 == player_upd.id.0 {
+        if i as i32 == player_upd.get_id().0 {
             continue;
         }
         let list = game.players.0.borrow();
@@ -216,10 +226,10 @@ pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: &Player) 
         } else {
             continue;
         };
-        let mut player = list2.borrow_mut();
+        let mut player = list2.unwrap();
         drop(list);
-        if let Some(_) = player.rendered_players.get(&(player_upd.id, player_upd.username.clone())) {
-            let animate = match player_upd.crouching {
+        if let Some(_) = player.rendered_players.get(&(player_upd.get_id(), player_upd.get_username())) {
+            let animate = match player_upd.is_crouching() {
                 true => {
                     104
                 }
@@ -228,14 +238,14 @@ pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: &Player) 
                 }
             };
             //log::info!("Sending animation packet!");
-            player.write(ServerPacket::Animation { eid: player_upd.id.0, animate: 104 });
+            player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 104 });
         } else {
             continue;
         }
     }
     Ok(())
 }
-pub fn update_held_items(game: &mut Game, server: &mut Server, player_upd: &Player) -> anyhow::Result<()> {
+/* pub fn update_held_items(game: &mut Game, server: &mut Server, player_upd: Arc<Player>) -> anyhow::Result<()> {
     //log::info!("update_held_items called!");
     let mut item = player_upd.get_item_in_hand_ref().clone();
     if item.id == 0 {
@@ -243,7 +253,7 @@ pub fn update_held_items(game: &mut Game, server: &mut Server, player_upd: &Play
     }
     game.broadcast_to_loaded(player_upd, ServerPacket::EntityEquipment { eid: player_upd.id.0, slot: 0, item_id: item.id, damage: 0 })?;
     Ok(())
-}
+} */
 pub fn rem_old_clients(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let len = server.clients.borrow().len().clone();
     for i in 0..len {
@@ -269,12 +279,12 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
         } else {
             continue;
         };
-        let mut player = list2.borrow_mut();
+        let mut player = list2; // .borrow_mut();
         drop(list);
         let mut packets = Vec::new();
-        for id in player.rendered_players.iter_mut() {
+        for id in player.unwrap().rendered_players.iter_mut() {
             let pos = if let Some(plr) = game.players.0.borrow().get(&id.0.0) {
-                plr.borrow().position.clone()
+                plr.get_position_clone()
             } else {
                 continue;
             };
@@ -287,7 +297,7 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
             //log::info!("tping {} from {:?} to {:?}", id.0.0, player.id, pos);
         }
         for packet in packets {
-            player.write(packet);
+            player.write_packet(packet);
         }
     }
     Ok(())
@@ -302,22 +312,23 @@ pub fn spawn_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
         } else {
             continue;
         };
-        let mut player = list2.borrow_mut();
+        let mut player = list2;
         drop(list);
         for (id, player_obj) in game.players.0.borrow_mut().iter() {
-            if id == &player.id {
+            if id == &player.get_id() {
                 continue;
             }
-            let mut player_obj = player_obj.borrow_mut();
-            if player_obj.rendered_players.get(&(player.id, player.username.clone())).is_none() && player_obj.loaded_chunks.contains(&ChunkCoords::from_pos(&player.position)) {
-                player_obj.rendered_players.insert((player.id, player.username.clone()), crate::game::RenderedPlayerInfo {position: player.position.clone(), held_item: player.get_item_in_hand().clone() });
-                player_obj.write(ServerPacket::NamedEntitySpawn { eid: player.id.0, name: player.username.clone(), x: (player.position.x * 32.0).round() as i32, y: (player.position.y * 32.0).round() as i32, z: (player.position.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
+            let mut player_obj = player_obj;
+            if player_obj.unwrap().rendered_players.get(&(player.get_id(), player.get_username())).is_none() && player_obj.get_loaded_chunks().contains(&ChunkCoords::from_pos(&player.get_position_clone())) {
+                player_obj.unwrap().rendered_players.insert((player.get_id(), player.get_username()), crate::game::RenderedPlayerInfo {position: player.get_position_clone(), held_item: player.get_item_in_hand_clone() });
+                let pos = player.get_position_clone();
+                player_obj.write_packet(ServerPacket::NamedEntitySpawn { eid: player.get_id().0, name: player.get_username(), x: (pos.x * 32.0).round() as i32, y: (pos.y * 32.0).round() as i32, z: (pos.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
             }
         }
     }
     Ok(())
 }
-pub fn chat_msgs(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+/* pub fn chat_msgs(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let players = game.players.0.borrow();
     for player in players.iter() {
         let mut cl = player.1.borrow_mut();
@@ -328,7 +339,7 @@ pub fn chat_msgs(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         cl.chatbox = crate::game::Chatbox::default();
     }
     Ok(())
-}
+} */
 pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let len = game.players.0.borrow().len().clone();
     for i in 0..len + 1 {
@@ -339,15 +350,15 @@ pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
         } else {
             continue;
         };
-        let mut player = list2.borrow_mut();
+        let mut player = list2;
         drop(list);
         let mut to_derender = Vec::new();
-        let our_name = player.username.clone();
+        let our_name = player.get_username();
         //log::info!("For {}, len {}", our_name, player.rendered_players.len());
-        player.rendered_players.retain(|idname, _| {
+        player.unwrap().rendered_players.retain(|idname, _| {
             let (id, name) = idname;
           //  log::info!("For {}, {}", our_name, name);
-            if game.players.0.borrow().get(id).is_none() || &game.players.0.borrow().get(id).unwrap().borrow().username != name {
+            if game.players.0.borrow().get(id).is_none() || &game.players.0.borrow().get(id).unwrap().get_username() != name { // .borrow().username
             //    log::info!("For {}, derendering {}", our_name, name);
                 to_derender.push(id.clone());
                 return false;
@@ -356,7 +367,7 @@ pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
         });
         for id in &to_derender {
             log::info!("Run");
-            player.write(ServerPacket::DestroyEntity { eid: id.0 });
+            player.write_packet(ServerPacket::DestroyEntity { eid: id.0 });
         }
     }
     Ok(())
