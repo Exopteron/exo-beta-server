@@ -321,11 +321,11 @@ pub fn chat_msgs(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let players = game.players.0.borrow();
     for player in players.iter() {
         let mut cl = player.1.borrow_mut();
-        cl.chatbox.clone().retain(|message| {
+        cl.chatbox.clone().messages.retain(|message| {
             cl.write(ServerPacket::ChatMessage { message: message.message.clone() });
             false
         });
-        cl.chatbox = Vec::new();
+        cl.chatbox = crate::game::Chatbox::default();
     }
     Ok(())
 }

@@ -172,6 +172,20 @@ pub struct RenderedPlayerInfo {
     pub position: Position,
     pub held_item: ItemStack,
 }
+#[derive(Clone)]
+pub struct Chatbox {
+    pub messages: Vec<Message>,
+}
+impl Chatbox {
+    pub fn push(&mut self, message: Message) {
+        self.messages.push(message);
+    }
+}
+impl std::default::Default for Chatbox {
+    fn default() -> Self {
+        Self { messages: Vec::new() }
+    }
+}
 pub struct Player {
     pub username: String,
     pub id: EntityID,
@@ -181,7 +195,7 @@ pub struct Player {
     pub packet_send_sender: Sender<ServerPacket>,
     pub rendered_players: HashMap<(EntityID, String), RenderedPlayerInfo>,
     pub rendered_entities: HashMap<EntityID, Box<dyn Entity>>,
-    pub chatbox: Vec<Message>,
+    pub chatbox: Chatbox,
     pub perm_level: usize,
     pub crouching: bool,
     pub last_health: i16,
@@ -210,6 +224,7 @@ impl Player {
         self.remove();
     }
     pub fn remove(&mut self) {
+        log::info!("{} left the game.", self.username);
         for player in self.players_list.0.borrow().iter() {
             if let Ok(mut plr) = player.1.try_borrow_mut() {
                 plr.chatbox.push(Message::new(&format!("{} left the game.", self.username)));
@@ -458,7 +473,7 @@ impl Game {
         let list = self.players.clone();
         let mut players = self.players.0.borrow_mut();
         let pos = Position::from_pos(3.0, 20.0, 5.0);
-        players.insert(id, Arc::new(RefCell::new(Player { username: client.username.clone(), id, position: pos.clone(), recv_packets_recv: client.recv_packets_recv.clone(), packet_send_sender: client.packet_send_sender.clone(), rendered_players: HashMap::new(), perm_level: 1, players_list: list, crouching: false, health: 20, last_health: 20, last_position: pos.clone(), dead: false, world: 0, last_void_dmg: std::time::Instant::now(), inventory: Inventory::new(), last_inventory: Inventory::new(), held_slot: 0, last_dmg_type: DamageType::None, last_transaction_id: 0, current_cursored_item: None, loaded_chunks: loaded_chunks, has_loaded_before: Vec::new(), since_last_attack: std::time::Instant::now(), mining_block: MiningBlockData::default(), rendered_entities: HashMap::new(), chatbox: Vec::new()})));
+        players.insert(id, Arc::new(RefCell::new(Player { username: client.username.clone(), id, position: pos.clone(), recv_packets_recv: client.recv_packets_recv.clone(), packet_send_sender: client.packet_send_sender.clone(), rendered_players: HashMap::new(), perm_level: 1, players_list: list, crouching: false, health: 20, last_health: 20, last_position: pos.clone(), dead: false, world: 0, last_void_dmg: std::time::Instant::now(), inventory: Inventory::new(), last_inventory: Inventory::new(), held_slot: 0, last_dmg_type: DamageType::None, last_transaction_id: 0, current_cursored_item: None, loaded_chunks: loaded_chunks, has_loaded_before: Vec::new(), since_last_attack: std::time::Instant::now(), mining_block: MiningBlockData::default(), rendered_entities: HashMap::new(), chatbox: Chatbox::default()})));
         Ok(())
     }
 }
