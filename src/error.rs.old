@@ -1,0 +1,27 @@
+use std::fmt;
+use std::error::Error;
+use std::boxed::Box;
+// pub type Result<T> = std::result::Result<T, Box<dyn Error>>;
+#[derive(Debug, Clone)]
+pub enum BTMError {
+    Generic { err: String },
+    AnError
+}
+impl std::convert::From<&str> for BTMError {
+    fn from(string: &str) -> Self {
+        Self::Generic { err: string.to_string() }
+    }
+}
+impl std::convert::From<String> for BTMError {
+    fn from(string: String) -> Self {
+        Self::Generic { err: string }
+    }
+}
+impl fmt::Display for BTMError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+impl std::error::Error for BTMError {
+    
+}
