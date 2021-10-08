@@ -255,7 +255,9 @@ pub fn handle_packet(
             player.set_held_slot(packet.slot_id);
         }
         ClientPacket::WindowClick(packet) => {
+            use std::ops::DerefMut;
             let mut player = player.unwrap().unwrap();
+            let mut player = player.deref_mut();
             if packet.window_id == 0 {
                 if packet.item_id != -1 {
                     let item = ItemStack::new(
@@ -263,9 +265,12 @@ pub fn handle_packet(
                         packet.item_uses.unwrap(),
                         packet.item_count.unwrap(),
                     );
-                    if *player.inventory.items.get(&(packet.slot as i8))
+                    if player
+                        .inventory
+                        .items
+                        .get(&(packet.slot as i8))
                         .expect("Slot doesn't exist!")
-                        != item
+                        != &item
                     {
                         log::info!("Declined! Tried to get {}", packet.slot);
                         player.sync_inventory();
@@ -277,13 +282,14 @@ pub fn handle_packet(
                         });
                         return Ok(());
                     }
-                    //let mut inv = &mut player.inventory.items;
-                    let curcuritem = player.current_cursored_item.clone();
-                    let mut invslot = player.inventory.items.get_mut(&(packet.slot as i8))
+                    let invslot = player
+                        .inventory
+                        .items
+                        .get_mut(&(packet.slot as i8))
                         .expect("Slot doesn't exist!");
                     if invslot.count == 0 {
-                        //player.set_inventory_slot(packet.slot as i8, ItemStack::default());
-                        //player.sync_inventory();
+                        *invslot = ItemStack::default();
+                        player.sync_inventory();
                         //crate::systems::sync_inv_force(game, server, player)?;
                         player.write(ServerPacket::Transaction {
                             window_id: 0,
@@ -293,32 +299,33 @@ pub fn handle_packet(
                         return Ok(());
                     }
                     if invslot.id != 0 {
-                        if curcuritem.is_some()
-                            && invslot.id == curcuritem.as_ref().unwrap().id
+                        if (*player).current_cursored_item.is_some()
+                            && invslot.id == player.current_cursored_item.as_ref().unwrap().id
                             && packet.right_click == 0
                         {
                             //*invslot = ItemStack::default();
                             //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
                             invslot.count +=
-                                curcuritem.as_ref().unwrap().count.max(1);
+                                player.current_cursored_item.clone().unwrap().count.max(1);
                             player.current_cursored_item = None;
                         } else {
-                            *player.inventory.items.get_mut(&(packet.slot as i8)).unwrap() = ItemStack::default();
+                            if player.current_cursored_item.is_some() {
+                                *invslot = player.current_cursored_item.as_ref().unwrap().clone();
+                            } else {
+                                *invslot = ItemStack::default();
+                            }
                             player.current_cursored_item = Some(item.clone());
                             /*                             player.write(ServerPacket::Transaction { window_id: 0, action_number: packet.action_number, accepted: false });
                             return Ok(()); */
                         }
                     } else {
-                        *player.inventory.items.get_mut(&(packet.slot as i8)).unwrap() = ItemStack::default();
+                        *invslot = ItemStack::default();
                     }
                 } else {
-                    //let mut inv = player.inventory.items;
-                    let curcuritem = player.current_cursored_item.clone();
-                    let slot = player.inventory.items.get_mut(&(packet.slot as i8)).unwrap();
-                    if curcuritem.is_none()
-                        || (slot.id
-                            != curcuritem.clone().unwrap().id
-                            && slot.id != 0)
+                    if player.current_cursored_item.is_none()
+                        || (player.inventory.items.get(&(packet.slot as i8)).unwrap().id
+                            != player.current_cursored_item.clone().unwrap().id
+                            && player.inventory.items.get(&(packet.slot as i8)).unwrap().id != 0)
                     {
                         player.sync_inventory();
                         //crate::systems::sync_inv_force(game, server, player)?;
@@ -329,14 +336,18 @@ pub fn handle_packet(
                         });
                         return Ok(());
                     }
-                    let mut curcurid = curcuritem.clone().unwrap();
-                    let mut invslot = slot;
+                    let mut curcurid = player.current_cursored_item.clone().unwrap();
+                    let mut invslot = player
+                        .inventory
+                        .items
+                        .get_mut(&(packet.slot as i8))
+                        .expect("Slot doesn't exist!");
                     if invslot.id == curcurid.id {
                         invslot.count += curcurid.count;
                     }
                     if packet.right_click == 1 {
                         if curcurid.count <= 0 {
-                            //player.sync_inventory();
+                            player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
                             player.write(ServerPacket::Transaction {
                                 window_id: 0,
@@ -345,8 +356,7 @@ pub fn handle_packet(
                             });
                             return Ok(());
                         }
-                        //player.set_inventory_slot(packet.slot as i8, curcurid.clone());
-                        //*invslot = curcurid.clone();
+                        *invslot = curcurid.clone();
                         invslot.count = 1;
                         curcurid.count -= 1;
                         if curcurid.count >= 1 {
@@ -355,8 +365,13 @@ pub fn handle_packet(
                             player.current_cursored_item = None;
                         }
                     } else {
-                        *player.inventory.items.get_mut(&(packet.slot as i8)).unwrap() = curcurid.clone();
-                        player.current_cursored_item= None;
+                        if invslot.id != 0 {
+                            //player.current_cursored_item = Some(invslot.clone());
+                        } else {
+                            player.current_cursored_item = None;
+                        }
+                        player.current_cursored_item = None;
+                        *invslot = curcurid.clone();
                     }
                 }
                 //player.last_transaction_id = packet.action_number;
@@ -374,6 +389,135 @@ pub fn handle_packet(
                 return Ok(());
             }
         }
+        // ClientPacket::WindowClick(packet) => {
+        //     let mut player = player.unwrap().unwrap();
+        //     if packet.window_id == 0 {
+        //         if packet.item_id != -1 {
+        //             let item = ItemStack::new(
+        //                 packet.item_id,
+        //                 packet.item_uses.unwrap(),
+        //                 packet.item_count.unwrap(),
+        //             );
+        //             if *player.inventory.items.get(&(packet.slot as i8))
+        //                 .expect("Slot doesn't exist!")
+        //                 != item
+        //             {
+        //                 log::info!("Declined! Tried to get {}", packet.slot);
+        //                 player.sync_inventory();
+        //                 //crate::systems::sync_inv_force(game, server, player)?;
+        //                 player.write(ServerPacket::Transaction {
+        //                     window_id: 0,
+        //                     action_number: packet.action_number,
+        //                     accepted: false,
+        //                 });
+        //                 return Ok(());
+        //             }
+        //             //let mut inv = &mut player.inventory.items;
+        //             let curcuritem = player.current_cursored_item.clone();
+        //             let mut invslot = player.inventory.items.get_mut(&(packet.slot as i8))
+        //                 .expect("Slot doesn't exist!");
+        //             if invslot.count == 0 {
+        //                 //player.set_inventory_slot(packet.slot as i8, ItemStack::default());
+        //                 //player.sync_inventory();
+        //                 //crate::systems::sync_inv_force(game, server, player)?;
+        //                 player.write(ServerPacket::Transaction {
+        //                     window_id: 0,
+        //                     action_number: packet.action_number,
+        //                     accepted: false,
+        //                 });
+        //                 return Ok(());
+        //             }
+        //             if invslot.id != 0 {
+        //                 if curcuritem.is_some()
+        //                     && invslot.id == curcuritem.as_ref().unwrap().id
+        //                     && packet.right_click == 0
+        //                 {
+        //                     //*invslot = ItemStack::default();
+        //                     //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
+        //                     invslot.count +=
+        //                         curcuritem.as_ref().unwrap().count.max(1);
+        //                     player.current_cursored_item = None;
+        //                 } else {
+        //                     *player.inventory.items.get_mut(&(packet.slot as i8)).unwrap() = ItemStack::default();
+        //                     player.current_cursored_item = Some(item.clone());
+        //                     /*                             player.write(ServerPacket::Transaction { window_id: 0, action_number: packet.action_number, accepted: false });
+        //                     return Ok(()); */
+        //                 }
+        //             } else {
+        //                 *player.inventory.items.get_mut(&(packet.slot as i8)).unwrap() = ItemStack::default();
+        //             }
+        //         } else {
+        //             //let mut inv = player.inventory.items;
+        //             let curcuritem = player.current_cursored_item.clone();
+        //             let slot = player.inventory.items.get_mut(&(packet.slot as i8)).unwrap();
+        //             if curcuritem.is_none()
+        //                 || (slot.id
+        //                     != curcuritem.clone().unwrap().id
+        //                     && slot.id != 0)
+        //             {
+        //                 player.sync_inventory();
+        //                 //crate::systems::sync_inv_force(game, server, player)?;
+        //                 player.write(ServerPacket::Transaction {
+        //                     window_id: 0,
+        //                     action_number: packet.action_number,
+        //                     accepted: false,
+        //                 });
+        //                 return Ok(());
+        //             }
+        //             let mut curcurid = curcuritem.clone().unwrap();
+        //             let mut invslot = slot;
+        //             if invslot.id == curcurid.id {
+        //                 invslot.count += curcurid.count;
+        //             }
+        //             if packet.right_click == 1 {
+        //                 if curcurid.count <= 0 {
+        //                     //player.sync_inventory();
+        //                     //crate::systems::sync_inv_force(game, server, player)?;
+        //                     player.write(ServerPacket::Transaction {
+        //                         window_id: 0,
+        //                         action_number: packet.action_number,
+        //                         accepted: false,
+        //                     });
+        //                     return Ok(());
+        //                 }
+        //                 if !(invslot.id == curcurid.id || invslot.id == 0x00) {
+        //                     player.write(ServerPacket::Transaction {
+        //                         window_id: 0,
+        //                         action_number: packet.action_number,
+        //                         accepted: false,
+        //                     });
+        //                     return Ok(());
+        //                 }
+        //                 //player.set_inventory_slot(packet.slot as i8, curcurid.clone());
+        //                 //*invslot = curcurid.clone();
+        //                 invslot.count = 1;
+        //                 curcurid.count -= 1;
+        //                 invslot.id = curcurid.id;
+        //                 if curcurid.count >= 1 {
+        //                     player.current_cursored_item = Some(curcurid);
+        //                 } else {
+        //                     player.current_cursored_item = None;
+        //                 }
+        //             } else {
+        //                 *player.inventory.items.get_mut(&(packet.slot as i8)).unwrap() = curcurid.clone();
+        //                 player.current_cursored_item= None;
+        //             }
+        //         }
+        //         //player.last_transaction_id = packet.action_number;
+        //         log::info!(
+        //             "Client sent {:?}, {:?}, {:?}",
+        //             packet.item_id,
+        //             packet.item_count,
+        //             packet.item_uses
+        //         );
+        //         player.write(ServerPacket::Transaction {
+        //             window_id: 0,
+        //             action_number: packet.action_number,
+        //             accepted: true,
+        //         });
+        //         return Ok(());
+        //     }
+        // }
         // TODO don't use unwrap on the player
         ClientPacket::UseEntity(packet) => {
             let interval = std::time::Duration::from_millis(350);
