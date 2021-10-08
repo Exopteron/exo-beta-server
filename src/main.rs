@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
         systems::tick_players(game, &mut server)?;
         //systems::check_dead(game, &mut server)?;
         systems::rem_old_clients(game, &mut server)?;
-        systems::spawn_players(game, &mut server)?;
+        //systems::spawn_players(game, &mut server)?;
         systems::update_positions(game, &mut server)?;
 /*         systems::chat_msgs(game, &mut server)?; */
         systems::ping(game, &mut server)?;

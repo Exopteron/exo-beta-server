@@ -165,6 +165,9 @@ impl Inventory {
         }
         Self { items: slots }
     }
+    pub fn get_slot(&mut self, slot: i8) -> Option<&mut ItemStack> {
+        self.items.get_mut(&slot)
+    } 
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ChunkCoords {
@@ -268,16 +271,17 @@ impl PlayerRef {
         self.player.borrow().loaded_chunks.clone()
     }
     pub fn held_items_check(&self, game: &mut Game) -> anyhow::Result<()> {
-        let cl = self.player.borrow_mut();
+        let mut cl = self.player.borrow_mut();
         // Held items check
         let mut item = cl.get_item_in_hand_ref().clone();
         if item.id == 0 {
             item.id = -1;
         }
+        cl.held_item_changed = false;
         game.broadcast_to_loaded(
             &cl,
             ServerPacket::EntityEquipment {
-                eid: self.get_id().0,
+                eid: cl.id.0,
                 slot: 0,
                 item_id: item.id,
                 damage: 0,
@@ -306,8 +310,18 @@ impl PlayerRef {
     pub fn set_crouching(&self, crouching: bool) {
         self.player.borrow_mut().crouching = crouching;
     }
-    pub fn get_inventory_slot_mut(&self, slot: i8) -> RefMut<'_, ItemStack> {
-        RefMut::map(self.player.borrow_mut(), |plr| plr.inventory.items.get_mut(&slot).expect("Slot does not exist, fixlater"))
+    pub fn get_inventory(&self) -> RefMut<'_, Inventory> {
+        self.player.borrow_mut().inv_changed = true;
+        RefMut::map(self.player.borrow_mut(), |plr| &mut plr.inventory)
+    }
+    pub fn can_borrow(&self) -> bool {
+        self.player.try_borrow().is_ok()
+    }
+/*     pub fn get_inventory_slot_mut(&self, slot: i8) -> Option<RefMut<'_, ItemStack>> {
+        if self.player.borrow().inventory.items.get(&slot).is_none() {
+            return None;
+        }
+        Some(RefMut::map(self.player.borrow_mut(), |plr| plr.inventory.items.get_mut(&slot).expect("Slot does not exist, fixlater")))
     }
     pub fn get_inventory_slot(&self, slot: i8) -> Option<ItemStack> {
         Some(self.player.borrow().inventory.items.get(&slot)?.clone())
@@ -315,22 +329,27 @@ impl PlayerRef {
     pub fn set_inventory_slot(&self, slot: i8, stack: ItemStack) -> Option<()> {
         *self.player.borrow_mut().inventory.items.get_mut(&slot)? = stack;
         Some(())
-    }
+    } */
     pub fn get_current_cursored_item_mut(&self) -> RefMut<'_, Option<ItemStack>> {
         RefMut::map(self.player.borrow_mut(), |plr| &mut plr.current_cursored_item)
     }
-    pub fn unwrap(&self) -> RefMut<'_, Player> {
-        self.player.borrow_mut()
+    pub fn unwrap(&self) -> Result<RefMut<'_, Player>, std::cell::BorrowMutError> {
+        self.player.try_borrow_mut()
     }
     pub fn sync_inventory(&self) {
-        let mut player = self.unwrap();
+        let mut player = self.unwrap().unwrap();
         let inv = player.inventory.clone();
+        log::info!("Writing inv items");
         player.write(ServerPacket::InvWindowItems { inventory: inv });
         player.last_inventory = player.inventory.clone();
+        player.inv_changed = false;
     }
     pub fn tick(&self, game: &mut Game) -> anyhow::Result<()> {
-        if self.player.borrow_mut().held_item_changed.clone() {
+        if self.player.borrow().held_item_changed.clone() {
             self.held_items_check(game)?;
+        }
+        if self.player.borrow().inv_changed.clone() {
+            self.sync_inventory();
         }
         let interval = Duration::from_millis(750);
         let mut cl = self.player.borrow_mut();
@@ -390,6 +409,19 @@ impl PlayerRef {
             false
         });
         cl.chatbox = crate::game::Chatbox::default();
+        // Spawn players check
+        //log::info!("Running spawn players tick");
+        let plrlist = cl.players_list.0.borrow().clone();
+        for player in plrlist.iter() {
+            if player.0 != &cl.id {
+                let other_username = player.1.get_username();
+                if cl.rendered_players.get(&(*player.0, other_username.clone())).is_none() && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) {
+                    cl.rendered_players.insert((*player.0, other_username),  crate::game::RenderedPlayerInfo {position: player.1.get_position_clone(), held_item: player.1.get_item_in_hand_clone() });
+                    let pos = player.1.get_position_clone();
+                    cl.write(ServerPacket::NamedEntitySpawn { eid: player.1.get_id().0, name: player.1.get_username(), x: (pos.x * 32.0).round() as i32, y: (pos.y * 32.0).round() as i32, z: (pos.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
+                }
+            }
+        }
         Ok(())
     }
 }
@@ -421,6 +453,7 @@ pub struct Player {
     pub since_last_attack: std::time::Instant,
     pub mining_block: MiningBlockData,
     pub held_item_changed: bool,
+    pub inv_changed: bool,
     players_list: PlayerList,
 }
 impl Player {
@@ -439,9 +472,11 @@ impl Player {
     pub fn remove(&mut self) {
         log::info!("{} left the game.", self.username);
         for player in self.players_list.0.borrow().iter() {
-            player
+            if player.1.can_borrow() {
+                player
                 .1
                 .send_message(Message::new(&format!("{} left the game.", self.username)));
+            }
             /*             if let Ok(mut plr) = player.1.try_borrow_mut() {
             } else {
                 continue;
@@ -477,14 +512,16 @@ impl Player {
             } else {
                 continue;
             }; */
-            player.write_packet(ServerPacket::EntityStatus {
-                eid: self.id.0,
-                entity_status: 2,
-            });
-            player.write_packet(ServerPacket::Animation {
-                eid: self.id.0,
-                animate: 2,
-            });
+            if player.can_borrow() {
+                player.write_packet(ServerPacket::EntityStatus {
+                    eid: self.id.0,
+                    entity_status: 2,
+                });
+                player.write_packet(ServerPacket::Animation {
+                    eid: self.id.0,
+                    animate: 2,
+                });
+            }
         }
         self.last_dmg_type = damage_type;
     }
@@ -721,7 +758,7 @@ impl Game {
                 continue;
             }; */
             if player
-                .unwrap().rendered_players
+                .unwrap().unwrap().rendered_players
                 .get(&(to_remove.id, to_remove.username.clone()))
                 .is_some()
             {
@@ -730,7 +767,7 @@ impl Game {
                 });
             }
             player
-                .unwrap().rendered_players
+                .unwrap().unwrap().rendered_players
                 .remove(&(to_remove.id, to_remove.username.clone()));
         }
         Ok(())
@@ -746,7 +783,11 @@ impl Game {
             } else {
                 continue;
             }; */
-            if player
+            let plr = player.unwrap();
+            if plr.is_err() {
+                continue;
+            }
+            if plr // unwrap().
                 .unwrap().rendered_players
                 .get(&(origin.id, origin.username.clone()))
                 .is_some()
@@ -835,6 +876,7 @@ impl Game {
                 mining_block: MiningBlockData::default(),
                 rendered_entities: HashMap::new(),
                 held_item_changed: false,
+                inv_changed: false,
                 chatbox: Chatbox::default(),
             }))),
         );

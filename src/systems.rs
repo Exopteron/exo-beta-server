@@ -226,7 +226,7 @@ pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<Playe
         } else {
             continue;
         };
-        let mut player = list2.unwrap();
+        let mut player = list2.unwrap().unwrap();
         drop(list);
         if let Some(_) = player.rendered_players.get(&(player_upd.get_id(), player_upd.get_username())) {
             let animate = match player_upd.is_crouching() {
@@ -282,7 +282,7 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
         let mut player = list2; // .borrow_mut();
         drop(list);
         let mut packets = Vec::new();
-        for id in player.unwrap().rendered_players.iter_mut() {
+        for id in player.unwrap().unwrap().rendered_players.iter_mut() {
             let pos = if let Some(plr) = game.players.0.borrow().get(&id.0.0) {
                 plr.get_position_clone()
             } else {
@@ -319,8 +319,8 @@ pub fn spawn_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
                 continue;
             }
             let mut player_obj = player_obj;
-            if player_obj.unwrap().rendered_players.get(&(player.get_id(), player.get_username())).is_none() && player_obj.get_loaded_chunks().contains(&ChunkCoords::from_pos(&player.get_position_clone())) {
-                player_obj.unwrap().rendered_players.insert((player.get_id(), player.get_username()), crate::game::RenderedPlayerInfo {position: player.get_position_clone(), held_item: player.get_item_in_hand_clone() });
+            if player_obj.unwrap().unwrap().rendered_players.get(&(player.get_id(), player.get_username())).is_none() && player_obj.get_loaded_chunks().contains(&ChunkCoords::from_pos(&player.get_position_clone())) {
+                player_obj.unwrap().unwrap().rendered_players.insert((player.get_id(), player.get_username()), crate::game::RenderedPlayerInfo {position: player.get_position_clone(), held_item: player.get_item_in_hand_clone() });
                 let pos = player.get_position_clone();
                 player_obj.write_packet(ServerPacket::NamedEntitySpawn { eid: player.get_id().0, name: player.get_username(), x: (pos.x * 32.0).round() as i32, y: (pos.y * 32.0).round() as i32, z: (pos.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
             }
@@ -355,7 +355,7 @@ pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
         let mut to_derender = Vec::new();
         let our_name = player.get_username();
         //log::info!("For {}, len {}", our_name, player.rendered_players.len());
-        player.unwrap().rendered_players.retain(|idname, _| {
+        player.unwrap().unwrap().rendered_players.retain(|idname, _| {
             let (id, name) = idname;
           //  log::info!("For {}, {}", our_name, name);
             if game.players.0.borrow().get(id).is_none() || &game.players.0.borrow().get(id).unwrap().get_username() != name { // .borrow().username
