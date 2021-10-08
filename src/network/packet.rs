@@ -327,14 +327,15 @@ pub struct Animation {
     eid: i32,
     animate: i8
 }
+#[derive(Clone)]
 pub struct PlayerBlockPlacement {
-    x: i32,
-    y: i8,
-    z: i32,
-    direction: i8,
-    block_or_item_id: i16,
-    amount: Option<i8>,
-    damage: Option<i16>,
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub direction: i8,
+    pub block_or_item_id: i16,
+    pub amount: Option<i8>,
+    pub damage: Option<i16>,
 }
 pub struct UseEntity {
     user: i32,
@@ -482,12 +483,24 @@ pub enum ServerPacket {
     EntityVelocity { eid: i32, velocity_x: i16, velocity_y: i16, velocity_z: i16 },
     EntityLook { eid: i32, yaw: i8, pitch: i8 },
     PickupSpawn { eid: i32, item: i16, count: i8, damage: i16, x: i32, y: i32, z: i32, rotation: i8, pitch: i8, roll: i8 },
+    SetSlot { window_id: i8, slot: i16, item_id: i16, item_count: Option<i8>, item_uses: Option<i16> }
 }
 
 
 impl ServerPacket {
     pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
         match self {
+            ServerPacket::SetSlot { window_id, slot, item_id, item_count, item_uses } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_byte(*window_id);
+                builder.insert_short(*slot);
+                builder.insert_short(*item_id);
+                if item_count.is_some() && item_uses.is_some() {
+                    builder.insert_byte(item_count.unwrap());
+                    builder.insert_short(item_uses.unwrap());
+                }
+                builder.build(0x67)
+            }
             ServerPacket::PickupSpawn { eid, item, count, damage, x, y, z, rotation, pitch, roll } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_int(*eid);

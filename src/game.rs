@@ -6,6 +6,11 @@ use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
 use crate::systems::Systems;
+use crate::game::events::*;
+use items::*;
+pub mod items;
+pub mod events;
+use events::*;
 use flume::{Receiver, Sender};
 use std::any::Any;
 use std::cell::RefCell;
@@ -132,6 +137,7 @@ pub enum DamageType {
     Void,
     Player { damager: String },
     None,
+    Fall,
 }
 #[derive(Clone, PartialEq, Debug)]
 pub struct ItemStack {
@@ -208,12 +214,13 @@ impl std::default::Default for Chatbox {
     }
 }
 use std::time::{Duration, Instant};
+#[derive()]
 pub struct PlayerRef {
-    player: RefCell<Player>,
+    player: Arc<RefCell<Player>>,
 }
 impl PlayerRef {
     pub fn new(player: RefCell<Player>) -> Self {
-        Self { player }
+        Self { player: Arc::new(player) }
     }
     pub fn send_message(&self, message: Message) {
         self.player.borrow_mut().chatbox.push(message);
@@ -224,7 +231,7 @@ impl PlayerRef {
     pub fn is_crouching(&self) -> bool {
         self.player.borrow().crouching.clone()
     }
-    // GAHHHHHHHHHH I JUST FIGURED THIS OUT NOW i'll do it tommorow.
+    // GAHHHHHHHHHH I JUST FIGURED THIS OUT NOW i'll do it tommorow. (did it almost)
     pub fn get_item_in_hand(&self) -> RefMut<'_, ItemStack> {
         RefMut::map(self.player.borrow_mut(), |plr| plr.get_item_in_hand_mut().unwrap())
     }
@@ -247,6 +254,12 @@ impl PlayerRef {
         self.player.borrow_mut().held_item_changed = true;
         self.player.borrow_mut().held_slot = idx;
     }
+    pub fn get_checking_fall(&self) -> bool {
+        self.player.borrow().checking_fall.clone()
+    }
+    pub fn set_checking_fall(&self, value: bool) {
+        self.player.borrow_mut().checking_fall = value;
+    }
 /*     pub fn get_rendered_players_ref(&self) -> &HashMap<(EntityID, String), RenderedPlayerInfo> {
         &self.player.borrow().rendered_players
     }
@@ -261,6 +274,51 @@ impl PlayerRef {
     }
     pub fn get_health(&self) -> i16 {
         self.player.borrow().health.clone()
+    }
+    pub fn set_offground_height(&self, height: f32) {
+        self.player.borrow_mut().offground_height = height;
+    }
+    pub fn damage(&mut self, damage_type: DamageType, amount: i16, damagee: Option<&mut Player>) {
+        self.set_health(self.get_health() - amount);
+        let id = self.get_id().0;
+        self.write_packet(ServerPacket::Animation {
+            eid: id,
+            animate: 2,
+        });
+        self.write_packet(ServerPacket::EntityStatus {
+            eid: id,
+            entity_status: 2,
+        });
+        //self.write_packet(ServerPacket::UpdateHealth { health: self.health });
+        if let Some(plr) = damagee {
+            plr.write(ServerPacket::EntityStatus {
+                eid: self.get_id().0,
+                entity_status: 2,
+            });
+            plr.write(ServerPacket::Animation {
+                eid: self.get_id().0,
+                animate: 2,
+            });
+        }
+        let mut us = self.unwrap().unwrap();
+        for (_, player) in us.players_list.0.borrow().iter() {
+            /*             let mut player = if let Ok(plr) = player.try_borrow_mut() {
+                plr
+            } else {
+                continue;
+            }; */
+            if player.can_borrow() {
+                player.write_packet(ServerPacket::EntityStatus {
+                    eid: us.id.0,
+                    entity_status: 2,
+                });
+                player.write_packet(ServerPacket::Animation {
+                    eid: us.id.0,
+                    animate: 2,
+                });
+            }
+        }
+        us.last_dmg_type = damage_type;
     }
     pub fn set_health(&self, health: i16) {
         let mut us = self.player.borrow_mut();
@@ -353,6 +411,20 @@ impl PlayerRef {
         }
         let interval = Duration::from_millis(750);
         let mut cl = self.player.borrow_mut();
+        // Fall damage check
+        if cl.position.on_ground {
+            if cl.offground_height > (cl.position.y as f32) {
+                log::info!("Offground: {}, pos: {}", cl.offground_height, cl.position.y);
+                let height = cl.offground_height - (cl.position.y as f32);
+                if height > 0.0 {
+                    let fall_dmg = (height - 3.0).max(0.0);
+                    log::info!("Damage: {}", fall_dmg.round());
+                    cl.damage(DamageType::Fall, fall_dmg.round() as i16, None);
+                    log::info!("Fell from a height of {}", height);
+                }
+                cl.offground_height = 0.0;
+            }
+        }
         // Void dmg check
         if cl.position.y <= 0.0 && !cl.dead {
             if cl.last_void_dmg + interval < Instant::now() {
@@ -374,6 +446,9 @@ impl PlayerRef {
                         "{} was beaten to death by {}.",
                         cl.username, damager
                     ));
+                }
+                DamageType::Fall => {
+                    msg = Message::new(&format!("{} fell out of the sky.", cl.username));
                 }
             }
             let id = cl.id.0;
@@ -415,7 +490,7 @@ impl PlayerRef {
         for player in plrlist.iter() {
             if player.0 != &cl.id {
                 let other_username = player.1.get_username();
-                if cl.rendered_players.get(&(*player.0, other_username.clone())).is_none() && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) {
+                if cl.rendered_players.get(&(*player.0, other_username.clone())).is_none() /* && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) */ {
                     cl.rendered_players.insert((*player.0, other_username),  crate::game::RenderedPlayerInfo {position: player.1.get_position_clone(), held_item: player.1.get_item_in_hand_clone() });
                     let pos = player.1.get_position_clone();
                     cl.write(ServerPacket::NamedEntitySpawn { eid: player.1.get_id().0, name: player.1.get_username(), x: (pos.x * 32.0).round() as i32, y: (pos.y * 32.0).round() as i32, z: (pos.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
@@ -454,9 +529,19 @@ pub struct Player {
     pub mining_block: MiningBlockData,
     pub held_item_changed: bool,
     pub inv_changed: bool,
+    pub offground_height: f32,
+    pub checking_fall: bool,
     players_list: PlayerList,
 }
 impl Player {
+    pub fn sync_inventory(&mut self) {
+        let mut player = self;
+        let inv = player.inventory.clone();
+        log::info!("Writing inv items");
+        player.write(ServerPacket::InvWindowItems { inventory: inv });
+        player.last_inventory = player.inventory.clone();
+        player.inv_changed = false;
+    }
     pub fn add_velocity(&mut self, x: i16, y: i16, z: i16) {
         self.write(ServerPacket::EntityVelocity {
             eid: self.id.0,
@@ -486,6 +571,12 @@ impl Player {
         IDS.lock().unwrap().push(self.id.0);
     }
     pub fn damage(&mut self, damage_type: DamageType, amount: i16, damagee: Option<&mut Player>) {
+        if amount == 0 {
+            return;
+        }
+        if self.dead {
+            return;
+        }
         self.health -= amount;
         let id = self.id.0;
         self.write(ServerPacket::Animation {
@@ -496,6 +587,7 @@ impl Player {
             eid: id,
             entity_status: 2,
         });
+        self.write(ServerPacket::UpdateHealth { health: self.health });
         if let Some(plr) = damagee {
             plr.write(ServerPacket::EntityStatus {
                 eid: self.id.0,
@@ -586,6 +678,120 @@ pub struct Game {
 }
 impl Game {
     pub fn new(systems: Systems) -> Self {
+        let mut registry = ItemRegistry::new();
+        let mut event_handler = EventHandler::new();
+        event_handler.register_handler(Box::new(|event, game| {
+            let event = event.event.as_any().downcast_ref::<BlockPlacementEvent>();
+            if event.is_none() {
+                return false;
+            }
+            let event = event.unwrap();
+            let mut packet = event.packet.clone();
+            let mut player = event.player.unwrap().unwrap();
+            packet.y -= 1;
+            match packet.direction {
+                0 => {
+                    packet.y -= 1;
+                }
+                1 => {
+                    packet.y += 1;
+                }
+                2 => {
+                    packet.z -= 1;
+                }
+                3 => {
+                    packet.z += 1;
+                }
+                4 => {
+                    packet.x -= 1;
+                }
+                5 => {
+                    packet.x += 1;
+                }
+                _ => {
+                    return false;
+                }
+            }
+            let block = if let Some(blk) =
+                game.world
+                    .get_block(packet.x, (packet.y + 0) as i32, packet.z)
+            {
+                blk
+            } else {
+                return false;
+            };
+            let mut pos = player.position.clone();
+            let held = player.get_item_in_hand_mut().unwrap();
+            for user in game.players.0.borrow().iter() {
+/*                     let mut pos = user.1.try_borrow();
+                if pos.is_err() {
+                    continue;
+                } */
+                //let mut pos = pos;
+                if pos.contains_block(crate::game::BlockPosition {
+                    x: packet.x,
+                    y: (packet.y + 1) as i32,
+                    z: packet.z,
+                }) {
+                    held.count += 1;
+                    player.write(ServerPacket::BlockChange {
+                        x: packet.x,
+                        y: packet.y + 1,
+                        z: packet.z,
+                        block_type: block.get_type() as i8,
+                        block_metadata: block.b_metadata as i8,
+                    });
+                    return false;
+                }
+            }
+            if pos.contains_block(crate::game::BlockPosition {
+                x: packet.x,
+                y: (packet.y + 1) as i32,
+                z: packet.z,
+            }) {
+                held.count += 1;
+                player.write(ServerPacket::BlockChange {
+                    x: packet.x,
+                    y: packet.y + 1,
+                    z: packet.z,
+                    block_type: block.get_type() as i8,
+                    block_metadata: block.b_metadata as i8,
+                });
+                return false;
+            }
+            //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
+            log::info!(
+                "Setting at X: {} Y: {} Z: {}",
+                packet.x,
+                packet.y as i32,
+                packet.z
+            );
+            if block.get_type() == 0 {
+                //player.write(ServerPacket::BlockChange { x: packet.x, y: packet.y, z: packet.z, block_type: item.id as i8, block_metadata: 0x00 });
+                log::info!("Setting block.");
+                block.set_type(event.packet.block_or_item_id as u8);
+                game.block_updates.push(crate::game::Block {
+                    position: crate::game::BlockPosition {
+                        x: packet.x,
+                        y: (packet.y + 1) as i32,
+                        z: packet.z,
+                    },
+                    block: block.clone(),
+                });
+            } else {
+                player.write(ServerPacket::BlockChange {
+                    x: packet.x,
+                    y: packet.y + 1,
+                    z: packet.z,
+                    block_type: block.get_type() as i8,
+                    block_metadata: block.b_metadata as i8,
+                })
+            }
+            log::info!("Got block place event!");
+            true
+        }));
+        items::default::init_items(&mut registry);
+        ITEM_REGISTRY.set(registry).ok().expect("Can't set item registry!");
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
         let world = crate::world::World::crappy_generate();
         let mut command_system = CommandSystem::new();
@@ -656,8 +862,12 @@ impl Game {
                 Ok(0)
             }),
         ));
+        let mut objects = Arc::new(Objects::new());
+        Arc::get_mut(&mut objects)
+        .expect("cyrntly borwd")
+        .insert(event_handler);
         Self {
-            objects: Arc::new(Objects::new()),
+            objects: objects,
             players: PlayerList(Arc::new(RefCell::new(HashMap::new()))),
             systems: Arc::new(RefCell::new(systems)),
             world,
@@ -735,7 +945,9 @@ impl Game {
             } else {
                 continue;
             }; */
-            player.send_message(message.clone()); // .chatbox.push
+            if player.can_borrow() {
+                player.send_message(message.clone()); // .chatbox.push
+            }
         }
         Ok(())
     }
@@ -757,7 +969,8 @@ impl Game {
             } else {
                 continue;
             }; */
-            if player
+            if player.can_borrow() {
+                if player
                 .unwrap().unwrap().rendered_players
                 .get(&(to_remove.id, to_remove.username.clone()))
                 .is_some()
@@ -769,6 +982,9 @@ impl Game {
             player
                 .unwrap().unwrap().rendered_players
                 .remove(&(to_remove.id, to_remove.username.clone()));
+            } else {
+                log::info!("Can't");
+            }
         }
         Ok(())
     }
@@ -877,6 +1093,8 @@ impl Game {
                 rendered_entities: HashMap::new(),
                 held_item_changed: false,
                 inv_changed: false,
+                checking_fall: true,
+                offground_height: 0.0,
                 chatbox: Chatbox::default(),
             }))),
         );
