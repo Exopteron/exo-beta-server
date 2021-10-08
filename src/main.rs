@@ -49,6 +49,7 @@ async fn main() -> anyhow::Result<()> {
 /*             systems::check_inv(game, &mut server, player.1)?;
             systems::sync_inv(game, &mut server, player.1)?; */
         }
+        obj.get_mut::<game::events::EventHandler>()?.handle_events(game);
         Ok(())
     });
     let mut game = game::Game::new(systems);

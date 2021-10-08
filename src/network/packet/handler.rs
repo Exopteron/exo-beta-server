@@ -1,4 +1,5 @@
 use crate::game::PlayerRef;
+use crate::game::items::ItemRegistry;
 use crate::game::{BlockPosition, DamageType, Game, ItemStack, Message, Position};
 use crate::network::ids::EntityID;
 use crate::network::packet::{ClientPacket, ServerPacket};
@@ -258,8 +259,20 @@ pub fn handle_packet(
             use std::ops::DerefMut;
             let mut player = player.unwrap().unwrap();
             let mut player = player.deref_mut();
+            let registry = ItemRegistry::global();
             if packet.window_id == 0 {
                 if packet.item_id != -1 {
+/*                     if registry.get_item(packet.item_id).is_none() {
+                        //invslot = ItemStack::default();
+                        player.sync_inventory();
+                        //crate::systems::sync_inv_force(game, server, player)?;
+                        player.write(ServerPacket::Transaction {
+                            window_id: 0,
+                            action_number: packet.action_number,
+                            accepted: false,
+                        });
+                        return Ok(());
+                    } */
                     let item = ItemStack::new(
                         packet.item_id,
                         packet.item_uses.unwrap(),
@@ -287,10 +300,11 @@ pub fn handle_packet(
                         .items
                         .get_mut(&(packet.slot as i8))
                         .expect("Slot doesn't exist!");
-                    if invslot.count == 0 {
+                    if invslot.count == 0 || registry.get_item(invslot.id).is_none() {
                         *invslot = ItemStack::default();
                         player.sync_inventory();
                         //crate::systems::sync_inv_force(game, server, player)?;
+                        player.write(ServerPacket::SetSlot { window_id: -1, slot: -1, item_id: -1, item_count: None, item_uses: None });
                         player.write(ServerPacket::Transaction {
                             window_id: 0,
                             action_number: packet.action_number,
@@ -569,6 +583,44 @@ pub fn handle_packet(
                             player.write(ServerPacket::Animation { eid: plr.id.0, animate: 2});
                         } */
                     }
+                }
+            }
+        }
+        ClientPacket::PlayerBlockPlacement(mut packet) => {
+            if packet.block_or_item_id >= 0 {
+                let item = ItemStack::new(
+                    packet.block_or_item_id,
+                    packet.damage.unwrap(),
+                    packet.amount.unwrap() + 1,
+                );
+                let item_2 = ItemStack::new(
+                    packet.block_or_item_id,
+                    packet.damage.unwrap(),
+                    packet.amount.unwrap(),
+                );
+                let mut held = player.get_item_in_hand();
+                let mut sync: bool = false;
+                if item != *held && item_2 != *held {
+                    log::info!("Not, comparing {:?} to {:?}", item, *held);
+                    held.id = 0;
+                    held.count = 0;
+                    sync = true;
+                }
+                drop(held);
+                if sync {
+                    player.sync_inventory();
+                    return Ok(());
+                }
+                let registry = ItemRegistry::global();
+                if let Some(i) = registry.get_item(item.id) {
+                    i.get_item().on_use(game, packet, player);
+                } else {
+                    let mut held = player.get_item_in_hand();
+                    held.id = 0;
+                    held.count = 0;
+                    drop(held);
+                    player.sync_inventory();
+                    return Ok(());
                 }
             }
         }

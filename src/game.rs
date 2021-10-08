@@ -6,6 +6,11 @@ use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
 use crate::systems::Systems;
+use crate::game::events::*;
+use items::*;
+pub mod items;
+pub mod events;
+use events::*;
 use flume::{Receiver, Sender};
 use std::any::Any;
 use std::cell::RefCell;
@@ -209,12 +214,13 @@ impl std::default::Default for Chatbox {
     }
 }
 use std::time::{Duration, Instant};
+#[derive()]
 pub struct PlayerRef {
-    player: RefCell<Player>,
+    player: Arc<RefCell<Player>>,
 }
 impl PlayerRef {
     pub fn new(player: RefCell<Player>) -> Self {
-        Self { player }
+        Self { player: Arc::new(player) }
     }
     pub fn send_message(&self, message: Message) {
         self.player.borrow_mut().chatbox.push(message);
@@ -672,6 +678,120 @@ pub struct Game {
 }
 impl Game {
     pub fn new(systems: Systems) -> Self {
+        let mut registry = ItemRegistry::new();
+        let mut event_handler = EventHandler::new();
+        event_handler.register_handler(Box::new(|event, game| {
+            let event = event.event.as_any().downcast_ref::<BlockPlacementEvent>();
+            if event.is_none() {
+                return false;
+            }
+            let event = event.unwrap();
+            let mut packet = event.packet.clone();
+            let mut player = event.player.unwrap().unwrap();
+            packet.y -= 1;
+            match packet.direction {
+                0 => {
+                    packet.y -= 1;
+                }
+                1 => {
+                    packet.y += 1;
+                }
+                2 => {
+                    packet.z -= 1;
+                }
+                3 => {
+                    packet.z += 1;
+                }
+                4 => {
+                    packet.x -= 1;
+                }
+                5 => {
+                    packet.x += 1;
+                }
+                _ => {
+                    return false;
+                }
+            }
+            let block = if let Some(blk) =
+                game.world
+                    .get_block(packet.x, (packet.y + 0) as i32, packet.z)
+            {
+                blk
+            } else {
+                return false;
+            };
+            let mut pos = player.position.clone();
+            let held = player.get_item_in_hand_mut().unwrap();
+            for user in game.players.0.borrow().iter() {
+/*                     let mut pos = user.1.try_borrow();
+                if pos.is_err() {
+                    continue;
+                } */
+                //let mut pos = pos;
+                if pos.contains_block(crate::game::BlockPosition {
+                    x: packet.x,
+                    y: (packet.y + 1) as i32,
+                    z: packet.z,
+                }) {
+                    held.count += 1;
+                    player.write(ServerPacket::BlockChange {
+                        x: packet.x,
+                        y: packet.y + 1,
+                        z: packet.z,
+                        block_type: block.get_type() as i8,
+                        block_metadata: block.b_metadata as i8,
+                    });
+                    return false;
+                }
+            }
+            if pos.contains_block(crate::game::BlockPosition {
+                x: packet.x,
+                y: (packet.y + 1) as i32,
+                z: packet.z,
+            }) {
+                held.count += 1;
+                player.write(ServerPacket::BlockChange {
+                    x: packet.x,
+                    y: packet.y + 1,
+                    z: packet.z,
+                    block_type: block.get_type() as i8,
+                    block_metadata: block.b_metadata as i8,
+                });
+                return false;
+            }
+            //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
+            log::info!(
+                "Setting at X: {} Y: {} Z: {}",
+                packet.x,
+                packet.y as i32,
+                packet.z
+            );
+            if block.get_type() == 0 {
+                //player.write(ServerPacket::BlockChange { x: packet.x, y: packet.y, z: packet.z, block_type: item.id as i8, block_metadata: 0x00 });
+                log::info!("Setting block.");
+                block.set_type(event.packet.block_or_item_id as u8);
+                game.block_updates.push(crate::game::Block {
+                    position: crate::game::BlockPosition {
+                        x: packet.x,
+                        y: (packet.y + 1) as i32,
+                        z: packet.z,
+                    },
+                    block: block.clone(),
+                });
+            } else {
+                player.write(ServerPacket::BlockChange {
+                    x: packet.x,
+                    y: packet.y + 1,
+                    z: packet.z,
+                    block_type: block.get_type() as i8,
+                    block_metadata: block.b_metadata as i8,
+                })
+            }
+            log::info!("Got block place event!");
+            true
+        }));
+        items::default::init_items(&mut registry);
+        ITEM_REGISTRY.set(registry).ok().expect("Can't set item registry!");
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
         let world = crate::world::World::crappy_generate();
         let mut command_system = CommandSystem::new();
@@ -742,8 +862,12 @@ impl Game {
                 Ok(0)
             }),
         ));
+        let mut objects = Arc::new(Objects::new());
+        Arc::get_mut(&mut objects)
+        .expect("cyrntly borwd")
+        .insert(event_handler);
         Self {
-            objects: Arc::new(Objects::new()),
+            objects: objects,
             players: PlayerList(Arc::new(RefCell::new(HashMap::new()))),
             systems: Arc::new(RefCell::new(systems)),
             world,
