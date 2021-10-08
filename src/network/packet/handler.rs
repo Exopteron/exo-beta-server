@@ -184,7 +184,9 @@ pub fn handle_packet(
                 player.send_message(Message::new(&format!("Command returned code {}.", res)));
             } else {
                 log::info!("sx");
-                let message = Message::new(&format!("<{}> {}", player.get_username(), message.message));
+                let message = message.message;
+                //let message = message.replace("&", "§");
+                let message = Message::new(&format!("<{}> {}", player.get_username(), message));
                 log::info!("bx");
                 for (id, player_iter) in game.players.0.borrow().clone() {
                     if id == player.get_id() {
@@ -602,8 +604,6 @@ pub fn handle_packet(
                 let mut sync: bool = false;
                 if item != *held && item_2 != *held {
                     log::info!("Not, comparing {:?} to {:?}", item, *held);
-                    held.id = 0;
-                    held.count = 0;
                     sync = true;
                 }
                 drop(held);
@@ -613,7 +613,7 @@ pub fn handle_packet(
                 }
                 let registry = ItemRegistry::global();
                 if let Some(i) = registry.get_item(item.id) {
-                    i.get_item().on_use(game, packet, player);
+                    i.get_item().on_use(game, packet, player)?;
                 } else {
                     let mut held = player.get_item_in_hand();
                     held.id = 0;
@@ -634,7 +634,7 @@ pub fn handle_packet(
                 let item = ItemStack::new(
                     packet.block_or_item_id,
                     packet.damage.unwrap(),
-                    packet.amount.unwrap() + 1,
+                    packet.amount.unwrap() - 1,
                 );
                 let item_2 = ItemStack::new(
                     packet.block_or_item_id,
@@ -808,7 +808,15 @@ pub fn handle_packet(
                         });
                         return Ok(());
                     } */
-                    block.set_type(0);
+/*                     let btype = block.b_type;
+                    drop(block);
+                    let registry = ItemRegistry::global();
+                    if let Some(bl) = registry.get_item(btype as i16) {
+                        if bl.get_item().is_block() {
+                            crate::game::items::block::AsBlock::as_block(&bl.get_item()).unwrap().on_break(game, player, BlockPosition { x: packet.x, y: (packet.y - 1) as i32, z: packet.z}, packet, orig_type as i32)?;
+                        }
+                    } */
+                     block.set_type(0);
                     game.block_updates.push(crate::game::Block {
                         position: crate::game::BlockPosition {
                             x: packet.x,

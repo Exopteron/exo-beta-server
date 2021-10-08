@@ -686,6 +686,7 @@ impl Game {
                 return false;
             }
             let event = event.unwrap();
+            log::info!("Got event!");
             let mut packet = event.packet.clone();
             let mut player = event.player.unwrap().unwrap();
             packet.y -= 1;
@@ -708,7 +709,8 @@ impl Game {
                 5 => {
                     packet.x += 1;
                 }
-                _ => {
+                x => {
+                    log::info!("Fal {}", x);
                     return false;
                 }
             }
@@ -718,9 +720,10 @@ impl Game {
             {
                 blk
             } else {
+                log::info!("false.");
                 return false;
             };
-            let mut pos = player.position.clone();
+/*             let mut pos = player.position.clone();
             let held = player.get_item_in_hand_mut().unwrap();
             for user in game.players.0.borrow().iter() {
 /*                     let mut pos = user.1.try_borrow();
@@ -758,7 +761,7 @@ impl Game {
                     block_metadata: block.b_metadata as i8,
                 });
                 return false;
-            }
+            } */
             //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
             log::info!(
                 "Setting at X: {} Y: {} Z: {}",

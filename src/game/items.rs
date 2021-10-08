@@ -1,6 +1,8 @@
 use super::*;
 use once_cell::sync::OnceCell;
 pub mod default;
+pub mod block_utils;
+pub mod block;
 pub static ITEM_REGISTRY: OnceCell<ItemRegistry> = OnceCell::new();
 use std::collections::HashMap;
 pub struct ItemRegistry {
@@ -24,6 +26,9 @@ pub trait Item {
     fn is_block(&self) -> bool;
     fn stack_size(&self) -> i16;
     fn on_use(&self, game: &mut Game, packet: crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> anyhow::Result<()>;
+    fn as_block(&self) -> Option<&dyn block::Block> {
+        None
+    }
 }
 pub struct RegistryItem {
     name: String,

@@ -317,11 +317,11 @@ pub struct Respawn {
     world: i8,
 }
 pub struct PlayerDigging {
-    status: i8,
-    x: i32,
-    y: i8,
-    z: i32,
-    face: i8,
+    pub status: i8,
+    pub x: i32,
+    pub y: i8,
+    pub z: i32,
+    pub face: i8,
 }
 pub struct Animation {
     eid: i32,

@@ -1,3 +1,4 @@
+#![feature(specialization)]
 //pub mod error;
 pub mod configuration;
 pub mod network;
