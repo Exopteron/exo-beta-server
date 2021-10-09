@@ -316,6 +316,7 @@ pub struct EntityAction {
 pub struct Respawn {
     world: i8,
 }
+#[derive(Clone)]
 pub struct PlayerDigging {
     pub status: i8,
     pub x: i32,
@@ -454,13 +455,13 @@ impl ClientPacket {
         }
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ServerPacket {
     ChatMessage { message: String },
     ServerLoginRequest { entity_id: i32, unknown: String, unknown_2: String, map_seed: i64, dimension: i8 },
     Handshake { connection_hash: String },
     PreChunk { x: i32, z: i32, mode: bool },
-    MapChunk { x: i32, y: i16, z: i32, size_x: i8, size_y: i8, size_z: i8, compressed_size: i32, compressed_data: Vec<u8> },
+    MapChunk { x: i32, y: i16, z: i32, size_x: u8, size_y: u8, size_z: u8, compressed_size: i32, compressed_data: Vec<u8> },
     SpawnPosition { x: i32, y: i32, z: i32 },
     PlayerPositionAndLook { x: f64, stance: f64, y: f64, z: f64, yaw: f32, pitch: f32, on_ground: bool },
     KeepAlive,
@@ -483,13 +484,49 @@ pub enum ServerPacket {
     EntityVelocity { eid: i32, velocity_x: i16, velocity_y: i16, velocity_z: i16 },
     EntityLook { eid: i32, yaw: i8, pitch: i8 },
     PickupSpawn { eid: i32, item: i16, count: i8, damage: i16, x: i32, y: i32, z: i32, rotation: i8, pitch: i8, roll: i8 },
-    SetSlot { window_id: i8, slot: i16, item_id: i16, item_count: Option<i8>, item_uses: Option<i16> }
+    SetSlot { window_id: i8, slot: i16, item_id: i16, item_count: Option<i8>, item_uses: Option<i16> },
+    CollectItem { collected_eid: i32, collector_eid: i32 },
+    EntityRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8 },
+    EntityLookAndRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8, yaw: i8, pitch: i8 },
+    OpenWindow { window_id: i8, inventory_type: i8, window_title: String, num_slots: i8 },
 }
 
 
 impl ServerPacket {
     pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
         match self {
+            ServerPacket::OpenWindow { window_id, inventory_type, window_title, num_slots } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_byte(*window_id);
+                builder.insert_byte(*inventory_type);
+                builder.insert_string(&window_title);
+                builder.insert_byte(*num_slots);
+                builder.build(0x64)
+            }
+            ServerPacket::EntityLookAndRelativeMove { eid, dX, dY, dZ, yaw, pitch } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*eid);
+                builder.insert_byte(*dX);
+                builder.insert_byte(*dY);
+                builder.insert_byte(*dZ);
+                builder.insert_byte(*yaw);
+                builder.insert_byte(*pitch);
+                builder.build(0x21)
+            }
+            ServerPacket::EntityRelativeMove { eid, dX, dY, dZ } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*eid);
+                builder.insert_byte(*dX);
+                builder.insert_byte(*dY);
+                builder.insert_byte(*dZ);
+                builder.build(0x1F)
+            }
+            ServerPacket::CollectItem { collected_eid, collector_eid } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*collected_eid);
+                builder.insert_int(*collector_eid);
+                builder.build(0x16)
+            }
             ServerPacket::SetSlot { window_id, slot, item_id, item_count, item_uses } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_byte(*window_id);
@@ -692,9 +729,9 @@ impl ServerPacket {
                 builder.insert_int(*x);
                 builder.insert_short(*y);
                 builder.insert_int(*z);
-                builder.insert_byte(*size_x);
-                builder.insert_byte(*size_y);
-                builder.insert_byte(*size_z);
+                builder.insert_byte_raw(*size_x);
+                builder.insert_byte_raw(*size_y);
+                builder.insert_byte_raw(*size_z);
                 builder.insert_int(*compressed_size);
                 builder.insert_bytearray(compressed_data.to_vec());
                 builder.build(0x33)

@@ -3,6 +3,10 @@ pub fn place_validator(game: &mut Game, packet: &crate::network::packet::PlayerB
     if packet.direction < 0 {
         return false;
     }
+    if packet.y >= 127 {
+        return false;
+    }
+    // BLOCKS thing
     let block = if let Some(blk) = game
         .world
         .get_block(packet.x, (packet.y + 0) as i32, packet.z)

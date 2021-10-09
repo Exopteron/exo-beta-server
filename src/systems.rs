@@ -72,6 +72,16 @@ pub fn time_update(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     }
     Ok(())
 }
+pub fn tick_entities(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+    let interval = Duration::from_millis(750);
+    let entities = game.entities.borrow().clone();
+    for entity in entities.iter() {
+        if game.loaded_chunks.0.contains(&entity.1.borrow_mut().get_position().to_chunk_coords()) {
+            entity.1.borrow_mut().tick(game);
+        }
+    }
+    Ok(())
+}
 pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let interval = Duration::from_millis(750);
     let players = game.players.0.borrow().clone();
@@ -98,10 +108,12 @@ pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
 pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for _ in 0..game.block_updates.len() {
         let update = game.block_updates.pop().unwrap();
-        let mut clients = server.clients.borrow_mut();
-        for client in clients.iter_mut() {
-            let mut cl = client.1.borrow_mut();
-            cl.write(ServerPacket::BlockChange { x: update.position.x, y: update.position.y as i8, z: update.position.z , block_type: update.block.b_type as i8, block_metadata: update.block.b_metadata as i8 })?;
+        let clients = game.players.0.borrow();
+        for client in clients.iter() {
+            if client.1.get_loaded_chunks().contains(&update.position.to_chunk_coords()) {
+            //let mut cl = client.1.borrow_mut();
+            client.1.write_packet(ServerPacket::BlockChange { x: update.position.x, y: update.position.y as i8, z: update.position.z , block_type: update.block.b_type as i8, block_metadata: update.block.b_metadata as i8 });
+            }
         }
     }
     Ok(())
@@ -212,6 +224,22 @@ pub fn sync_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()
     }
     Ok(())
 }
+pub fn check_loaded_chunks(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+    let players = game.players.0.borrow().clone();
+    //log::info!("Loaded chunks: {:?}", game.loaded_chunks.0);
+    game.loaded_chunks.0.retain(|chunk| {
+        for player in players.iter() {
+            let player = player.1;
+            if player.get_loaded_chunks().contains(chunk) {
+                return true;
+            }
+            //let position = player.get_position_clone();
+            //player.write(ServerPacket::PlayerTeleport { player_id: -1, position })?;
+        }
+        false
+    });
+    Ok(())
+}
 pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<PlayerRef>) -> anyhow::Result<()> {
     log::info!("update_crouch called!");
     let len = game.players.0.borrow().len().clone();
@@ -237,7 +265,8 @@ pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<Playe
                     105
                 }
             };
-            //log::info!("Sending animation packet!");
+            log::info!("Sending animation packet!");
+            player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 0 });
             player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 104 });
         } else {
             continue;
@@ -289,8 +318,55 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
                 continue;
             };
             if id.1.position != pos {
+                if pos.distance(&id.1.position) < 3.5 {
+                    let x_diff = (pos.x - id.1.position.x);
+                    let y_diff = (pos.y - id.1.position.y);
+                    let z_diff = (pos.z - id.1.position.z);
+                    packets.push(ServerPacket::EntityLookAndRelativeMove { eid: id.0.0.0, dX: (x_diff * 32.0) as i8, dY: (y_diff * 32.0) as i8, dZ: (z_diff * 32.0) as i8, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
+                    //log::info!("Sending relative");
+                } else {
+                    log::info!("Sending absolute");
+                    packets.push(ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
+                }
                 //log::info!("Sending entity teleport!");
-                packets.push(ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
+                //packets.push(ServerPacket::EntityLook { eid: id.0.0.0, yaw: pos.yaw as i8, pitch: pos.pitch as i8 });
+            }
+            id.1.position = pos;
+            //log::info!("tping {} from {:?} to {:?}", id.0.0, player.id, pos);
+        }
+        for packet in packets {
+            player.write_packet(packet);
+        }
+    }
+    Ok(())
+}
+pub fn entity_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
+    let len = game.players.0.borrow().len().clone();
+    for i in 0..len {
+        let list = game.players.0.borrow();
+/*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
+        let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
+            plr.clone()
+        } else {
+            continue;
+        };
+        let mut player = list2; // .borrow_mut();
+        drop(list);
+        let mut packets = Vec::new();
+        for id in player.unwrap().unwrap().rendered_entities.iter_mut() {
+            let pos = if let Some(plr) = game.entities.borrow().get(&id.0) {
+                let mut plr = plr.borrow_mut();
+                if !plr.broadcast_pos_change() {
+                    continue;
+                }
+                plr.get_position().clone()
+            } else {
+                continue;
+            };
+
+            if id.1.position != pos {
+                //log::info!("Sending entity teleport!");
+                packets.push(ServerPacket::EntityTeleport { eid: id.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
                 //packets.push(ServerPacket::EntityLook { eid: id.0.0.0, yaw: pos.yaw as i8, pitch: pos.pitch as i8 });
             }
             id.1.position = pos;

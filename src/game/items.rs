@@ -8,6 +8,10 @@ use std::collections::HashMap;
 pub struct ItemRegistry {
     items: HashMap<i16, Arc<RegistryItem>>
 }
+pub enum ToolType {
+    PICKAXE,
+    CHESTPLATE,
+}
 impl ItemRegistry {
     pub fn global() -> &'static ItemRegistry {
         ITEM_REGISTRY.get().expect("Item registry is not initialized!")
@@ -28,6 +32,12 @@ pub trait Item {
     fn on_use(&self, game: &mut Game, packet: crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> anyhow::Result<()>;
     fn as_block(&self) -> Option<&dyn block::Block> {
         None
+    }
+    fn get_tool_type(&self) -> Option<ToolType> {
+        None
+    }
+    fn wearable(&self) -> bool {
+        false
     }
 }
 pub struct RegistryItem {

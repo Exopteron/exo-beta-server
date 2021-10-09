@@ -14,7 +14,152 @@ impl block::Block for DirtBlock {
     ) {
         log::info!("Was used!");
     }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(3, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        Some(ItemStack::new(3, 0, 1))
+    }
+}
+pub struct CobblestoneBlock {}
+impl block::Block for CobblestoneBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(5, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        Some(ItemStack::new(4, 0, 1))
+    }
+}
+pub struct StoneBlock {}
+impl block::Block for StoneBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(5, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        let registry = ItemRegistry::global();
+        if let Some(item) = registry.get_item(tool.id) {
+            if let Some(item) = item.get_item().get_tool_type() {
+                match item {
+                    ToolType::PICKAXE => {
+                        return Some(ItemStack::new(4, 0, 1));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
+    }
+}
+pub struct CraftingTableBlock {}
+impl block::Block for CraftingTableBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(58, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        Some(ItemStack::new(58, 0, 1))
+    }
+    fn on_right_click(&self, game: &mut Game, packet: &mut crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> bool {
+        let mut craftory = Inventory::default();
+        for i in 0..9 {
+            craftory.items.insert(i, ItemStack::default());
+        }
+        log::info!("Lenga: {:?}", craftory.items.len());
+        player.open_window(Window { inventory_type: 1, window_title: "Crafting".to_string(), inventory: craftory}, 69);
+        false
+    }
+}
+pub struct PlanksBlock {}
+impl block::Block for PlanksBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(5, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        Some(ItemStack::new(5, 0, 1))
+    }
+}
+pub struct GoldChestplateItem {}
+impl Item for GoldChestplateItem {
+    fn is_block(&self) -> bool {
+        false
+    }
+    fn stack_size(&self) -> i16 {
+        1
+    }
+    fn on_use(&self, game: &mut Game, packet: crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn get_tool_type(&self) -> Option<ToolType> {
+        Some(ToolType::CHESTPLATE)
+    }
+    fn wearable(&self) -> bool {
+        true
+    }
+}
+pub struct GoldPickaxeItem {}
+impl Item for GoldPickaxeItem {
+    fn is_block(&self) -> bool {
+        false
+    }
+    fn stack_size(&self) -> i16 {
+        1
+    }
+    fn on_use(&self, game: &mut Game, packet: crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn get_tool_type(&self) -> Option<ToolType> {
+        Some(ToolType::PICKAXE)
+    }
 }
 pub fn init_items(registry: &mut ItemRegistry) {
     registry.register_item(3, "dirt_block", Box::new(DirtBlock {}));
+    registry.register_item(5, "planks_block", Box::new(PlanksBlock {}));
+    registry.register_item(4, "cobblestone_block", Box::new(CobblestoneBlock {}));
+    registry.register_item(1, "stone_block", Box::new(StoneBlock {}));
+    registry.register_item(285, "gold_pickaxe_item", Box::new(GoldPickaxeItem {}));
+    registry.register_item(315, "gold_chestplate_item", Box::new(GoldChestplateItem {}));
+    registry.register_item(58, "craftingtable_block", Box::new(CraftingTableBlock {}));
 }

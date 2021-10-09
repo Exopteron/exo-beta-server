@@ -211,9 +211,9 @@ impl World {
             x: chunk.x * 16,
             y: 0,
             z: chunk.z * 16,
-            size_x: size_x as i8,
-            size_y: size_y as i8,
-            size_z: size_z as i8,
+            size_x: size_x as u8,
+            size_y: size_y as u8,
+            size_z: size_z as u8,
             compressed_size: data.len() as i32,
             compressed_data: data,
         };
@@ -268,16 +268,17 @@ impl World {
         blockdata.append(&mut compress_to_nibble(blocklight)?);
         blockdata.append(&mut compress_to_nibble(skylight)?);
         let data = deflate::deflate_bytes_zlib(&blockdata);
-        let size_x = size_x - 1;
-        let size_z = size_y - 1;
-        let size_y = size_z - 1;
+        let size_x = (size_x - 1).max(0);
+        log::info!("size_x: {}", size_x);
+        let size_z = (size_y - 1).max(0);
+        let size_y = (size_z - 1).max(0);
         let packet = ServerPacket::MapChunk {
             x: chunk.x * 16,
             y: 0,
             z: chunk.z * 16,
-            size_x: size_x as i8,
-            size_y: size_y as i8,
-            size_z: size_z as i8,
+            size_x: size_x as u8,
+            size_y: size_y as u8,
+            size_z: size_z as u8,
             compressed_size: data.len() as i32,
             compressed_data: data,
         };

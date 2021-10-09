@@ -1,28 +1,36 @@
 use crate::commands::*;
-use crate::entities::*;
+use crate::game::events::*;
 use crate::network::ids::EntityID;
 use crate::network::ids::IDS;
 use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
 use crate::systems::Systems;
-use crate::game::events::*;
 use items::*;
-pub mod items;
 pub mod events;
+pub mod items;
+pub mod entities;
+use entities::*;
 use events::*;
 use flume::{Receiver, Sender};
 use std::any::Any;
 use std::cell::RefCell;
+use std::cell::{Ref, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::cell::{Ref, RefMut};
 #[derive(Copy, Clone, PartialEq, Debug)]
 pub struct BlockPosition {
     pub x: i32,
     pub y: i32,
     pub z: i32,
+}
+impl BlockPosition {
+    pub fn to_chunk_coords(&self) -> ChunkCoords {
+        let x = self.x as i32 / 16;
+        let z = self.z as i32 / 16;
+        ChunkCoords { x, z }
+    }
 }
 impl std::default::Default for BlockPosition {
     fn default() -> Self {
@@ -73,7 +81,7 @@ pub struct Position {
 #[derive(Copy, Clone)]
 pub struct Block {
     pub position: BlockPosition,
-    pub block: crate::world::Block,
+    pub block: crate::chunks::Block,
 }
 use glam::DVec3;
 impl Position {
@@ -118,6 +126,11 @@ impl Position {
         }
         false
     }
+    pub fn to_chunk_coords(&self) -> ChunkCoords {
+        let x = self.x as i32 / 16;
+        let z = self.z as i32 / 16;
+        ChunkCoords { x, z }
+    }
 }
 #[derive(Clone, Debug, PartialEq)]
 pub struct MiningBlockData {
@@ -159,9 +172,14 @@ impl ItemStack {
         Self { id, damage, count }
     }
 }
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct Inventory {
     pub items: HashMap<i8, ItemStack>,
+}
+impl std::default::Default for Inventory {
+    fn default() -> Self {
+         Self { items: HashMap::new() }
+    }
 }
 impl Inventory {
     pub fn new() -> Self {
@@ -173,17 +191,18 @@ impl Inventory {
     }
     pub fn get_slot(&mut self, slot: i8) -> Option<&mut ItemStack> {
         self.items.get_mut(&slot)
-    } 
+    }
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub struct ChunkCoords {
     pub x: i32,
     pub z: i32,
 }
+impl Eq for ChunkCoords {}
 //use num::num_integer::roots::Roots;
 impl ChunkCoords {
-    pub fn distance(&self, other: &ChunkCoords) -> usize {
-        (((self.x - other.x).pow(2) + (self.z - other.z).pow(2)) as f64).sqrt() as usize
+    pub fn distance(&self, other: &ChunkCoords) -> f64 {
+        (((self.x - other.x).pow(2) + (self.z - other.z).pow(2)) as f64).sqrt()
     }
     pub fn from_pos(position: &Position) -> Self {
         Self {
@@ -196,6 +215,10 @@ impl ChunkCoords {
 pub struct RenderedPlayerInfo {
     pub position: Position,
     pub held_item: ItemStack,
+}
+#[derive(Clone, Debug)]
+pub struct RenderedEntityInfo {
+    pub position: Position,
 }
 #[derive(Clone)]
 pub struct Chatbox {
@@ -220,7 +243,16 @@ pub struct PlayerRef {
 }
 impl PlayerRef {
     pub fn new(player: RefCell<Player>) -> Self {
-        Self { player: Arc::new(player) }
+        Self {
+            player: Arc::new(player),
+        }
+    }
+    pub fn open_window(&self, window: Window, id: i8) {
+        self.player.borrow_mut().open_inventories.insert(id, window.clone());
+        self.write_packet(ServerPacket::OpenWindow { window_id: id, inventory_type: window.inventory_type, window_title: window.window_title, num_slots: window.inventory.items.len() as i8});
+    }
+    pub fn close_window(&self, id: i8) {
+        self.player.borrow_mut().open_inventories.remove(&id);
     }
     pub fn send_message(&self, message: Message) {
         self.player.borrow_mut().chatbox.push(message);
@@ -233,7 +265,9 @@ impl PlayerRef {
     }
     // GAHHHHHHHHHH I JUST FIGURED THIS OUT NOW i'll do it tommorow. (did it almost)
     pub fn get_item_in_hand(&self) -> RefMut<'_, ItemStack> {
-        RefMut::map(self.player.borrow_mut(), |plr| plr.get_item_in_hand_mut().unwrap())
+        RefMut::map(self.player.borrow_mut(), |plr| {
+            plr.get_item_in_hand_mut().unwrap()
+        })
     }
     pub fn get_item_in_hand_clone(&self) -> ItemStack {
         self.player.borrow().get_item_in_hand_ref().clone()
@@ -260,7 +294,7 @@ impl PlayerRef {
     pub fn set_checking_fall(&self, value: bool) {
         self.player.borrow_mut().checking_fall = value;
     }
-/*     pub fn get_rendered_players_ref(&self) -> &HashMap<(EntityID, String), RenderedPlayerInfo> {
+    /*     pub fn get_rendered_players_ref(&self) -> &HashMap<(EntityID, String), RenderedPlayerInfo> {
         &self.player.borrow().rendered_players
     }
     pub fn get_rendered_players_mut(&self) -> &mut HashMap<(EntityID, String), RenderedPlayerInfo> {
@@ -328,7 +362,7 @@ impl PlayerRef {
     pub fn get_loaded_chunks(&self) -> Vec<ChunkCoords> {
         self.player.borrow().loaded_chunks.clone()
     }
-    pub fn held_items_check(&self, game: &mut Game) -> anyhow::Result<()> {
+    pub fn equipment_check(&self, game: &mut Game) -> anyhow::Result<()> {
         let mut cl = self.player.borrow_mut();
         // Held items check
         let mut item = cl.get_item_in_hand_ref().clone();
@@ -345,6 +379,19 @@ impl PlayerRef {
                 damage: 0,
             },
         )?;
+        for i in 5..8 {
+            let item = cl.inventory.items.get(&i).unwrap();
+            //log::info!("Item id: {}", item.id);
+            game.broadcast_to_loaded(
+                &cl,
+                ServerPacket::EntityEquipment {
+                    eid: cl.id.0,
+                    slot: (i - 3) as i16,
+                    item_id: item.id,
+                    damage: item.damage,
+                },
+            )?;
+        }
         Ok(())
     }
     pub fn is_dead(&self) -> bool {
@@ -357,6 +404,7 @@ impl PlayerRef {
         self.player.borrow_mut().position
     }
     pub fn set_position(&self, pos: Position) {
+        self.player.borrow_mut().pos_changed = true;
         self.player.borrow_mut().position = pos;
     }
     pub fn set_last_position(&self, position: Position) {
@@ -375,7 +423,7 @@ impl PlayerRef {
     pub fn can_borrow(&self) -> bool {
         self.player.try_borrow().is_ok()
     }
-/*     pub fn get_inventory_slot_mut(&self, slot: i8) -> Option<RefMut<'_, ItemStack>> {
+    /*     pub fn get_inventory_slot_mut(&self, slot: i8) -> Option<RefMut<'_, ItemStack>> {
         if self.player.borrow().inventory.items.get(&slot).is_none() {
             return None;
         }
@@ -389,7 +437,9 @@ impl PlayerRef {
         Some(())
     } */
     pub fn get_current_cursored_item_mut(&self) -> RefMut<'_, Option<ItemStack>> {
-        RefMut::map(self.player.borrow_mut(), |plr| &mut plr.current_cursored_item)
+        RefMut::map(self.player.borrow_mut(), |plr| {
+            &mut plr.current_cursored_item
+        })
     }
     pub fn unwrap(&self) -> Result<RefMut<'_, Player>, std::cell::BorrowMutError> {
         self.player.try_borrow_mut()
@@ -397,14 +447,91 @@ impl PlayerRef {
     pub fn sync_inventory(&self) {
         let mut player = self.unwrap().unwrap();
         let inv = player.inventory.clone();
-        log::info!("Writing inv items");
+        //log::info!("Writing inv items");
         player.write(ServerPacket::InvWindowItems { inventory: inv });
         player.last_inventory = player.inventory.clone();
         player.inv_changed = false;
     }
+    pub fn check_chunks(&self, game: &mut Game) {
+        let mut cl = self.player.borrow_mut();
+        // Chunk check
+        cl.pos_changed = false;
+        let pos = cl.position.clone();
+        let mut packets = vec![];
+        cl.loaded_chunks.retain(|chunk| {
+            if chunk.distance(&ChunkCoords::from_pos(&pos)) > 5. {
+                packets.push(ServerPacket::PreChunk {
+                    x: chunk.x,
+                    z: chunk.z,
+                    mode: false,
+                });
+                return false;
+            }
+            true
+        });
+        for packet in packets {
+            cl.write(packet);
+        }
+        for x in -3..3 {
+            for z in -3..3 {
+                //let coords = ChunkCoords { x: x, z: z };
+                let mut coords = ChunkCoords::from_pos(&pos);
+                coords.x += x;
+                coords.z += z;
+                if game.world.check_chunk_exists(coords)
+                /*  && !(x == 0 && z == 0) */
+                {
+                    if !cl.loaded_chunks.contains(&coords) {
+                        cl.loaded_chunks.push(coords);
+                        game.loaded_chunks.push(coords);
+                        let packets = game
+                            .world
+                            .chunk_to_packets(coords, &mut cl.packet_send_sender);
+                        if packets.is_err() {
+                            continue;
+                        }
+                    }
+                } else {
+                    game.world.chunks.insert(
+                        coords,
+                        crate::chunks::Chunk::epic_generate(coords.x, coords.z)
+        /*                 Chunk {
+                            x: idx.0,
+                            z: idx.1,
+                            data: [None, None, None, None, None, None, None, None],
+                        }, */
+                    );
+                }
+            }
+        }
+        let mut packets = vec![];
+        let loaded = cl.loaded_chunks.clone();
+        cl.rendered_players.retain(|id, _| {
+            if let Some(plr) = game.players.0.borrow().clone().get(&id.0) {
+                let otherpos = plr.get_position_clone();
+                let c_x = otherpos.x as i32 / 16;
+                let c_z = otherpos.z as i32 / 16;
+                let c_coords = ChunkCoords { x: c_x, z: c_z };
+                if !loaded.contains(&c_coords) {
+                    packets.push(ServerPacket::DestroyEntity { eid: id.0 .0 });
+                    return false;
+                }
+            } else {
+                packets.push(ServerPacket::DestroyEntity { eid: id.0 .0 });
+                return false;
+            }
+            true
+        });
+        for packet in packets {
+            cl.write(packet);
+        }
+    }
     pub fn tick(&self, game: &mut Game) -> anyhow::Result<()> {
         if self.player.borrow().held_item_changed.clone() {
-            self.held_items_check(game)?;
+            self.equipment_check(game)?;
+        }
+        if self.player.borrow().pos_changed.clone() {
+            self.check_chunks(game);
         }
         if self.player.borrow().inv_changed.clone() {
             self.sync_inventory();
@@ -414,13 +541,13 @@ impl PlayerRef {
         // Fall damage check
         if cl.position.on_ground {
             if cl.offground_height > (cl.position.y as f32) {
-                log::info!("Offground: {}, pos: {}", cl.offground_height, cl.position.y);
+                //log::info!("Offground: {}, pos: {}", cl.offground_height, cl.position.y);
                 let height = cl.offground_height - (cl.position.y as f32);
                 if height > 0.0 {
                     let fall_dmg = (height - 3.0).max(0.0);
-                    log::info!("Damage: {}", fall_dmg.round());
+                    //log::info!("Damage: {}", fall_dmg.round());
                     cl.damage(DamageType::Fall, fall_dmg.round() as i16, None);
-                    log::info!("Fell from a height of {}", height);
+                    //log::info!("Fell from a height of {}", height);
                 }
                 cl.offground_height = 0.0;
             }
@@ -475,12 +602,12 @@ impl PlayerRef {
             }
         }
         let inv = cl.inventory.clone();
-        cl.write(ServerPacket::InvWindowItems {
-            inventory: inv,
-        });
+        cl.write(ServerPacket::InvWindowItems { inventory: inv });
         // Chat messages
         cl.chatbox.clone().messages.retain(|message| {
-            cl.write(ServerPacket::ChatMessage { message: message.message.clone() });
+            cl.write(ServerPacket::ChatMessage {
+                message: message.message.clone(),
+            });
             false
         });
         cl.chatbox = crate::game::Chatbox::default();
@@ -490,15 +617,103 @@ impl PlayerRef {
         for player in plrlist.iter() {
             if player.0 != &cl.id {
                 let other_username = player.1.get_username();
-                if cl.rendered_players.get(&(*player.0, other_username.clone())).is_none() /* && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) */ {
-                    cl.rendered_players.insert((*player.0, other_username),  crate::game::RenderedPlayerInfo {position: player.1.get_position_clone(), held_item: player.1.get_item_in_hand_clone() });
+                if !cl.loaded_chunks.contains(&player.1.get_position().to_chunk_coords()) {
+                    continue;
+                }
+                if cl
+                    .rendered_players
+                    .get(&(*player.0, other_username.clone()))
+                    .is_none()
+                /* && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) */
+                {
+                    cl.rendered_players.insert(
+                        (*player.0, other_username),
+                        crate::game::RenderedPlayerInfo {
+                            position: player.1.get_position_clone(),
+                            held_item: player.1.get_item_in_hand_clone(),
+                        },
+                    );
                     let pos = player.1.get_position_clone();
-                    cl.write(ServerPacket::NamedEntitySpawn { eid: player.1.get_id().0, name: player.1.get_username(), x: (pos.x * 32.0).round() as i32, y: (pos.y * 32.0).round() as i32, z: (pos.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
+                    cl.write(ServerPacket::NamedEntitySpawn {
+                        eid: player.1.get_id().0,
+                        name: player.1.get_username(),
+                        x: (pos.x * 32.0).round() as i32,
+                        y: (pos.y * 32.0).round() as i32,
+                        z: (pos.z * 32.0).round() as i32,
+                        rotation: 0,
+                        pitch: 0,
+                        current_item: 0,
+                    });
+                    cl.write(ServerPacket::EntityTeleport { eid: player.1.get_id().0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
+                }
+            }
+        }
+        // Cull entities check
+        let mut ids = Vec::new();
+        cl.rendered_entities.retain(|id, _| {
+            for (_, entity_game) in game.entities.borrow_mut().iter_mut() {
+                let entity_game = entity_game.borrow();
+                if id == &entity_game.get_id() {
+                    return true;
+                }
+            }
+            ids.push(id.clone());
+            false
+        });
+        for id in ids {
+            cl.write(ServerPacket::DestroyEntity { eid: id.0 });
+            //game.entities.borrow().get(&id).unwrap().borrow_mut().destruct_entity(&mut cl);
+        }
+        // Cull spawned entities check
+        let loaded = cl.loaded_chunks.clone();
+        let mut ids = Vec::new();
+        cl.rendered_entities.retain(|id, _| {
+            if let Some(entity) = game.entities.borrow_mut().get_mut(id) {
+                if loaded.contains(&entity.borrow_mut().get_position().to_chunk_coords()) {
+                    return true;
+                }
+            }
+            ids.push(id.clone());
+            false
+        });
+        for id in ids {
+            game.entities.borrow().get(&id).unwrap().borrow_mut().destruct_entity(&mut cl);
+        }
+        // Spawn entities check
+        //log::info!("Running spawn players tick");
+        let mut entitylist = game.entities.borrow_mut();
+        for (_, entity) in entitylist.iter_mut() {
+            let mut entity = entity.borrow_mut();
+            if entity.get_id() != cl.id {
+                //let other_username = player.1.get_username();
+                if !cl.loaded_chunks.contains(&entity.get_position().clone().to_chunk_coords()) {
+                    continue;
+                }
+                if cl
+                    .rendered_entities
+                    .get(&entity.get_id())
+                    .is_none()
+                /* && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) */
+                {
+                    cl.rendered_entities.insert(
+                        entity.get_id(),
+                        crate::game::RenderedEntityInfo {
+                            position: entity.get_position().clone()
+                        },
+                    );
+                    log::info!("Spawning entity!");
+                    entity.spawn_entity(&mut cl);
                 }
             }
         }
         Ok(())
     }
+}
+#[derive(Clone)]
+pub struct Window {
+    pub inventory: Inventory,
+    pub inventory_type: i8,
+    pub window_title: String,
 }
 pub struct Player {
     pub username: String,
@@ -508,7 +723,8 @@ pub struct Player {
     pub recv_packets_recv: Receiver<ClientPacket>,
     pub packet_send_sender: Sender<ServerPacket>,
     pub rendered_players: HashMap<(EntityID, String), RenderedPlayerInfo>,
-    pub rendered_entities: HashMap<EntityID, Box<dyn Entity>>,
+    pub rendered_entities: HashMap<EntityID, RenderedEntityInfo>,
+    pub open_inventories: HashMap<i8, Window>,
     pub chatbox: Chatbox,
     pub perm_level: usize,
     pub crouching: bool,
@@ -529,6 +745,7 @@ pub struct Player {
     pub mining_block: MiningBlockData,
     pub held_item_changed: bool,
     pub inv_changed: bool,
+    pub pos_changed: bool,
     pub offground_height: f32,
     pub checking_fall: bool,
     players_list: PlayerList,
@@ -537,7 +754,7 @@ impl Player {
     pub fn sync_inventory(&mut self) {
         let mut player = self;
         let inv = player.inventory.clone();
-        log::info!("Writing inv items");
+        //log::info!("Writing inv items");
         player.write(ServerPacket::InvWindowItems { inventory: inv });
         player.last_inventory = player.inventory.clone();
         player.inv_changed = false;
@@ -559,8 +776,8 @@ impl Player {
         for player in self.players_list.0.borrow().iter() {
             if player.1.can_borrow() {
                 player
-                .1
-                .send_message(Message::new(&format!("{} left the game.", self.username)));
+                    .1
+                    .send_message(Message::new(&format!("{} left the game.", self.username)));
             }
             /*             if let Ok(mut plr) = player.1.try_borrow_mut() {
             } else {
@@ -587,7 +804,9 @@ impl Player {
             eid: id,
             entity_status: 2,
         });
-        self.write(ServerPacket::UpdateHealth { health: self.health });
+        self.write(ServerPacket::UpdateHealth {
+            health: self.health,
+        });
         if let Some(plr) = damagee {
             plr.write(ServerPacket::EntityStatus {
                 eid: self.id.0,
@@ -619,9 +838,7 @@ impl Player {
     }
     pub fn get_item_in_hand_mut(&mut self) -> Option<&mut ItemStack> {
         //log::info!("Checking slot {}", self.held_slot + 36);
-        self.inventory
-            .items
-            .get_mut(&((self.held_slot + 36) as i8))
+        self.inventory.items.get_mut(&((self.held_slot + 36) as i8))
     }
     pub fn get_item_in_hand_ref(&self) -> &ItemStack {
         //log::info!("Checking slot {}", self.held_slot + 36);
@@ -666,17 +883,30 @@ impl Message {
 }
 #[derive(Clone)]
 pub struct PlayerList(pub Arc<RefCell<HashMap<EntityID, Arc<PlayerRef>>>>);
+pub struct LoadedChunks(pub Vec<ChunkCoords>);
+impl LoadedChunks {
+    pub fn push(&mut self, coords: ChunkCoords) {
+        if !self.0.contains(&coords) {
+            self.0.push(coords);
+        }
+    }
+}
 pub struct Game {
     pub objects: Arc<Objects>,
     pub players: PlayerList,
-    pub entities: Arc<RefCell<Vec<Box<dyn Entity>>>>,
+    pub entities: Arc<RefCell<HashMap<EntityID, Arc<RefCell<Box<dyn Entity>>>>>>,
     pub systems: Arc<RefCell<Systems>>,
-    pub world: crate::world::World,
+    pub world: crate::chunks::World,
     pub block_updates: Vec<Block>,
     pub command_system: Arc<RefCell<CommandSystem>>,
+    pub loaded_chunks: LoadedChunks,
     pub time: i64,
+    pub ticks: u128,
 }
 impl Game {
+    pub fn spawn_entity(&mut self, entity: Box<dyn Entity>) {
+        self.entities.borrow_mut().insert(entity.get_id(), Arc::new(RefCell::new(entity)));
+    }
     pub fn new(systems: Systems) -> Self {
         let mut registry = ItemRegistry::new();
         let mut event_handler = EventHandler::new();
@@ -686,10 +916,10 @@ impl Game {
                 return false;
             }
             let event = event.unwrap();
-            log::info!("Got event!");
+            //log::info!("Got event!");
             let mut packet = event.packet.clone();
             let mut player = event.player.unwrap().unwrap();
-            packet.y -= 1;
+            //packet.y -= 1;
             match packet.direction {
                 0 => {
                     packet.y -= 1;
@@ -714,69 +944,72 @@ impl Game {
                     return false;
                 }
             }
+            // BLOCKS stuff
             let block = if let Some(blk) =
                 game.world
                     .get_block(packet.x, (packet.y + 0) as i32, packet.z)
             {
                 blk
             } else {
-                log::info!("false.");
+                //log::info!("false.");
                 return false;
             };
-/*             let mut pos = player.position.clone();
-            let held = player.get_item_in_hand_mut().unwrap();
-            for user in game.players.0.borrow().iter() {
-/*                     let mut pos = user.1.try_borrow();
-                if pos.is_err() {
-                    continue;
-                } */
-                //let mut pos = pos;
-                if pos.contains_block(crate::game::BlockPosition {
-                    x: packet.x,
-                    y: (packet.y + 1) as i32,
-                    z: packet.z,
-                }) {
-                    held.count += 1;
-                    player.write(ServerPacket::BlockChange {
-                        x: packet.x,
-                        y: packet.y + 1,
-                        z: packet.z,
-                        block_type: block.get_type() as i8,
-                        block_metadata: block.b_metadata as i8,
-                    });
-                    return false;
-                }
-            }
-            if pos.contains_block(crate::game::BlockPosition {
-                x: packet.x,
-                y: (packet.y + 1) as i32,
-                z: packet.z,
-            }) {
-                held.count += 1;
-                player.write(ServerPacket::BlockChange {
-                    x: packet.x,
-                    y: packet.y + 1,
-                    z: packet.z,
-                    block_type: block.get_type() as i8,
-                    block_metadata: block.b_metadata as i8,
-                });
-                return false;
-            } */
+
+            /*             let mut pos = player.position.clone();
+                        let held = player.get_item_in_hand_mut().unwrap();
+                        for user in game.players.0.borrow().iter() {
+            /*                     let mut pos = user.1.try_borrow();
+                            if pos.is_err() {
+                                continue;
+                            } */
+                            //let mut pos = pos;
+                            if pos.contains_block(crate::game::BlockPosition {
+                                x: packet.x,
+                                y: (packet.y + 1) as i32,
+                                z: packet.z,
+                            }) {
+                                held.count += 1;
+                                player.write(ServerPacket::BlockChange {
+                                    x: packet.x,
+                                    y: packet.y + 1,
+                                    z: packet.z,
+                                    block_type: block.get_type() as i8,
+                                    block_metadata: block.b_metadata as i8,
+                                });
+                                return false;
+                            }
+                        }
+                        if pos.contains_block(crate::game::BlockPosition {
+                            x: packet.x,
+                            y: (packet.y + 1) as i32,
+                            z: packet.z,
+                        }) {
+                            held.count += 1;
+                            player.write(ServerPacket::BlockChange {
+                                x: packet.x,
+                                y: packet.y + 1,
+                                z: packet.z,
+                                block_type: block.get_type() as i8,
+                                block_metadata: block.b_metadata as i8,
+                            });
+                            return false;
+                        } */
             //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
-            log::info!(
+            // BLOCKS stuff
+/*             log::info!(
                 "Setting at X: {} Y: {} Z: {}",
                 packet.x,
                 packet.y as i32,
                 packet.z
-            );
+            ); */
             if block.get_type() == 0 {
                 //player.write(ServerPacket::BlockChange { x: packet.x, y: packet.y, z: packet.z, block_type: item.id as i8, block_metadata: 0x00 });
-                log::info!("Setting block.");
+                //log::info!("Setting block.");
                 block.set_type(event.packet.block_or_item_id as u8);
                 game.block_updates.push(crate::game::Block {
                     position: crate::game::BlockPosition {
                         x: packet.x,
-                        y: (packet.y + 1) as i32,
+                        y: (packet.y + 0) as i32,
                         z: packet.z,
                     },
                     block: block.clone(),
@@ -784,19 +1017,22 @@ impl Game {
             } else {
                 player.write(ServerPacket::BlockChange {
                     x: packet.x,
-                    y: packet.y + 1,
+                    y: packet.y + 0,
                     z: packet.z,
                     block_type: block.get_type() as i8,
                     block_metadata: block.b_metadata as i8,
                 })
             }
-            log::info!("Got block place event!");
+            //log::info!("Got block place event!");
             true
         }));
         items::default::init_items(&mut registry);
-        ITEM_REGISTRY.set(registry).ok().expect("Can't set item registry!");
+        ITEM_REGISTRY
+            .set(registry)
+            .ok()
+            .expect("Can't set item registry!");
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
-        let world = crate::world::World::crappy_generate();
+        let world = crate::chunks::World::epic_generate();
         let mut command_system = CommandSystem::new();
         command_system.register(Command::new(
             "give",
@@ -867,8 +1103,8 @@ impl Game {
         ));
         let mut objects = Arc::new(Objects::new());
         Arc::get_mut(&mut objects)
-        .expect("cyrntly borwd")
-        .insert(event_handler);
+            .expect("cyrntly borwd")
+            .insert(event_handler);
         Self {
             objects: objects,
             players: PlayerList(Arc::new(RefCell::new(HashMap::new()))),
@@ -877,7 +1113,9 @@ impl Game {
             block_updates: Vec::new(),
             command_system: Arc::new(RefCell::new(command_system)),
             time: 0,
-            entities: Arc::new(RefCell::new(Vec::new())),
+            ticks: 0,
+            entities: Arc::new(RefCell::new(HashMap::new())),
+            loaded_chunks: LoadedChunks(Vec::new()),
         }
     }
     pub fn insert_object<T>(&mut self, object: T)
@@ -932,7 +1170,7 @@ impl Game {
                 crate::systems::update_crouch(self, server, player.clone())?;
             }
             if orig_hi != player.get_item_in_hand_clone() {
-                player.held_items_check(self)?;
+                player.equipment_check(self)?;
                 //crate::systems::update_held_items(self, server, player)?
             }
             if orig_pos != player.get_position_clone() {
@@ -974,17 +1212,21 @@ impl Game {
             }; */
             if player.can_borrow() {
                 if player
-                .unwrap().unwrap().rendered_players
-                .get(&(to_remove.id, to_remove.username.clone()))
-                .is_some()
-            {
-                player.write_packet(ServerPacket::DestroyEntity {
-                    eid: to_remove.id.0,
-                });
-            }
-            player
-                .unwrap().unwrap().rendered_players
-                .remove(&(to_remove.id, to_remove.username.clone()));
+                    .unwrap()
+                    .unwrap()
+                    .rendered_players
+                    .get(&(to_remove.id, to_remove.username.clone()))
+                    .is_some()
+                {
+                    player.write_packet(ServerPacket::DestroyEntity {
+                        eid: to_remove.id.0,
+                    });
+                }
+                player
+                    .unwrap()
+                    .unwrap()
+                    .rendered_players
+                    .remove(&(to_remove.id, to_remove.username.clone()));
             } else {
                 log::info!("Can't");
             }
@@ -1007,7 +1249,8 @@ impl Game {
                 continue;
             }
             if plr // unwrap().
-                .unwrap().rendered_players
+                .unwrap()
+                .rendered_players
                 .get(&(origin.id, origin.username.clone()))
                 .is_some()
             {
@@ -1050,8 +1293,12 @@ impl Game {
         let spawnchunk = ChunkCoords { x: 0, z: 0 };
         loaded_chunks.push(spawnchunk.clone());
         self.world
-            .to_packets_new(&mut client.packet_send_sender, &mut Vec::new())
+            .chunk_to_packets(spawnchunk, &mut client.packet_send_sender)
             .unwrap();
+        self.loaded_chunks.push(spawnchunk);
+        /*         self.world
+        .chunks[&spawnchunk].data[0].as_ref().unwrap().to_packets_section_raw(&mut client.packet_send_sender, &mut Vec::new())
+        .unwrap(); */
         client.write(ServerPacket::PlayerPositionAndLook {
             x: 3.0,
             stance: 67.240000009536743,
@@ -1094,9 +1341,11 @@ impl Game {
                 since_last_attack: std::time::Instant::now(),
                 mining_block: MiningBlockData::default(),
                 rendered_entities: HashMap::new(),
+                open_inventories: HashMap::new(),
                 held_item_changed: false,
                 inv_changed: false,
                 checking_fall: true,
+                pos_changed: false,
                 offground_height: 0.0,
                 chatbox: Chatbox::default(),
             }))),

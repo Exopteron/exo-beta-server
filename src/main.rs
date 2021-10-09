@@ -9,7 +9,7 @@ pub mod objects;
 pub mod feather_tick_loop;
 pub mod systems;
 pub mod world;
-pub mod entities;
+pub mod chunks;
 use systems::Systems;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -31,20 +31,24 @@ async fn main() -> anyhow::Result<()> {
         Ok(())
     });
     systems.add_system(|game| {
+        game.ticks += 1;
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>()?;
         systems::sync_positions(game, &mut server)?;
         //systems::update_local_health(game, &mut server)?;
+        systems::tick_entities(game, &mut server)?;
         systems::tick_players(game, &mut server)?;
         //systems::check_dead(game, &mut server)?;
         systems::rem_old_clients(game, &mut server)?;
         //systems::spawn_players(game, &mut server)?;
+        systems::entity_positions(game, &mut server)?;
         systems::update_positions(game, &mut server)?;
 /*         systems::chat_msgs(game, &mut server)?; */
         systems::ping(game, &mut server)?;
         systems::cull_players(game, &mut server)?;
         systems::time_update(game, &mut server)?;
         systems::block_updates(game, &mut server)?;
+        systems::check_loaded_chunks(game, &mut server)?;
         let players = game.players.0.borrow().clone();
         for player in players.iter() {
 /*             systems::check_inv(game, &mut server, player.1)?;
