@@ -121,15 +121,15 @@ impl <T: tokio::io::AsyncRead>InternalReader<T> {
         let id = Self::read_byte_raw(reader).await?;
         match id {
             0x01 => {
-                log::info!("Login request!");
+                //log::info!("Login request!");
                 return Ok(ClientPacket::LoginRequest( LoginRequest { protocol_version: Self::read_int(reader).await?, username: Self::read_string16(reader).await?, map_seed: Self::read_long(reader).await?, dimension: Self::read_byte(reader).await?}));
             }
             0x02 => {
-                log::info!("Handshake!");
+                //log::info!("Handshake!");
                 return Ok(ClientPacket::Handshake( Handshake { username: Self::read_string16(reader).await? }));
             }
             0x03 => {
-                log::info!("Chat!");
+                //log::info!("Chat!");
                 return Ok(ClientPacket::ChatMessage( ChatMessage { message: Self::read_string16(reader).await? }));
             }
             0x00 => {

@@ -59,13 +59,13 @@ impl CommandSystem {
         let mut cmd: Option<Command> = None;
         for registered in &self.commands {
             if registered.root == command[0] {
-                log::info!("is");
+                //log::info!("is");
                 cmd = Some(registered.clone());
                 break;
             }
         }
         if cmd.is_none() {
-            log::info!("none");
+            //log::info!("none");
             return Ok(4);  
         }
         let mut argselect = 1;

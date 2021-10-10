@@ -151,7 +151,6 @@ pub fn handle_packet(
                 //game.spawn_entity(Box::new(crate::game::entities::item_entity::ItemEntity::new(player.get_position_clone(), game.ticks, ItemStack::new(1, 0, 1))));
             }
             let mut inv = player.get_inventory();
-            log::info!("Message: {}", message.message);
             let mut slot = inv
                 .get_slot(39)
                 .expect("Player doesn't have expected slot!"); /*
@@ -192,6 +191,7 @@ pub fn handle_packet(
             //player.sync_inventory();
             if message.message.starts_with("/") {
                 message.message.remove(0);
+                log::info!("{} issued server command /{}", player.get_username(), message.message);
                 use std::ops::DerefMut;
                 //log::info!("A");
                 let res =
@@ -203,6 +203,7 @@ pub fn handle_packet(
                 let message = message.message;
                 //let message = message.replace("&", "§");
                 let message = Message::new(&format!("<{}> {}", player.get_username(), message));
+                log::info!("[Server task] {}", message.message);
                 //log::info!("bx");
                 for (id, player_iter) in game.players.0.borrow().clone() {
                     if id == player.get_id() {
@@ -279,7 +280,7 @@ pub fn handle_packet(
             let mut player = player.unwrap().unwrap();
             let mut player = player.deref_mut();
             let registry = ItemRegistry::global();
-            log::info!("Window id: {}", packet.window_id);
+            log::debug!("Window id: {}", packet.window_id);
             if packet.window_id == 0 {
                 if packet.item_id != -1 {
                     /*                     if registry.get_item(packet.item_id).is_none() {
@@ -320,6 +321,7 @@ pub fn handle_packet(
                         .items
                         .get_mut(&(packet.slot as i8))
                         .expect("Slot doesn't exist!");
+                    
                     if invslot.count == 0 || registry.get_item(invslot.id).is_none() {
                         *invslot = ItemStack::default();
                         player.sync_inventory();
@@ -348,9 +350,9 @@ pub fn handle_packet(
                         {
                             //*invslot = ItemStack::default();
                             //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
-                            if invslot.count
-                                + player.current_cursored_item.clone().unwrap().count.max(1)
-                                > registry.get_item(item.id).unwrap().get_item().stack_size() as i8
+                            if invslot.count as u64
+                                + player.current_cursored_item.clone().unwrap().count.max(1) as u64
+                                > registry.get_item(item.id).unwrap().get_item().stack_size() as u64
                             {
                                 let thing = invslot.count
                                     + player.current_cursored_item.clone().unwrap().count.max(1);
@@ -379,6 +381,12 @@ pub fn handle_packet(
                     } else {
                         *invslot = ItemStack::default();
                     }
+                    if packet.slot == 0 {
+                        log::info!("Slot zro");
+                        for i in 0..5 {
+                            *player.inventory.items.get_mut(&i).unwrap() = ItemStack::default();
+                        }
+                    }
                 } else {
                     if player.current_cursored_item.is_none()
                         || (player.inventory.items.get(&(packet.slot as i8)).unwrap().id
@@ -395,9 +403,85 @@ pub fn handle_packet(
                         return Ok(());
                     }
                     let mut curcurid = player.current_cursored_item.clone().unwrap();
+                    use crate::game::items::*;
                     if (5..9).contains(&packet.slot) {
                         if let Some(item) = registry.get_item(curcurid.id) {
-                            if !item.get_item().wearable() {
+                            let tool_type = if let Some(tool_type) = item.get_item().get_tool_type() {
+                                tool_type
+                            } else {
+                                return Ok(());
+                            };
+                            match packet.slot {
+                                5 => {
+                                   match tool_type {
+                                        ToolType::HELMET => {
+
+                                        }
+                                        _ => {
+                                            player.write(ServerPacket::Transaction {
+                                                window_id: 0,
+                                                action_number: packet.action_number,
+                                                accepted: false,
+                                            });
+                                            return Ok(());
+                                        }
+                                   } 
+                                }
+                                6 => {
+                                    match tool_type {
+                                        ToolType::CHESTPLATE => {
+
+                                        }
+                                        _ => {
+                                            player.write(ServerPacket::Transaction {
+                                                window_id: 0,
+                                                action_number: packet.action_number,
+                                                accepted: false,
+                                            });
+                                            return Ok(());
+                                        }
+                                   } 
+                                }
+                                7 => {
+                                    match tool_type {
+                                        ToolType::LEGGINGS => {
+
+                                        }
+                                        _ => {
+                                            player.write(ServerPacket::Transaction {
+                                                window_id: 0,
+                                                action_number: packet.action_number,
+                                                accepted: false,
+                                            });
+                                            return Ok(());
+                                        }
+                                   }
+                                }
+                                8 => {
+                                    match tool_type {
+                                        ToolType::BOOTS => {
+
+                                        }
+                                        _ => {
+                                            player.write(ServerPacket::Transaction {
+                                                window_id: 0,
+                                                action_number: packet.action_number,
+                                                accepted: false,
+                                            });
+                                            return Ok(());
+                                        }
+                                   }
+                                }
+                                _ => {
+                                    player.write(ServerPacket::Transaction {
+                                        window_id: 0,
+                                        action_number: packet.action_number,
+                                        accepted: false,
+                                    });
+                                    return Ok(());
+                                }
+                            }
+/*                             if !item.get_item().get_tool_type() ==  {
                                 //crate::systems::sync_inv_force(game, server, player)?;
                                 player.write(ServerPacket::Transaction {
                                     window_id: 0,
@@ -405,7 +489,7 @@ pub fn handle_packet(
                                     accepted: false,
                                 });
                                 return Ok(());
-                            }
+                            } */
                             player.held_item_changed = true;
                         }
                     }
@@ -445,13 +529,23 @@ pub fn handle_packet(
                         player.current_cursored_item = None;
                         *invslot = curcurid.clone();
                     }
+                    if (1..5).contains(&packet.slot) {
+                        let recipe = [player.inventory.items.get(&1).clone().unwrap().clone(), player.inventory.items.get(&2).clone().unwrap().clone(), player.inventory.items.get(&3).clone().unwrap().clone(), player.inventory.items.get(&4).clone().unwrap().clone()];
+                        log::debug!("Testing {:?}", recipe);
+                        if let Some(out) = registry.get_recipe(recipe) {
+                            log::debug!("Got it!");
+                            *player.inventory.items.get_mut(&0).unwrap() = out;
+                        };
+                    }
+                    log::debug!("Slot {}", packet.slot);
                 }
                 //player.last_transaction_id = packet.action_number;
-                log::info!(
-                    "Client sent {:?}, {:?}, {:?}",
+                log::debug!(
+                    "Client sent {:?}, {:?}, {:?} {}",
                     packet.item_id,
                     packet.item_count,
-                    packet.item_uses
+                    packet.item_uses,
+                    packet.slot
                 );
                 player.write(ServerPacket::Transaction {
                     window_id: 0,
@@ -461,10 +555,11 @@ pub fn handle_packet(
                 return Ok(());
             } else {
                 if let Some(window) = player.open_inventories.get_mut(&packet.window_id) {
-                    let mut inventory = &mut window.inventory;
+                    let wandow = window.inventory.clone();
+                    let mut inventory = &mut *wandow.borrow_mut();
                     if inventory.items.len() < packet.slot as usize {
                         log::info!("switching to plr inv");
-                        packet.slot -= 4;
+                        packet.slot -= 1;
                         //packet.slot -= inventory.items.len() as i16;
                         inventory = &mut player.inventory;
                     } else {
@@ -574,7 +669,7 @@ pub fn handle_packet(
                             player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
                             player.write(ServerPacket::Transaction {
-                                window_id: 0,
+                                window_id: packet.window_id,
                                 action_number: packet.action_number,
                                 accepted: false,
                             });
@@ -595,8 +690,7 @@ pub fn handle_packet(
                                 player.held_item_changed = true;
                             }
                         } */
-                        let mut invslot = player
-                            .inventory
+                        let mut invslot = inventory
                             .items
                             .get_mut(&(packet.slot as i8))
                             .expect("Slot doesn't exist!");
@@ -629,11 +723,12 @@ pub fn handle_packet(
                                 player.current_cursored_item = None;
                             }
                             player.current_cursored_item = None;
+                            log::debug!("Setting slot");
                             *invslot = curcurid.clone();
                         }
                     }
                     //player.last_transaction_id = packet.action_number;
-                    log::info!(
+                    log::debug!(
                         "Client sent {:?}, {:?}, {:?}",
                         packet.item_id,
                         packet.item_count,
@@ -846,7 +941,7 @@ pub fn handle_packet(
                 let mut held = player.get_item_in_hand();
                 let mut sync: bool = false;
                 if item != *held && item_2 != *held {
-                    log::info!("Not, comparing {:?} to {:?}", item, *held);
+                    log::debug!("Not, comparing {:?} to {:?}", item, *held);
                     sync = true;
                 }
                 drop(held);
@@ -884,7 +979,7 @@ pub fn handle_packet(
                         exopacket.y -= 1;
                     }
                     1 => {
-                        exopacket.y += 1;
+                        exopacket.y = exopacket.y.checked_add(1).ok_or(anyhow::anyhow!("Overflow!"))?;
                     }
                     2 => {
                         exopacket.z -= 1;
@@ -899,13 +994,13 @@ pub fn handle_packet(
                         exopacket.x += 1;
                     }
                     x => {
-                        log::info!("Fal {}", x);
+                        log::debug!("Fal {}", x);
                         //return false;
                     }
                 }
                 let registry = ItemRegistry::global();
                 if let Some(block) = game.world.get_block(packet.x, packet.y as i32, packet.z) {
-                    log::info!("Block: {:?}", block);
+                    log::debug!("Block: {:?}", block);
                     if let Some(i) = registry.get_item(block.b_type as i16) {
                         if let Some(i) = i.get_item().as_block() {
                             if i.on_right_click(game, &mut exopacket, player.clone()) == false {
@@ -927,7 +1022,7 @@ pub fn handle_packet(
             } else {
                 let registry = ItemRegistry::global();
                 if let Some(block) = game.world.get_block(packet.x, packet.y as i32, packet.z) {
-                    log::info!("Block: {:?}", block);
+                    log::debug!("Block: {:?}", block);
                     if let Some(i) = registry.get_item(block.b_type as i16) {
                         if let Some(i) = i.get_item().as_block() {
                             if i.on_right_click(game, &mut packet, player.clone()) == false {
@@ -958,13 +1053,13 @@ pub fn handle_packet(
                 let held = player.get_item_in_hand_mut().unwrap();
                 let despawn;
                 if item != *held && item_2 != *held {
-                    log::info!("Not, comparing {:?} to {:?}", item, *held);
+                    log::debug!("Not, comparing {:?} to {:?}", item, *held);
                     despawn = true;
                     return Ok(());
                 } else {
                     despawn = false;
                 }
-                log::info!("Block: {:?} {:?} {:?}", packet.x, packet.y, packet.z);
+                log::debug!("Block: {:?} {:?} {:?}", packet.x, packet.y, packet.z);
                 held.count -= 1;
                 if despawn {
                     //player.sync_inventory();
@@ -1107,7 +1202,7 @@ pub fn handle_packet(
                     player.mining_block.face = packet.face;
                 }
                 2 => {
-                    log::info!("Got pos {} {} {}", packet.x, packet.y, packet.z);
+                    log::debug!("Got pos {} {} {}", packet.x, packet.y, packet.z);
                     let block = if let Some(blk) =
                         game.world
                             .get_block(packet.x, (packet.y - 0) as i32, packet.z)
@@ -1160,7 +1255,7 @@ pub fn handle_packet(
                         },
                         block: block.clone(),
                     });
-                    log::info!("orig_type: {}", orig_type);
+                    log::debug!("orig_type: {}", orig_type);
                     game.broadcast_to_loaded(
                         &player,
                         ServerPacket::SoundEffect {
@@ -1209,6 +1304,10 @@ pub fn handle_packet(
                 }
                 _ => {}
             }
+        }
+        ClientPacket::CloseWindow(packet) => {
+            let mut player = player.unwrap().unwrap();
+            player.open_inventories.remove(&packet.window_id);
         }
         _ => {}
     }

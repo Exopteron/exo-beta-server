@@ -12,7 +12,7 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<NewPlayer>
     } else {
         return Err(anyhow::anyhow!("Wrong packet!"));
     };
-    log::info!("Packet: {:?}", handshake_packet);
+    //log::info!("Packet: {:?}", handshake_packet);
     let packet = ServerPacket::Handshake { connection_hash: "-".to_string() };
     worker.write(packet).await?;
     let packet = worker.read().await?;
@@ -29,7 +29,8 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<NewPlayer>
         return Err(anyhow::anyhow!("Wrong protocol version!"));
     }
     let id = EntityID::new();
-    log::info!("Packet: {:?}", lr_packet);
+    //log::info!("Packet: {:?}", lr_packet);
+    log::info!("[Connection worker] User {} logging in with entity id {}", lr_packet.username, id.0);
     let packet = ServerPacket::ServerLoginRequest { entity_id: id.0, unknown: "".to_string(), unknown_2: "".to_string(), map_seed: 0, dimension: 0};
     worker.write(packet).await?;
     Ok(NewPlayer { username: lr_packet.username, recv_packets_recv: worker.recv_packets_recv.clone(), packet_send_sender: worker.packet_send_sender.clone(), id})

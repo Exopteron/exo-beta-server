@@ -32,13 +32,13 @@ impl Worker {
     async fn run(mut self) -> anyhow::Result<()> {
         match handshake::handle_connection(&mut self).await {
             Ok(res) => {
-                log::info!("Sending");
+                //log::debug!("Sending");
                 let user = res.username.clone();
                 self.new_players.send_async(res).await?;
                 self.do_main(user).await;
             }
             Err(e) => {
-                log::error!("Error handling user: {:?}", e);
+                log::error!("[Connection worker] Error handling user: {:?}", e);
             }
         }
         Ok(())
@@ -57,7 +57,7 @@ impl Worker {
                 b = writer => b,
             };
             if let Err(e) = result {
-                log::debug!("{} lost connection: {:?}", username, e);
+                log::debug!("[Connection worker] {} lost connection: {:?}", username, e);
             }
         });
     }

@@ -17,6 +17,7 @@ use anyhow::anyhow;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
+    let _ = &configuration::CONFIGURATION.server_name;
     let mut systems = Systems::new();
     systems.add_system(|game| {
         let obj = game.objects.clone();

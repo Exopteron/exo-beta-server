@@ -241,7 +241,7 @@ pub fn check_loaded_chunks(game: &mut Game, server: &mut Server) -> anyhow::Resu
     Ok(())
 }
 pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<PlayerRef>) -> anyhow::Result<()> {
-    log::info!("update_crouch called!");
+    log::debug!("update_crouch called!");
     let len = game.players.0.borrow().len().clone();
     for i in 0..len {
         if i as i32 == player_upd.get_id().0 {
@@ -318,14 +318,14 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
                 continue;
             };
             if id.1.position != pos {
-                if pos.distance(&id.1.position) < 3.5 {
+                if pos.distance(&id.1.position) < 3.5 && true == false {
                     let x_diff = (pos.x - id.1.position.x);
                     let y_diff = (pos.y - id.1.position.y);
                     let z_diff = (pos.z - id.1.position.z);
                     packets.push(ServerPacket::EntityLookAndRelativeMove { eid: id.0.0.0, dX: (x_diff * 32.0) as i8, dY: (y_diff * 32.0) as i8, dZ: (z_diff * 32.0) as i8, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
                     //log::info!("Sending relative");
                 } else {
-                    log::info!("Sending absolute");
+                    //log::info!("Sending absolute");
                     packets.push(ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
                 }
                 //log::info!("Sending entity teleport!");

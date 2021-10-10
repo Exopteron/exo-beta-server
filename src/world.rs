@@ -1,3 +1,4 @@
+// Deprecated
 use crate::game::ChunkCoords;
 use crate::network::packet::ServerPacket;
 use flume::{Sender, Receiver};

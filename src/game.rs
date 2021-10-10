@@ -6,10 +6,11 @@ use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
 use crate::systems::Systems;
+use crate::configuration::CONFIGURATION;
 use items::*;
+pub mod entities;
 pub mod events;
 pub mod items;
-pub mod entities;
 use entities::*;
 use events::*;
 use flume::{Receiver, Sender};
@@ -152,7 +153,7 @@ pub enum DamageType {
     None,
     Fall,
 }
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug, Hash)]
 pub struct ItemStack {
     pub id: i16,
     pub damage: i16,
@@ -178,7 +179,9 @@ pub struct Inventory {
 }
 impl std::default::Default for Inventory {
     fn default() -> Self {
-         Self { items: HashMap::new() }
+        Self {
+            items: HashMap::new(),
+        }
     }
 }
 impl Inventory {
@@ -248,8 +251,16 @@ impl PlayerRef {
         }
     }
     pub fn open_window(&self, window: Window, id: i8) {
-        self.player.borrow_mut().open_inventories.insert(id, window.clone());
-        self.write_packet(ServerPacket::OpenWindow { window_id: id, inventory_type: window.inventory_type, window_title: window.window_title, num_slots: window.inventory.items.len() as i8});
+        self.player
+            .borrow_mut()
+            .open_inventories
+            .insert(id, window.clone());
+        self.write_packet(ServerPacket::OpenWindow {
+            window_id: id,
+            inventory_type: window.inventory_type,
+            window_title: window.window_title,
+            num_slots: window.inventory.borrow().items.len() as i8,
+        });
     }
     pub fn close_window(&self, id: i8) {
         self.player.borrow_mut().open_inventories.remove(&id);
@@ -380,7 +391,10 @@ impl PlayerRef {
             },
         )?;
         for i in 5..8 {
-            let item = cl.inventory.items.get(&i).unwrap();
+            let mut item = cl.inventory.items.get(&i).unwrap().clone();
+            if item.id == 0 {
+                item.id = -1;
+            }
             //log::info!("Item id: {}", item.id);
             game.broadcast_to_loaded(
                 &cl,
@@ -459,7 +473,11 @@ impl PlayerRef {
         let pos = cl.position.clone();
         let mut packets = vec![];
         cl.loaded_chunks.retain(|chunk| {
-            if chunk.distance(&ChunkCoords::from_pos(&pos)) > 5. {
+            if chunk.distance(&ChunkCoords::from_pos(&pos)) > CONFIGURATION.chunk_distance as f64 * 1.5 {
+                if CONFIGURATION.logging.chunk_unload {
+                    log::info!("Unloading chunk at ({}, {})", chunk.x, chunk.z);
+                }
+                log::debug!("Unloading chunk {}, {}", chunk.x, chunk.z);
                 packets.push(ServerPacket::PreChunk {
                     x: chunk.x,
                     z: chunk.z,
@@ -472,8 +490,8 @@ impl PlayerRef {
         for packet in packets {
             cl.write(packet);
         }
-        for x in -3..3 {
-            for z in -3..3 {
+        for x in -CONFIGURATION.chunk_distance..CONFIGURATION.chunk_distance {
+            for z in -CONFIGURATION.chunk_distance..CONFIGURATION.chunk_distance {
                 //let coords = ChunkCoords { x: x, z: z };
                 let mut coords = ChunkCoords::from_pos(&pos);
                 coords.x += x;
@@ -484,6 +502,10 @@ impl PlayerRef {
                     if !cl.loaded_chunks.contains(&coords) {
                         cl.loaded_chunks.push(coords);
                         game.loaded_chunks.push(coords);
+                        if CONFIGURATION.logging.chunk_load {
+                            log::info!("{} is loading chunk at ({}, {})", cl.username, coords.x, coords.z);
+                        }
+                        //game.world.chunks.get_mut(&coords).expect("Deal with this later").calculate_skylight(game.time);
                         let packets = game
                             .world
                             .chunk_to_packets(coords, &mut cl.packet_send_sender);
@@ -494,12 +516,12 @@ impl PlayerRef {
                 } else {
                     game.world.chunks.insert(
                         coords,
-                        crate::chunks::Chunk::epic_generate(coords.x, coords.z)
-        /*                 Chunk {
-                            x: idx.0,
-                            z: idx.1,
-                            data: [None, None, None, None, None, None, None, None],
-                        }, */
+                        game.world.generator.gen_chunk(ChunkCoords { x: coords.x, z :coords.z }), // crate::chunks::Chunk::epic_generate(coords.x, coords.z) 
+                        /*                 Chunk { 
+                                                                                     x: idx.0,
+                                                                                     z: idx.1,
+                                                                                     data: [None, None, None, None, None, None, None, None],
+                                                                                 }, */
                     );
                 }
             }
@@ -588,7 +610,7 @@ impl PlayerRef {
             )?;
             game.broadcast_message(msg.clone())?;
             cl.chatbox.push(msg);
-            println!("Yo!");
+            //println!("Yo!");
             cl.write(ServerPacket::UpdateHealth { health: 0 });
             cl.dead = true;
         }
@@ -617,7 +639,10 @@ impl PlayerRef {
         for player in plrlist.iter() {
             if player.0 != &cl.id {
                 let other_username = player.1.get_username();
-                if !cl.loaded_chunks.contains(&player.1.get_position().to_chunk_coords()) {
+                if !cl
+                    .loaded_chunks
+                    .contains(&player.1.get_position().to_chunk_coords())
+                {
                     continue;
                 }
                 if cl
@@ -644,7 +669,20 @@ impl PlayerRef {
                         pitch: 0,
                         current_item: 0,
                     });
-                    cl.write(ServerPacket::EntityTeleport { eid: player.1.get_id().0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
+                    cl.write(ServerPacket::EntityTeleport {
+                        eid: player.1.get_id().0,
+                        x: (pos.x * 32.0) as i32,
+                        y: (pos.y * 32.0) as i32,
+                        z: (pos.z * 32.0) as i32,
+                        yaw: pos.yaw as i8,
+                        pitch: pos.pitch as i8,
+                    });
+                    if player.1.is_dead() {
+                        cl.write(ServerPacket::EntityStatus {
+                            eid: player.1.get_id().0,
+                            entity_status: 3,
+                        });
+                    }
                 }
             }
         }
@@ -677,7 +715,12 @@ impl PlayerRef {
             false
         });
         for id in ids {
-            game.entities.borrow().get(&id).unwrap().borrow_mut().destruct_entity(&mut cl);
+            game.entities
+                .borrow()
+                .get(&id)
+                .unwrap()
+                .borrow_mut()
+                .destruct_entity(&mut cl);
         }
         // Spawn entities check
         //log::info!("Running spawn players tick");
@@ -686,22 +729,22 @@ impl PlayerRef {
             let mut entity = entity.borrow_mut();
             if entity.get_id() != cl.id {
                 //let other_username = player.1.get_username();
-                if !cl.loaded_chunks.contains(&entity.get_position().clone().to_chunk_coords()) {
+                if !cl
+                    .loaded_chunks
+                    .contains(&entity.get_position().clone().to_chunk_coords())
+                {
                     continue;
                 }
-                if cl
-                    .rendered_entities
-                    .get(&entity.get_id())
-                    .is_none()
+                if cl.rendered_entities.get(&entity.get_id()).is_none()
                 /* && player.1.get_loaded_chunks().contains(&ChunkCoords::from_pos(&cl.position)) */
                 {
                     cl.rendered_entities.insert(
                         entity.get_id(),
                         crate::game::RenderedEntityInfo {
-                            position: entity.get_position().clone()
+                            position: entity.get_position().clone(),
                         },
                     );
-                    log::info!("Spawning entity!");
+                    log::debug!("Spawning entity!");
                     entity.spawn_entity(&mut cl);
                 }
             }
@@ -711,7 +754,7 @@ impl PlayerRef {
 }
 #[derive(Clone)]
 pub struct Window {
-    pub inventory: Inventory,
+    pub inventory: Arc<RefCell<Inventory>>,
     pub inventory_type: i8,
     pub window_title: String,
 }
@@ -874,6 +917,11 @@ impl CommandExecutor for Player {
 pub struct Message {
     pub message: String,
 }
+impl std::fmt::Display for Message {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
 impl Message {
     pub fn new(msg: &str) -> Self {
         Self {
@@ -883,6 +931,16 @@ impl Message {
 }
 #[derive(Clone)]
 pub struct PlayerList(pub Arc<RefCell<HashMap<EntityID, Arc<PlayerRef>>>>);
+impl PlayerList {
+    pub fn get_player(&self, name: &str) -> Option<Arc<PlayerRef>> {
+        for player in self.0.borrow().iter() {
+            if player.1.get_username() == name {
+                return Some(player.1.clone());
+            }
+        }
+        None
+    }
+}
 pub struct LoadedChunks(pub Vec<ChunkCoords>);
 impl LoadedChunks {
     pub fn push(&mut self, coords: ChunkCoords) {
@@ -905,7 +963,9 @@ pub struct Game {
 }
 impl Game {
     pub fn spawn_entity(&mut self, entity: Box<dyn Entity>) {
-        self.entities.borrow_mut().insert(entity.get_id(), Arc::new(RefCell::new(entity)));
+        self.entities
+            .borrow_mut()
+            .insert(entity.get_id(), Arc::new(RefCell::new(entity)));
     }
     pub fn new(systems: Systems) -> Self {
         let mut registry = ItemRegistry::new();
@@ -925,7 +985,13 @@ impl Game {
                     packet.y -= 1;
                 }
                 1 => {
-                    packet.y += 1;
+                    //packet.y += 1;
+                    packet.y = match packet.y.checked_add(1) {
+                        Some(num) => num,
+                        None => {
+                            return false;
+                        }
+                    }
                 }
                 2 => {
                     packet.z -= 1;
@@ -940,7 +1006,7 @@ impl Game {
                     packet.x += 1;
                 }
                 x => {
-                    log::info!("Fal {}", x);
+                    log::debug!("Fal {}", x);
                     return false;
                 }
             }
@@ -996,7 +1062,7 @@ impl Game {
                         } */
             //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
             // BLOCKS stuff
-/*             log::info!(
+            /*             log::info!(
                 "Setting at X: {} Y: {} Z: {}",
                 packet.x,
                 packet.y as i32,
@@ -1032,7 +1098,22 @@ impl Game {
             .ok()
             .expect("Can't set item registry!");
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
-        let world = crate::chunks::World::epic_generate();
+        use crate::chunks::*;
+        let mut world = crate::chunks::World::new(match CONFIGURATION.chunk_generator.as_str() {
+            "noise" => {
+                log::info!("Initializing world with chunk generator \"noise\"");
+                Box::new(FunnyChunkGenerator::new()) as Box<dyn ChunkGenerator>
+            }
+            "flat" => {
+                log::info!("Initializing world with chunk generator \"flat\"");
+                Box::new(FlatChunkGenerator {}) as Box<dyn ChunkGenerator>
+            }
+            unknown => {
+                log::info!("Unknown chunk generator \"{}\", using \"flat\"", unknown);
+                Box::new(FlatChunkGenerator {}) as Box<dyn ChunkGenerator>
+            }
+        });
+        world.generate_spawn_chunks();
         let mut command_system = CommandSystem::new();
         command_system.register(Command::new(
             "give",
@@ -1057,6 +1138,44 @@ impl Game {
                     args[1].display(),
                     args[0].display()
                 )));
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "tp",
+            "teleport command",
+            vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                log::info!("g");
+                let executor = if let Some(executor) = executor.as_any().downcast_mut::<Player>() {
+                    executor
+                } else {
+                    return Ok(3);
+                };
+                let from = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                let to = args[1].as_any().downcast_mut::<String>().unwrap().clone();
+                if from == to {
+                    return Ok(3);
+                }
+                if from == executor.username {
+                    let to = if let Some(plr) = game.players.get_player(&to) {
+                        plr
+                    } else {
+                        return Ok(3);
+                    };
+                    executor.position = to.get_position_clone();
+                    executor.pos_changed = true;
+                } else {
+                    let from = if let Some(plr) = game.players.get_player(&from) {
+                        plr
+                    } else {
+                        return Ok(3);
+                    };
+                }
+/*                 executor.chatbox.push(Message::new(&format!(
+                    "It works! Hello {}",
+                    args[0].display()
+                ))); */
                 Ok(0)
             }),
         ));
@@ -1180,6 +1299,7 @@ impl Game {
         Ok(())
     }
     pub fn broadcast_message(&mut self, message: Message) -> anyhow::Result<()> {
+        log::info!("{}", message);
         for (_, player) in self.players.0.borrow().clone() {
             /*             let mut player = if let Ok(plr) = player.try_borrow_mut() {
                 plr
@@ -1228,7 +1348,7 @@ impl Game {
                     .rendered_players
                     .remove(&(to_remove.id, to_remove.username.clone()));
             } else {
-                log::info!("Can't");
+                //log::info!("Can't");
             }
         }
         Ok(())
@@ -1260,7 +1380,7 @@ impl Game {
         Ok(())
     }
     fn accept_player(&mut self, server: &mut Server, id: EntityID) -> anyhow::Result<()> {
-        log::info!("Player {:?}", id);
+        log::debug!("Player {:?}", id);
         let clients = server.clients.borrow_mut();
         let client = clients.get(&id).unwrap().clone();
         let mut client = client.borrow_mut();
@@ -1287,7 +1407,7 @@ impl Game {
         let mut loaded_chunks = Vec::new();
         client.write(ServerPacket::SpawnPosition {
             x: (3.0f64 * 32.0) as i32,
-            y: (20.0f64 * 32.0) as i32,
+            y: (45.0f64 * 32.0) as i32,
             z: (5.0f64 * 32.0) as i32,
         })?;
         let spawnchunk = ChunkCoords { x: 0, z: 0 };
@@ -1302,7 +1422,7 @@ impl Game {
         client.write(ServerPacket::PlayerPositionAndLook {
             x: 3.0,
             stance: 67.240000009536743,
-            y: 20.0,
+            y: 45.0,
             z: 5.0,
             yaw: 0.0,
             pitch: 0.0,
@@ -1311,7 +1431,7 @@ impl Game {
         //client.write(ServerPacket::PlayerTeleport { player_id: -1, position: Position::from_pos(64, 128, 64)})?;
         let list = self.players.clone();
         let mut players = self.players.0.borrow_mut();
-        let pos = Position::from_pos(3.0, 20.0, 5.0);
+        let pos = Position::from_pos(3.0, 45.0, 5.0);
         players.insert(
             id,
             Arc::new(PlayerRef::new(RefCell::new(Player {

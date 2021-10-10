@@ -27,6 +27,9 @@ impl ItemEntity {
     }
 }
 impl Entity for ItemEntity {
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
     fn get_id(&self) -> EntityID {
         self.entity_id.clone()
     }
@@ -63,7 +66,7 @@ impl Entity for ItemEntity {
             game.entities.borrow_mut().remove(&self.entity_id);
             return;
         }
-        log::info!("I am being ticked! I'm at {:?}", self.position);
+        log::debug!("I am being ticked! I'm at {:?}", self.position);
         if game.ticks - self.ticks_spawned > 600 {
             game.entities.borrow_mut().remove(&self.entity_id);
         }
@@ -73,7 +76,28 @@ impl Entity for ItemEntity {
                 self.position.y -= 0.1;
             }
         }
+        use crate::game::entities::*;
         if game.ticks - self.ticks_spawned > 5 {
+            let entities = game.entities.borrow().clone();
+            for entity in entities {
+                if entity.0 == self.entity_id {
+                    continue;
+                }
+                if self.position.distance(&entity.1.borrow_mut().get_position()) < 1.5 {
+                    let mut entity = entity.1.borrow_mut();
+                    if let Some(entity) = entity.as_any().downcast_mut::<ItemEntity>() {
+                        if entity.item.id == self.item.id && entity.item.damage == self.item.damage {
+                            let registry = ItemRegistry::global();
+                            let stack_size = registry.get_item(self.item.id).expect("Fix later").get_item().stack_size();
+                            if (entity.item.count as u64 + self.item.count as u64) < stack_size as u64 {
+                                entity.item.count += self.item.count;
+                                game.entities.borrow_mut().remove(&self.entity_id);
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
             let players = game.players.0.borrow().clone();
             for player in players {
                 if self.position.distance(&player.1.get_position()) < 1.5 {

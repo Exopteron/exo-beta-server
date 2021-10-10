@@ -1,6 +1,26 @@
 use super::*;
 use events::*;
 use std::boxed::Box;
+pub struct GrassBlock {}
+impl block::Block for GrassBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(3, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        Some(ItemStack::new(3, 0, 1))
+    }
+}
 pub struct DirtBlock {}
 impl block::Block for DirtBlock {
     fn stack_size(&self) -> i16 {
@@ -97,7 +117,7 @@ impl block::Block for CraftingTableBlock {
             craftory.items.insert(i, ItemStack::default());
         }
         log::info!("Lenga: {:?}", craftory.items.len());
-        player.open_window(Window { inventory_type: 1, window_title: "Crafting".to_string(), inventory: craftory}, 69);
+        player.open_window(Window { inventory_type: 1, window_title: "Crafting".to_string(), inventory: Arc::new(RefCell::new(craftory))}, 69);
         false
     }
 }
@@ -139,6 +159,18 @@ impl Item for GoldChestplateItem {
         true
     }
 }
+pub struct StickItem {}
+impl Item for StickItem {
+    fn is_block(&self) -> bool {
+        false
+    }
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_use(&self, game: &mut Game, packet: crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
 pub struct GoldPickaxeItem {}
 impl Item for GoldPickaxeItem {
     fn is_block(&self) -> bool {
@@ -162,4 +194,9 @@ pub fn init_items(registry: &mut ItemRegistry) {
     registry.register_item(285, "gold_pickaxe_item", Box::new(GoldPickaxeItem {}));
     registry.register_item(315, "gold_chestplate_item", Box::new(GoldChestplateItem {}));
     registry.register_item(58, "craftingtable_block", Box::new(CraftingTableBlock {}));
+    registry.register_item(2, "grass_block", Box::new(GrassBlock {}));
+    registry.register_item(280, "stick_item", Box::new(StickItem {}));
+    let plank = ItemStack::new(5, 0, 1);
+    registry.register_2x2_recipe([ItemStack::default(), plank.clone(), ItemStack::default(), plank.clone()], ItemStack::new(280, 0, 4));
+    //log::info!("[ItemRegistry] Registry initialized!");
 }

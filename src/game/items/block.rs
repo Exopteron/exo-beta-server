@@ -15,6 +15,9 @@ pub trait Block {
     fn on_place(&self, game: &mut Game, packet: &mut crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>);
     fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack>;
     fn on_right_click(&self, game: &mut Game, packet: &mut crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> bool { true }
+    fn opacity(&self) -> u64 {
+        100
+    }
 }
 impl<T> Item for T
 where

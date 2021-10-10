@@ -2,7 +2,11 @@
 
 use std::time::Instant;
 use std::time::Duration;
-pub const TICK_DURATION: Duration = Duration::from_millis(1000 / 20 as u64);
+use crate::configuration::CONFIGURATION;
+use once_cell::sync::Lazy;
+static TICK_DURATION: Lazy<Duration> = Lazy::new(|| {
+    Duration::from_millis(1000 / CONFIGURATION.tps as u64)
+});
 pub struct TickLoop {
     function: Box<dyn FnMut() -> bool>,
 }
@@ -23,10 +27,12 @@ impl TickLoop {
             }
 
             let elapsed = start.elapsed();
-            if elapsed > TICK_DURATION {
-                log::warn!("Tick took too long ({:?})", elapsed);
+            if elapsed > *TICK_DURATION {
+                if CONFIGURATION.logging.slow_ticks {
+                    log::warn!("[Server task] Tick took too long ({:?})", elapsed);
+                }
             } else {
-                std::thread::sleep(TICK_DURATION - elapsed);
+                std::thread::sleep(*TICK_DURATION - elapsed);
             }
         }
     }

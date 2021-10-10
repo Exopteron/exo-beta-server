@@ -7,10 +7,11 @@ pub fn setup_logging() {
     .format(|buf, record| {
       writeln!(
         buf,
-        "[{} {}] - {}",
+        "[{} {}] [{}] - {}",
         Local::now().format("%H:%M:%S"),
         record.level(),
-        record.args()
+        record.target(),
+        record.args(),
       )
     })
     .filter(None, LevelFilter::Info)

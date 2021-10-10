@@ -9,4 +9,5 @@ pub trait Entity {
     fn broadcast_pos_change(&mut self) -> bool {
         true
     }
+    fn as_any(&mut self) -> &mut dyn Any;
 }
