@@ -468,11 +468,11 @@ pub struct FunnyChunkGenerator {
     noise: ScaledNoiseMap<NoiseMap<PerlinNoise>>,
 }
 impl FunnyChunkGenerator {
-    pub fn new() -> Self {
+    pub fn new(seed: u64) -> Self {
         let noise = PerlinNoise::new();
         let nm = NoiseMap::new(noise)
             .set(Size::of(16, 16))
-            .set(Seed::of("Hello?"))
+            .set(Seed::of_value(seed))
             .set(Step::of(-0.02, 0.02));
         let nm = nm * 10;
         Self { noise: nm }

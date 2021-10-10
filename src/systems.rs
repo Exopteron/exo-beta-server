@@ -442,7 +442,7 @@ pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
             true
         });
         for id in &to_derender {
-            log::info!("Run");
+            //log::info!("Run");
             player.write_packet(ServerPacket::DestroyEntity { eid: id.0 });
         }
     }

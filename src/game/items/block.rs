@@ -18,6 +18,10 @@ pub trait Block {
     fn opacity(&self) -> u64 {
         100
     }
+    fn hardness(&self) -> f32;
+    fn needs_align(&self) -> bool {
+        false
+    }
 }
 impl<T> Item for T
 where
@@ -53,6 +57,7 @@ where
                     cancelled: false,
                     packet: packet.clone(),
                     player: player.clone(),
+                    needs_align: self.needs_align(),
                 }))?;
             }
         }

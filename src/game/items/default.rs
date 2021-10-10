@@ -20,6 +20,9 @@ impl block::Block for GrassBlock {
     fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
         Some(ItemStack::new(3, 0, 1))
     }
+    fn hardness(&self) -> f32 {
+        0.6
+    }
 }
 pub struct DirtBlock {}
 impl block::Block for DirtBlock {
@@ -40,6 +43,9 @@ impl block::Block for DirtBlock {
     fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
         Some(ItemStack::new(3, 0, 1))
     }
+    fn hardness(&self) -> f32 {
+        0.5
+    }
 }
 pub struct CobblestoneBlock {}
 impl block::Block for CobblestoneBlock {
@@ -59,6 +65,9 @@ impl block::Block for CobblestoneBlock {
     }
     fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
         Some(ItemStack::new(4, 0, 1))
+    }
+    fn hardness(&self) -> f32 {
+        2.
     }
 }
 pub struct StoneBlock {}
@@ -91,6 +100,9 @@ impl block::Block for StoneBlock {
         }
         None
     }
+    fn hardness(&self) -> f32 {
+        1.5
+    }
 }
 pub struct CraftingTableBlock {}
 impl block::Block for CraftingTableBlock {
@@ -113,12 +125,41 @@ impl block::Block for CraftingTableBlock {
     }
     fn on_right_click(&self, game: &mut Game, packet: &mut crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>) -> bool {
         let mut craftory = Inventory::default();
-        for i in 0..9 {
+        for i in 0..10 {
             craftory.items.insert(i, ItemStack::default());
         }
-        log::info!("Lenga: {:?}", craftory.items.len());
+        //log::info!("Lenga: {:?}", craftory.items.len());
         player.open_window(Window { inventory_type: 1, window_title: "Crafting".to_string(), inventory: Arc::new(RefCell::new(craftory))}, 69);
         false
+    }
+    fn hardness(&self) -> f32 {
+        2.5
+    }
+}
+pub struct TorchBlock {}
+impl block::Block for TorchBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn get_block_drop(&self) -> Option<ItemStack> {
+        Some(ItemStack::new(50, 0, 1))
+    }
+    fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
+        Some(ItemStack::new(50, 0, 1))
+    }
+    fn hardness(&self) -> f32 {
+        2.
+    }
+    fn needs_align(&self) -> bool {
+        true
     }
 }
 pub struct PlanksBlock {}
@@ -139,6 +180,9 @@ impl block::Block for PlanksBlock {
     }
     fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack> {
         Some(ItemStack::new(5, 0, 1))
+    }
+    fn hardness(&self) -> f32 {
+        2.
     }
 }
 pub struct GoldChestplateItem {}
@@ -196,7 +240,10 @@ pub fn init_items(registry: &mut ItemRegistry) {
     registry.register_item(58, "craftingtable_block", Box::new(CraftingTableBlock {}));
     registry.register_item(2, "grass_block", Box::new(GrassBlock {}));
     registry.register_item(280, "stick_item", Box::new(StickItem {}));
+    registry.register_item(50, "torch_block", Box::new(TorchBlock {}));
     let plank = ItemStack::new(5, 0, 1);
+    registry.register_2x2_recipe([ItemStack::new(5, 0, 1), ItemStack::new(5, 0, 1), ItemStack::new(5, 0, 1), ItemStack::new(5, 0, 1)], ItemStack::new(58, 0, 1));
     registry.register_2x2_recipe([ItemStack::default(), plank.clone(), ItemStack::default(), plank.clone()], ItemStack::new(280, 0, 4));
+    registry.register_3x3_recipe([ItemStack::default(), plank.clone(), ItemStack::default(), ItemStack::default(), plank.clone(), ItemStack::default(), ItemStack::default(), ItemStack::default(), ItemStack::default()], ItemStack::new(280, 0, 4));
     //log::info!("[ItemRegistry] Registry initialized!");
 }

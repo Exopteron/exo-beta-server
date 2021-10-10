@@ -3,6 +3,7 @@ pub struct BlockPlacementEvent {
     pub cancelled: bool,
     pub player: Arc<PlayerRef>,
     pub packet: crate::network::packet::PlayerBlockPlacement,
+    pub needs_align: bool,
 }
 impl Event for BlockPlacementEvent {
     fn as_any(&self) -> &dyn Any {

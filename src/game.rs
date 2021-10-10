@@ -259,7 +259,7 @@ impl PlayerRef {
             window_id: id,
             inventory_type: window.inventory_type,
             window_title: window.window_title,
-            num_slots: window.inventory.borrow().items.len() as i8,
+            num_slots: window.inventory.borrow().items.len() as i8 - 1,
         });
     }
     pub fn close_window(&self, id: i8) {
@@ -609,6 +609,27 @@ impl PlayerRef {
                 },
             )?;
             game.broadcast_message(msg.clone())?;
+            let pos = cl.position.clone();
+            cl.inventory.items.retain(|_, item| {
+                if item.id != 0 {
+                    game.spawn_entity(Box::new(
+                        crate::game::entities::item_entity::ItemEntity::new(
+                            Position::from_pos(
+                                pos.x as f64,
+                                (pos.y as f64) + 1.0,
+                                pos.z as f64,
+                            ),
+                            game.ticks,
+                            item.clone(),
+                            None,
+                        ),
+                    ));
+                }
+                item.id = 0;
+                item.count = 0;
+                item.damage = 0;
+                true
+            });
             cl.chatbox.push(msg);
             //println!("Yo!");
             cl.write(ServerPacket::UpdateHealth { health: 0 });
@@ -934,6 +955,9 @@ pub struct PlayerList(pub Arc<RefCell<HashMap<EntityID, Arc<PlayerRef>>>>);
 impl PlayerList {
     pub fn get_player(&self, name: &str) -> Option<Arc<PlayerRef>> {
         for player in self.0.borrow().iter() {
+            if !player.1.can_borrow() {
+                continue;
+            }
             if player.1.get_username() == name {
                 return Some(player.1.clone());
             }
@@ -1071,6 +1095,9 @@ impl Game {
             if block.get_type() == 0 {
                 //player.write(ServerPacket::BlockChange { x: packet.x, y: packet.y, z: packet.z, block_type: item.id as i8, block_metadata: 0x00 });
                 //log::info!("Setting block.");
+                if event.needs_align {
+                    block.b_metadata = 1;
+                }
                 block.set_type(event.packet.block_or_item_id as u8);
                 game.block_updates.push(crate::game::Block {
                     position: crate::game::BlockPosition {
@@ -1092,6 +1119,7 @@ impl Game {
             //log::info!("Got block place event!");
             true
         }));
+        use rand::RngCore;
         items::default::init_items(&mut registry);
         ITEM_REGISTRY
             .set(registry)
@@ -1101,8 +1129,9 @@ impl Game {
         use crate::chunks::*;
         let mut world = crate::chunks::World::new(match CONFIGURATION.chunk_generator.as_str() {
             "noise" => {
-                log::info!("Initializing world with chunk generator \"noise\"");
-                Box::new(FunnyChunkGenerator::new()) as Box<dyn ChunkGenerator>
+                let seed = rand::thread_rng().next_u64();
+                log::info!("Initializing world with chunk generator \"noise\" with seed ({})", seed);
+                Box::new(FunnyChunkGenerator::new(seed)) as Box<dyn ChunkGenerator>
             }
             "flat" => {
                 log::info!("Initializing world with chunk generator \"flat\"");
@@ -1120,7 +1149,7 @@ impl Game {
             "give an item and count",
             vec![CommandArgumentTypes::Int, CommandArgumentTypes::Int],
             Box::new(|game, executor, mut args| {
-                log::info!("g");
+                //log::info!("g");
                 let executor = if let Some(executor) = executor.as_any().downcast_mut::<Player>() {
                     executor
                 } else {
@@ -1144,7 +1173,7 @@ impl Game {
         command_system.register(Command::new(
             "tp",
             "teleport command",
-            vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
+            vec![CommandArgumentTypes::String],
             Box::new(|game, executor, mut args| {
                 log::info!("g");
                 let executor = if let Some(executor) = executor.as_any().downcast_mut::<Player>() {
@@ -1152,26 +1181,17 @@ impl Game {
                 } else {
                     return Ok(3);
                 };
-                let from = args[0].as_any().downcast_mut::<String>().unwrap().clone();
-                let to = args[1].as_any().downcast_mut::<String>().unwrap().clone();
-                if from == to {
+                let to = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                if executor.username == to {
                     return Ok(3);
                 }
-                if from == executor.username {
-                    let to = if let Some(plr) = game.players.get_player(&to) {
-                        plr
-                    } else {
-                        return Ok(3);
-                    };
-                    executor.position = to.get_position_clone();
-                    executor.pos_changed = true;
+                let to = if let Some(plr) = game.players.get_player(&to) {
+                    plr.clone()
                 } else {
-                    let from = if let Some(plr) = game.players.get_player(&from) {
-                        plr
-                    } else {
-                        return Ok(3);
-                    };
-                }
+                    return Ok(3);
+                };
+                executor.position = to.get_position_clone();
+                executor.pos_changed = true;
 /*                 executor.chatbox.push(Message::new(&format!(
                     "It works! Hello {}",
                     args[0].display()

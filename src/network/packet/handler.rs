@@ -191,13 +191,26 @@ pub fn handle_packet(
             //player.sync_inventory();
             if message.message.starts_with("/") {
                 message.message.remove(0);
-                log::info!("{} issued server command /{}", player.get_username(), message.message);
+                log::info!(
+                    "{} issued server command /{}",
+                    player.get_username(),
+                    message.message
+                );
                 use std::ops::DerefMut;
                 //log::info!("A");
                 let res =
                     game.execute_command(player.unwrap().unwrap().deref_mut(), &message.message)?;
                 //log::info!("B");
-                player.send_message(Message::new(&format!("Command returned code {}.", res)));
+                match res {
+                    0 => {}
+                    4 => {
+                        player.send_message(Message::new(&format!("Unknown command.")));
+                    }
+                    res => {
+                        player
+                            .send_message(Message::new(&format!("Command returned code {}.", res)));
+                    }
+                }
             } else {
                 //log::info!("sx");
                 let message = message.message;
@@ -221,7 +234,6 @@ pub fn handle_packet(
                 player.disconnect("Sent respawn packet when alive.".to_string());
                 return Ok(());
             }
-            player.set_dead(false);
             player.set_health(20);
             let mut pos = player.get_position();
             pos.x = 3.0;
@@ -234,6 +246,7 @@ pub fn handle_packet(
                 world: player.get_world(),
             });
             //let id = player.id.0;
+            player.set_dead(false);
             game.hide_player(&player.unwrap().unwrap())?;
             //game.broadcast_to_loaded(&player, ServerPacket::DestroyEntity { eid: id })?;
             //game.broadcast_packet(ServerPacket::EntityStatus { eid: player.id.0, entity_status: 0x00 })?;
@@ -321,7 +334,6 @@ pub fn handle_packet(
                         .items
                         .get_mut(&(packet.slot as i8))
                         .expect("Slot doesn't exist!");
-                    
                     if invslot.count == 0 || registry.get_item(invslot.id).is_none() {
                         *invslot = ItemStack::default();
                         player.sync_inventory();
@@ -382,7 +394,7 @@ pub fn handle_packet(
                         *invslot = ItemStack::default();
                     }
                     if packet.slot == 0 {
-                        log::info!("Slot zro");
+                        log::debug!("Slot zro");
                         for i in 0..5 {
                             *player.inventory.items.get_mut(&i).unwrap() = ItemStack::default();
                         }
@@ -406,72 +418,57 @@ pub fn handle_packet(
                     use crate::game::items::*;
                     if (5..9).contains(&packet.slot) {
                         if let Some(item) = registry.get_item(curcurid.id) {
-                            let tool_type = if let Some(tool_type) = item.get_item().get_tool_type() {
+                            let tool_type = if let Some(tool_type) = item.get_item().get_tool_type()
+                            {
                                 tool_type
                             } else {
                                 return Ok(());
                             };
                             match packet.slot {
-                                5 => {
-                                   match tool_type {
-                                        ToolType::HELMET => {
-
-                                        }
-                                        _ => {
-                                            player.write(ServerPacket::Transaction {
-                                                window_id: 0,
-                                                action_number: packet.action_number,
-                                                accepted: false,
-                                            });
-                                            return Ok(());
-                                        }
-                                   } 
-                                }
-                                6 => {
-                                    match tool_type {
-                                        ToolType::CHESTPLATE => {
-
-                                        }
-                                        _ => {
-                                            player.write(ServerPacket::Transaction {
-                                                window_id: 0,
-                                                action_number: packet.action_number,
-                                                accepted: false,
-                                            });
-                                            return Ok(());
-                                        }
-                                   } 
-                                }
-                                7 => {
-                                    match tool_type {
-                                        ToolType::LEGGINGS => {
-
-                                        }
-                                        _ => {
-                                            player.write(ServerPacket::Transaction {
-                                                window_id: 0,
-                                                action_number: packet.action_number,
-                                                accepted: false,
-                                            });
-                                            return Ok(());
-                                        }
-                                   }
-                                }
-                                8 => {
-                                    match tool_type {
-                                        ToolType::BOOTS => {
-
-                                        }
-                                        _ => {
-                                            player.write(ServerPacket::Transaction {
-                                                window_id: 0,
-                                                action_number: packet.action_number,
-                                                accepted: false,
-                                            });
-                                            return Ok(());
-                                        }
-                                   }
-                                }
+                                5 => match tool_type {
+                                    ToolType::HELMET => {}
+                                    _ => {
+                                        player.write(ServerPacket::Transaction {
+                                            window_id: 0,
+                                            action_number: packet.action_number,
+                                            accepted: false,
+                                        });
+                                        return Ok(());
+                                    }
+                                },
+                                6 => match tool_type {
+                                    ToolType::CHESTPLATE => {}
+                                    _ => {
+                                        player.write(ServerPacket::Transaction {
+                                            window_id: 0,
+                                            action_number: packet.action_number,
+                                            accepted: false,
+                                        });
+                                        return Ok(());
+                                    }
+                                },
+                                7 => match tool_type {
+                                    ToolType::LEGGINGS => {}
+                                    _ => {
+                                        player.write(ServerPacket::Transaction {
+                                            window_id: 0,
+                                            action_number: packet.action_number,
+                                            accepted: false,
+                                        });
+                                        return Ok(());
+                                    }
+                                },
+                                8 => match tool_type {
+                                    ToolType::BOOTS => {}
+                                    _ => {
+                                        player.write(ServerPacket::Transaction {
+                                            window_id: 0,
+                                            action_number: packet.action_number,
+                                            accepted: false,
+                                        });
+                                        return Ok(());
+                                    }
+                                },
                                 _ => {
                                     player.write(ServerPacket::Transaction {
                                         window_id: 0,
@@ -481,7 +478,7 @@ pub fn handle_packet(
                                     return Ok(());
                                 }
                             }
-/*                             if !item.get_item().get_tool_type() ==  {
+                            /*                             if !item.get_item().get_tool_type() ==  {
                                 //crate::systems::sync_inv_force(game, server, player)?;
                                 player.write(ServerPacket::Transaction {
                                     window_id: 0,
@@ -530,7 +527,12 @@ pub fn handle_packet(
                         *invslot = curcurid.clone();
                     }
                     if (1..5).contains(&packet.slot) {
-                        let recipe = [player.inventory.items.get(&1).clone().unwrap().clone(), player.inventory.items.get(&2).clone().unwrap().clone(), player.inventory.items.get(&3).clone().unwrap().clone(), player.inventory.items.get(&4).clone().unwrap().clone()];
+                        let recipe = [
+                            player.inventory.items.get(&1).clone().unwrap().clone(),
+                            player.inventory.items.get(&2).clone().unwrap().clone(),
+                            player.inventory.items.get(&3).clone().unwrap().clone(),
+                            player.inventory.items.get(&4).clone().unwrap().clone(),
+                        ];
                         log::debug!("Testing {:?}", recipe);
                         if let Some(out) = registry.get_recipe(recipe) {
                             log::debug!("Got it!");
@@ -557,13 +559,15 @@ pub fn handle_packet(
                 if let Some(window) = player.open_inventories.get_mut(&packet.window_id) {
                     let wandow = window.inventory.clone();
                     let mut inventory = &mut *wandow.borrow_mut();
+                    let mut inv_type: Option<i8> = None;
                     if inventory.items.len() < packet.slot as usize {
-                        log::info!("switching to plr inv");
+                        log::debug!("switching to plr inv");
                         packet.slot -= 1;
                         //packet.slot -= inventory.items.len() as i16;
                         inventory = &mut player.inventory;
                     } else {
-                        log::info!("Is some! {} {}", inventory.items.len(), packet.slot);
+                        inv_type = Some(window.inventory_type);
+                        log::debug!("Is some! {} {}", inventory.items.len(), packet.slot);
                     }
                     if packet.item_id != -1 {
                         /*                     if registry.get_item(packet.item_id).is_none() {
@@ -582,8 +586,7 @@ pub fn handle_packet(
                             packet.item_uses.unwrap(),
                             packet.item_count.unwrap(),
                         );
-                        if 
-                            inventory
+                        if inventory
                             .items
                             .get(&(packet.slot as i8))
                             .expect("Slot doesn't exist!")
@@ -599,8 +602,7 @@ pub fn handle_packet(
                             });
                             return Ok(());
                         }
-                        let invslot = 
-                            inventory
+                        let invslot = inventory
                             .items
                             .get_mut(&(packet.slot as i8))
                             .expect("Slot doesn't exist!");
@@ -631,12 +633,22 @@ pub fn handle_packet(
                                 //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
                                 if invslot.count
                                     + player.current_cursored_item.clone().unwrap().count.max(1)
-                                    > registry.get_item(item.id).unwrap().get_item().stack_size() as i8
+                                    > registry.get_item(item.id).unwrap().get_item().stack_size()
+                                        as i8
                                 {
                                     let thing = invslot.count
-                                        + player.current_cursored_item.clone().unwrap().count.max(1);
+                                        + player
+                                            .current_cursored_item
+                                            .clone()
+                                            .unwrap()
+                                            .count
+                                            .max(1);
                                     let thing = thing
-                                        - registry.get_item(item.id).unwrap().get_item().stack_size()
+                                        - registry
+                                            .get_item(item.id)
+                                            .unwrap()
+                                            .get_item()
+                                            .stack_size()
                                             as i8;
                                     player.current_cursored_item.as_mut().unwrap().count = thing;
                                     invslot.count =
@@ -649,7 +661,8 @@ pub fn handle_packet(
                                 }
                             } else {
                                 if player.current_cursored_item.is_some() {
-                                    *invslot = player.current_cursored_item.as_ref().unwrap().clone();
+                                    *invslot =
+                                        player.current_cursored_item.as_ref().unwrap().clone();
                                 } else {
                                     *invslot = ItemStack::default();
                                 }
@@ -660,7 +673,18 @@ pub fn handle_packet(
                         } else {
                             *invslot = ItemStack::default();
                         }
+                        if inv_type == Some(1) {
+                            log::debug!("Balls 2");
+                            if packet.slot == 0 {
+                                log::debug!("Slot zro");
+                                for i in 0..10 {
+                                    *player.inventory.items.get_mut(&i).unwrap() =
+                                        ItemStack::default();
+                                }
+                            }
+                        }
                     } else {
+                        log::debug!("Slot: {:?}", packet.slot);
                         if player.current_cursored_item.is_none()
                             || (inventory.items.get(&(packet.slot as i8)).unwrap().id
                                 != player.current_cursored_item.clone().unwrap().id
@@ -676,7 +700,7 @@ pub fn handle_packet(
                             return Ok(());
                         }
                         let mut curcurid = player.current_cursored_item.clone().unwrap();
-/*                         if (5..9).contains(&packet.slot) {
+                        /*                         if (5..9).contains(&packet.slot) {
                             if let Some(item) = registry.get_item(curcurid.id) {
                                 if !item.get_item().wearable() {
                                     //crate::systems::sync_inv_force(game, server, player)?;
@@ -726,6 +750,26 @@ pub fn handle_packet(
                             log::debug!("Setting slot");
                             *invslot = curcurid.clone();
                         }
+                        if (1..10).contains(&packet.slot) {
+                            log::debug!("Check recipe here!");
+                            let recipe = [
+                                inventory.items.get(&1).clone().unwrap().clone(),
+                                inventory.items.get(&2).clone().unwrap().clone(),
+                                inventory.items.get(&3).clone().unwrap().clone(),
+                                inventory.items.get(&4).clone().unwrap().clone(),
+                                inventory.items.get(&5).clone().unwrap().clone(),
+                                inventory.items.get(&6).clone().unwrap().clone(),
+                                inventory.items.get(&7).clone().unwrap().clone(),
+                                inventory.items.get(&8).clone().unwrap().clone(),
+                                inventory.items.get(&9).clone().unwrap().clone(),
+                            ];
+                            log::debug!("Testing {:?}", recipe);
+                            if let Some(out) = registry.get_recipe_3x3(recipe) {
+                                log::debug!("Got it!");
+                                *inventory.items.get_mut(&0).unwrap() = out;
+                            };
+                        }
+                        log::debug!("Slot {}", packet.slot);
                     }
                     //player.last_transaction_id = packet.action_number;
                     log::debug!(
@@ -739,6 +783,7 @@ pub fn handle_packet(
                         action_number: packet.action_number,
                         accepted: true,
                     });
+                    log::debug!("Balls");
                     return Ok(());
                 }
             }
@@ -885,7 +930,7 @@ pub fn handle_packet(
                 let plrs = game.players.0.borrow();
                 let plr = plrs.get(&EntityID(packet.target)).clone();
                 if let Some(plr) = plr {
-                    if true {
+                    if plr.get_position().distance(&player.position) < 6.0 {
                         let mut plr = plr.unwrap().unwrap();
                         if plr.dead {
                             return Ok(());
@@ -979,7 +1024,14 @@ pub fn handle_packet(
                         exopacket.y -= 1;
                     }
                     1 => {
-                        exopacket.y = exopacket.y.checked_add(1).ok_or(anyhow::anyhow!("Overflow!"))?;
+                        exopacket.y = match exopacket
+                            .y
+                            .checked_add(1) {
+                                Some(num) => num,
+                                None => {
+                                    return Ok(());
+                                }
+                            }
                     }
                     2 => {
                         exopacket.z -= 1;
@@ -1006,7 +1058,7 @@ pub fn handle_packet(
                             if i.on_right_click(game, &mut exopacket, player.clone()) == false {
                                 return Ok(());
                             }
-                        } 
+                        }
                     }
                 }
                 if let Some(i) = registry.get_item(item.id) {
@@ -1028,7 +1080,7 @@ pub fn handle_packet(
                             if i.on_right_click(game, &mut packet, player.clone()) == false {
                                 return Ok(());
                             }
-                        } 
+                        }
                     }
                 }
             }
@@ -1171,27 +1223,6 @@ pub fn handle_packet(
         // TODO more usage of unwrap on the player im lazy
         ClientPacket::PlayerDigging(packet) => {
             let mut player = player.unwrap().unwrap();
-            /*             match packet.face {
-                0 => {
-                    packet.y -= 1;
-                }
-                1 => {
-                    packet.y += 1;
-                }
-                2 => {
-                    packet.z -= 1;
-                }
-                3 => {
-                    packet.z += 1;
-                }
-                4 => {
-                    packet.x -= 1;
-                }
-                5 => {
-                    packet.x += 1;
-                }
-                _ => {}
-            } */
             match packet.status {
                 0 => {
                     player.mining_block.block = BlockPosition {
@@ -1200,6 +1231,77 @@ pub fn handle_packet(
                         z: packet.z as i32,
                     };
                     player.mining_block.face = packet.face;
+                    //log::info!("Got");
+                    let block = if let Some(blk) =
+                        game.world
+                            .get_block(packet.x, (packet.y - 0) as i32, packet.z)
+                    {
+                        blk
+                    } else {
+                        return Ok(());
+                    };
+                    let orig_type = block.b_type.clone();
+                    //log::info!("Or ig type {}", orig_type);
+                    let registry = ItemRegistry::global();
+                    if let Some(item) = registry.get_item(orig_type as i16) {
+                        if let None = item.get_item().as_block() {
+                            return Ok(());
+                        }
+                    } else {
+                        return Ok(());
+                    }
+                    // TODO Instabreak instead of this hard-coded check
+                    if orig_type != 50 {
+                        //log::info!("Denied");
+                        player.write(ServerPacket::BlockChange {
+                            x: packet.x,
+                            y: packet.y + 0,
+                            z: packet.z,
+                            block_type: block.get_type() as i8,
+                            block_metadata: block.b_metadata as i8,
+                        });
+                        return Ok(());
+                    }
+                    block.set_type(0);
+                    game.block_updates.push(crate::game::Block {
+                        position: crate::game::BlockPosition {
+                            x: packet.x,
+                            y: (packet.y + 0) as i32,
+                            z: packet.z,
+                        },
+                        block: block.clone(),
+                    });
+                    log::debug!("orig_type: {}", orig_type);
+                    game.broadcast_to_loaded(
+                        &player,
+                        ServerPacket::SoundEffect {
+                            effect_id: 2001,
+                            x: packet.x,
+                            y: packet.y,
+                            z: packet.z,
+                            sound_data: orig_type as i32,
+                        },
+                    )?;
+                    let registry = ItemRegistry::global();
+                    if let Some(item) = registry.get_item(orig_type as i16) {
+                        if let Some(block) = item.get_item().as_block() {
+                            let tool = player.get_item_in_hand().clone();
+                            if let Some(drop) = block.on_break(game, packet.clone(), player, tool) {
+                                game.spawn_entity(Box::new(
+                                    crate::game::entities::item_entity::ItemEntity::new(
+                                        Position::from_pos(
+                                            packet.x as f64,
+                                            (packet.y as f64) + 1.0,
+                                            packet.z as f64,
+                                        ),
+                                        game.ticks,
+                                        drop,
+                                        None,
+                                    ),
+                                ));
+                            }
+                        }
+                    }
                 }
                 2 => {
                     log::debug!("Got pos {} {} {}", packet.x, packet.y, packet.z);
@@ -1212,13 +1314,25 @@ pub fn handle_packet(
                         return Ok(());
                     };
                     let orig_type = block.b_type.clone();
+                    //log::info!("Or ig type {}", orig_type);
+                    let registry = ItemRegistry::global();
+                    if let Some(item) = registry.get_item(orig_type as i16) {
+                        if let None = item.get_item().as_block() {
+                            return Ok(());
+                        }
+                    } else {
+                        return Ok(());
+                    }
+                    // TODO Instabreak instead of this hard-coded check
                     if player.mining_block.block
                         != (BlockPosition {
                             x: packet.x,
                             y: packet.y as i32,
                             z: packet.z,
                         })
+                        && orig_type != 50
                     {
+                        //log::info!("Denied");
                         player.write(ServerPacket::BlockChange {
                             x: packet.x,
                             y: packet.y + 0,

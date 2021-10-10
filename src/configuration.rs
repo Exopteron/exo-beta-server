@@ -1,5 +1,5 @@
 use once_cell::sync::Lazy;
-#[derive(serde_derive::Deserialize)]
+#[derive(serde_derive::Deserialize, Debug)]
 pub struct ServerConfig {
     pub listen_address: String,
     pub listen_port: u16,
@@ -11,7 +11,7 @@ pub struct ServerConfig {
     pub logging: LoggingConfig,
     // generic configuration, max players etc
 }
-#[derive(serde_derive::Deserialize)]
+#[derive(serde_derive::Deserialize, Debug)]
 pub struct LoggingConfig {
     pub chunk_load: bool,
     pub chunk_unload: bool,

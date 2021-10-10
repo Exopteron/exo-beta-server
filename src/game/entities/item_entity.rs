@@ -100,7 +100,7 @@ impl Entity for ItemEntity {
             }
             let players = game.players.0.borrow().clone();
             for player in players {
-                if self.position.distance(&player.1.get_position()) < 1.5 {
+                if self.position.distance(&player.1.get_position()) < 1.5 && !player.1.is_dead() {
                     self.to_remove = true;
                     let plr_id = player.1.get_id();
                     let packet = ServerPacket::CollectItem { collected_eid: self.entity_id.0, collector_eid: plr_id.0};
