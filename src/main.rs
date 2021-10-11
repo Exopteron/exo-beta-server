@@ -78,7 +78,9 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             let systems = game.systems.clone();
             systems.borrow_mut().run(&mut game);
         })) {
-            println!("Please report this!");
+            println!("========================================");
+            println!("\nPlease report this!\n");
+            println!("========================================");
             println!("----- Hardware information:");
             use sysinfo::{NetworkExt, NetworksExt, ProcessExt, System, SystemExt};
             let mut sys = System::new_all();

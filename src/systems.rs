@@ -265,7 +265,7 @@ pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<Playe
                     105
                 }
             };
-            log::info!("Sending animation packet!");
+            log::debug!("Sending animation packet!");
             player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 0 });
             player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 104 });
         } else {
@@ -311,20 +311,23 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
         let mut player = list2; // .borrow_mut();
         drop(list);
         let mut packets = Vec::new();
+        let name = player.get_username();
         for id in player.unwrap().unwrap().rendered_players.iter_mut() {
             let pos = if let Some(plr) = game.players.0.borrow().get(&id.0.0) {
                 plr.get_position_clone()
             } else {
+                log::info!("Skipping player");
                 continue;
             };
             if id.1.position != pos {
-                if pos.distance(&id.1.position) < 3.5 && true == false {
+                if pos.distance(&id.1.position) < 3. && true == false {
                     let x_diff = (pos.x - id.1.position.x);
                     let y_diff = (pos.y - id.1.position.y);
                     let z_diff = (pos.z - id.1.position.z);
                     packets.push(ServerPacket::EntityLookAndRelativeMove { eid: id.0.0.0, dX: (x_diff * 32.0) as i8, dY: (y_diff * 32.0) as i8, dZ: (z_diff * 32.0) as i8, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
                     //log::info!("Sending relative");
                 } else {
+                    //log::info!("Sending packet to {}", name);
                     //log::info!("Sending absolute");
                     packets.push(ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
                 }

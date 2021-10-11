@@ -464,8 +464,12 @@ use worldgen::noisemap::ScaledNoiseMap;
 use worldgen::noisemap::{NoiseMap, NoiseMapGenerator, NoiseMapGeneratorBase, Seed, Size, Step};
 use worldgen::world::tile::{Constraint, ConstraintType};
 use worldgen::world::{Tile, World as NGWorld};
+use rand::SeedableRng;
+use rand_xorshift::*;
+use rand::Rng;
 pub struct FunnyChunkGenerator {
     noise: ScaledNoiseMap<NoiseMap<PerlinNoise>>,
+    seed: u64,
 }
 impl FunnyChunkGenerator {
     pub fn new(seed: u64) -> Self {
@@ -475,11 +479,18 @@ impl FunnyChunkGenerator {
             .set(Seed::of_value(seed))
             .set(Step::of(-0.02, 0.02));
         let nm = nm * 10;
-        Self { noise: nm }
+        Self { noise: nm, seed: seed }
     }
 }
 impl ChunkGenerator for FunnyChunkGenerator {
     fn gen_chunk(&self, coords: ChunkCoords) -> Chunk {
+        use siphasher::sip::SipHasher13;
+        use std::hash::Hasher;
+        let mut hash = SipHasher13::new_with_keys(self.seed, self.seed);
+        hash.write_i32(coords.x);
+        hash.write_i32(coords.z);
+        let hash = hash.finish();
+        let mut rng = XorShiftRng::seed_from_u64(hash);
         if CONFIGURATION.logging.chunk_gen {
             log::info!("Generating chunk at ({}, {})", coords.x, coords.z);
         }
@@ -504,28 +515,6 @@ impl ChunkGenerator for FunnyChunkGenerator {
                 None,
             ],
         };
-
-        /*         let nm2 = NoiseMap::new(noise)
-            .set(Seed::of("Hello!"))
-            .set(Step::of(0.05, 0.05));
-        let nm = Box::new(nm1 + nm2 * 3);
-        let world = World::new()
-            .set(Size::of(64, 64))
-
-            // Grass
-            .add(Tile::new(Block { b_type: 0, b_metadata: 0, b_light: 0, b_skylight: 0 })
-                .when(constraint!(nm.clone(), < -0.1)))
-            // Air
-            .add(Tile::new(Block { b_type: 3, b_metadata: 0, b_light: 0, b_skylight: 0 }));
-        let mut blocksarray = Vec::new();
-        let data = world.generate(coords.x as i64, coords.z as i64);
-        for row in data.iter() {
-            for val in row.iter() {
-                for c in val.iter() {
-                    blocksarray.push(c);
-                }
-            }
-        } */
         let noise = self.noise.generate_chunk(-(coords.z as i64), -(coords.x as i64));
         let mut noisevec = Vec::new();
         /*         for value in noise[0].iter() {
@@ -569,6 +558,18 @@ impl ChunkGenerator for FunnyChunkGenerator {
                         b_skylight: 0,
                     };
                 }
+            }
+        }
+        let tree_x = rng.gen_range(0..16);
+        let tree_z = rng.gen_range(0..16);
+        for y in (0..127).rev() {
+            let block = chunk.get_block(tree_x, y, tree_z).unwrap(); 
+            if block.b_type != 2 {
+                continue;
+            }
+            for offset in 1..rng.gen_range(3..8) {
+                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap(); 
+                block.set_type(17);
             }
         }
         chunk

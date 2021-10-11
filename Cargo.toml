@@ -27,6 +27,9 @@ serde_derive = "1.0.130"
 serde = "1.0.130"
 gag = "1.0.0"
 sysinfo = "0.20.4"
+arrayvec = "0.5"
+rand_xorshift = "0.3.0"
+siphasher = "0.3.7"
 
 [profile.dev.package.worldgen]
 opt-level = 3

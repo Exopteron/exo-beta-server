@@ -1,3 +1,4 @@
+use crate::game::items::crafting::*;
 use crate::game::items::ItemRegistry;
 use crate::game::PlayerRef;
 use crate::game::{BlockPosition, DamageType, Game, ItemStack, Message, Position};
@@ -150,7 +151,7 @@ pub fn handle_packet(
             if message.message == "balls" {
                 //game.spawn_entity(Box::new(crate::game::entities::item_entity::ItemEntity::new(player.get_position_clone(), game.ticks, ItemStack::new(1, 0, 1))));
             }
-            let mut inv = player.get_inventory();
+/*             let mut inv = player.get_inventory();
             let mut slot = inv
                 .get_slot(39)
                 .expect("Player doesn't have expected slot!"); /*
@@ -187,7 +188,7 @@ pub fn handle_packet(
                 .expect("Player doesn't have expected slot!");
             slot.id = 285;
             slot.count = 1;
-            drop(inv);
+            drop(inv); */
             //player.sync_inventory();
             if message.message.starts_with("/") {
                 message.message.remove(0);
@@ -360,25 +361,83 @@ pub fn handle_packet(
                             && invslot.id == player.current_cursored_item.as_ref().unwrap().id
                             && packet.right_click == 0
                         {
-                            //*invslot = ItemStack::default();
-                            //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
-                            if invslot.count as u64
-                                + player.current_cursored_item.clone().unwrap().count.max(1) as u64
-                                > registry.get_item(item.id).unwrap().get_item().stack_size() as u64
-                            {
-                                let thing = invslot.count
-                                    + player.current_cursored_item.clone().unwrap().count.max(1);
-                                let thing = thing
-                                    - registry.get_item(item.id).unwrap().get_item().stack_size()
-                                        as i8;
-                                player.current_cursored_item.as_mut().unwrap().count = thing;
-                                invslot.count =
-                                    registry.get_item(item.id).unwrap().get_item().stack_size()
-                                        as i8;
+                            if packet.slot != 0 {
+                                //*invslot = ItemStack::default();
+                                //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
+                                if invslot.count as u64
+                                    + player.current_cursored_item.clone().unwrap().count.max(1)
+                                        as u64
+                                    > registry.get_item(item.id).unwrap().get_item().stack_size()
+                                        as u64
+                                {
+                                    let thing = invslot.count
+                                        + player
+                                            .current_cursored_item
+                                            .clone()
+                                            .unwrap()
+                                            .count
+                                            .max(1);
+                                    let thing = thing
+                                        - registry
+                                            .get_item(item.id)
+                                            .unwrap()
+                                            .get_item()
+                                            .stack_size()
+                                            as i8;
+                                    player.current_cursored_item.as_mut().unwrap().count = thing;
+                                    invslot.count =
+                                        registry.get_item(item.id).unwrap().get_item().stack_size()
+                                            as i8;
+                                } else {
+                                    invslot.count +=
+                                        player.current_cursored_item.clone().unwrap().count.max(1);
+                                    player.current_cursored_item = None;
+                                }
                             } else {
-                                invslot.count +=
-                                    player.current_cursored_item.clone().unwrap().count.max(1);
-                                player.current_cursored_item = None;
+                                if let Some(mut curcurid) = player.current_cursored_item {
+                                    log::info!("Is some");
+                                    if curcurid.id == invslot.id
+                                        && curcurid.damage == invslot.damage
+                                    {
+                                        log::info!("Got here!");
+                                        if (curcurid.count as u64 + invslot.count as u64)
+                                            <= registry
+                                                .get_item(invslot.id)
+                                                .unwrap()
+                                                .get_item()
+                                                .stack_size()
+                                                as u64
+                                        {
+                                            curcurid.count += invslot.count;
+                                            invslot.count = 0;
+                                            log::debug!("New: {:?} {:?}", curcurid, invslot);
+                                            player.current_cursored_item = Some(curcurid);
+                                        }
+                                    }
+                                }
+                                log::debug!("Doing this!");
+                            }
+                        } else if packet.right_click == 1 {
+                            log::debug!("Right click!");
+                            if let Some(mut curcurid) = player.current_cursored_item {
+                                if curcurid.count > 0 {
+                                    if invslot.damage == curcurid.damage
+                                        && invslot.id == curcurid.id
+                                    {
+                                        if invslot.count as u64 + 1
+                                            < registry
+                                                .get_item(item.id)
+                                                .unwrap()
+                                                .get_item()
+                                                .stack_size()
+                                                as u64
+                                        {
+                                            invslot.count += 1;
+                                            curcurid.count -= 1;
+                                            player.current_cursored_item = Some(curcurid);
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             if player.current_cursored_item.is_some() {
@@ -396,8 +455,66 @@ pub fn handle_packet(
                     if packet.slot == 0 {
                         log::debug!("Slot zro");
                         for i in 0..5 {
-                            *player.inventory.items.get_mut(&i).unwrap() = ItemStack::default();
+                            let slot = player.inventory.items.get_mut(&i).unwrap();
+                            if i != 0 {
+                                if slot.count - 1 <= 0 || slot.id == 0 {
+                                    slot.id = 0;
+                                    slot.count = 0;
+                                    slot.damage = 0;
+                                    continue;
+                                }
+                                slot.count -= 1;
+                            }
+                            drop(slot);
+                            player.sync_inventory();
+                            //*player.inventory.items.get_mut(&i).unwrap() = ItemStack::default();
                         }
+                        let mut grid = Grid::default();
+                        grid[0][0] = if let Some(a) = player.inventory.items.get(&1) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        grid[1][0] = if let Some(a) = player.inventory.items.get(&2) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        grid[0][1] = if let Some(a) = player.inventory.items.get(&3) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        grid[1][1] = if let Some(a) = player.inventory.items.get(&4) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        log::debug!("Grid:\n{:?}", grid);
+                        if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
+                            log::debug!("Got it!");
+                            *player.inventory.items.get_mut(&0).unwrap() = out;
+                        };
                     }
                 } else {
                     if player.current_cursored_item.is_none()
@@ -527,14 +644,50 @@ pub fn handle_packet(
                         *invslot = curcurid.clone();
                     }
                     if (1..5).contains(&packet.slot) {
-                        let recipe = [
-                            player.inventory.items.get(&1).clone().unwrap().clone(),
-                            player.inventory.items.get(&2).clone().unwrap().clone(),
-                            player.inventory.items.get(&3).clone().unwrap().clone(),
-                            player.inventory.items.get(&4).clone().unwrap().clone(),
-                        ];
-                        log::debug!("Testing {:?}", recipe);
-                        if let Some(out) = registry.get_recipe(recipe) {
+                        log::debug!("Contains.");
+                        let mut grid = Grid::default();
+                        grid[0][0] = if let Some(a) = player.inventory.items.get(&1) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        grid[1][0] = if let Some(a) = player.inventory.items.get(&2) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        grid[0][1] = if let Some(a) = player.inventory.items.get(&3) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        grid[1][1] = if let Some(a) = player.inventory.items.get(&4) {
+                            let a = a.clone();
+                            if a.id == 0 {
+                                None
+                            } else {
+                                Some(a)
+                            }
+                        } else {
+                            None
+                        };
+                        log::debug!("Grid:\n{:?}", grid);
+                        if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
                             log::debug!("Got it!");
                             *player.inventory.items.get_mut(&0).unwrap() = out;
                         };
@@ -586,13 +739,14 @@ pub fn handle_packet(
                             packet.item_uses.unwrap(),
                             packet.item_count.unwrap(),
                         );
+                        log::info!("Got 2 here");
                         if inventory
                             .items
                             .get(&(packet.slot as i8))
                             .expect("Slot doesn't exist!")
                             != &item
                         {
-                            log::info!("Declined! Tried to get {}", packet.slot);
+                            log::debug!("Declined! Tried to get {}", packet.slot);
                             player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
                             player.write(ServerPacket::Transaction {
@@ -607,6 +761,7 @@ pub fn handle_packet(
                             .get_mut(&(packet.slot as i8))
                             .expect("Slot doesn't exist!");
                         if invslot.count == 0 || registry.get_item(invslot.id).is_none() {
+                            log::info!("Is bad");
                             *invslot = ItemStack::default();
                             player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
@@ -629,35 +784,94 @@ pub fn handle_packet(
                                 && invslot.id == player.current_cursored_item.as_ref().unwrap().id
                                 && packet.right_click == 0
                             {
-                                //*invslot = ItemStack::default();
-                                //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
-                                if invslot.count
-                                    + player.current_cursored_item.clone().unwrap().count.max(1)
-                                    > registry.get_item(item.id).unwrap().get_item().stack_size()
-                                        as i8
-                                {
-                                    let thing = invslot.count
-                                        + player
-                                            .current_cursored_item
-                                            .clone()
+                                if packet.slot != 0 {
+                                    //*invslot = ItemStack::default();
+                                    //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
+                                    if invslot.count
+                                        + player.current_cursored_item.clone().unwrap().count.max(1)
+                                        > registry
+                                            .get_item(item.id)
                                             .unwrap()
-                                            .count
-                                            .max(1);
-                                    let thing = thing
-                                        - registry
+                                            .get_item()
+                                            .stack_size()
+                                            as i8
+                                    {
+                                        let thing = invslot.count
+                                            + player
+                                                .current_cursored_item
+                                                .clone()
+                                                .unwrap()
+                                                .count
+                                                .max(1);
+                                        let thing = thing
+                                            - registry
+                                                .get_item(item.id)
+                                                .unwrap()
+                                                .get_item()
+                                                .stack_size()
+                                                as i8;
+                                        player.current_cursored_item.as_mut().unwrap().count =
+                                            thing;
+                                        invslot.count = registry
                                             .get_item(item.id)
                                             .unwrap()
                                             .get_item()
                                             .stack_size()
                                             as i8;
-                                    player.current_cursored_item.as_mut().unwrap().count = thing;
-                                    invslot.count =
-                                        registry.get_item(item.id).unwrap().get_item().stack_size()
-                                            as i8;
+                                    } else {
+                                        invslot.count += player
+                                            .current_cursored_item
+                                            .clone()
+                                            .unwrap()
+                                            .count
+                                            .max(1);
+                                        player.current_cursored_item = None;
+                                    }
                                 } else {
-                                    invslot.count +=
-                                        player.current_cursored_item.clone().unwrap().count.max(1);
-                                    player.current_cursored_item = None;
+                                    if let Some(mut curcurid) = player.current_cursored_item {
+                                        log::info!("Is some");
+                                        if curcurid.id == invslot.id
+                                            && curcurid.damage == invslot.damage
+                                        {
+                                            log::debug!("Got here!");
+                                            if (curcurid.count as u64 + invslot.count as u64)
+                                                <= registry
+                                                    .get_item(invslot.id)
+                                                    .unwrap()
+                                                    .get_item()
+                                                    .stack_size()
+                                                    as u64
+                                            {
+                                                curcurid.count += invslot.count;
+                                                invslot.count = 0;
+                                                log::debug!("New: {:?} {:?}", curcurid, invslot);
+                                                player.current_cursored_item = Some(curcurid);
+                                            }
+                                        }
+                                    }
+                                    log::debug!("Doing this!");
+                                }
+                            } else if packet.right_click == 1 {
+                                log::debug!("Right click!");
+                                if let Some(mut curcurid) = player.current_cursored_item {
+                                    if curcurid.count > 0 {
+                                        if invslot.damage == curcurid.damage
+                                            && invslot.id == curcurid.id
+                                        {
+                                            if invslot.count as u64 + 1
+                                                < registry
+                                                    .get_item(item.id)
+                                                    .unwrap()
+                                                    .get_item()
+                                                    .stack_size()
+                                                    as u64
+                                            {
+                                                invslot.count += 1;
+                                                curcurid.count -= 1;
+                                                player.current_cursored_item = Some(curcurid);
+                                            }
+                                        }
+                                    }
                                 }
                             } else {
                                 if player.current_cursored_item.is_some() {
@@ -676,20 +890,136 @@ pub fn handle_packet(
                         if inv_type == Some(1) {
                             log::debug!("Balls 2");
                             if packet.slot == 0 {
-                                log::debug!("Slot zro");
+                                let mut grid = Grid::default();
+                                grid[0][0] = if let Some(a) = inventory.items.get(&1) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[1][0] = if let Some(a) = inventory.items.get(&2) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[2][0] = if let Some(a) = inventory.items.get(&3) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[0][1] = if let Some(a) = inventory.items.get(&4) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[1][1] = if let Some(a) = inventory.items.get(&5) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[2][1] = if let Some(a) = inventory.items.get(&6) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[0][2] = if let Some(a) = inventory.items.get(&7) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[1][2] = if let Some(a) = inventory.items.get(&8) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                grid[2][2] = if let Some(a) = inventory.items.get(&9) {
+                                    let a = a.clone();
+                                    if a.id == 0 {
+                                        None
+                                    } else {
+                                        Some(a)
+                                    }
+                                } else {
+                                    None
+                                };
+                                //log::info!("Grid: {:?}", grid);
+                                if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
+                                    //log::info!("Got it!");
+                                    *inventory.items.get_mut(&0).unwrap() = out;
+                                };
+                                //log::debug!("Slot zro");
                                 for i in 0..10 {
-                                    *player.inventory.items.get_mut(&i).unwrap() =
-                                        ItemStack::default();
+                                    //log::info!("This is running");
+                                    let slot = player.inventory.items.get_mut(&i).unwrap();
+                                    if i > 0 {
+                                        if slot.count - 1 <= 0 {
+                                            //log::info!("Clearing slot!");
+                                            slot.id = 0;
+                                            slot.count = 0;
+                                            slot.damage = 0;
+                                            continue;
+                                        }
+                                        slot.count -= 1;
+                                    } else {
+                                        slot.id = 0;
+                                        slot.count = 0;
+                                        slot.damage = 0;
+                                        continue;
+                                    }
                                 }
                             }
                         }
                     } else {
-                        log::debug!("Slot: {:?}", packet.slot);
+                        log::info!("Slot: {:?}", packet.slot);
                         if player.current_cursored_item.is_none()
                             || (inventory.items.get(&(packet.slot as i8)).unwrap().id
                                 != player.current_cursored_item.clone().unwrap().id
                                 && inventory.items.get(&(packet.slot as i8)).unwrap().id != 0)
                         {
+                            log::info!("Stopping here {} {}", player.current_cursored_item.is_none(), inventory.items.get(&(packet.slot as i8)).unwrap().id != 0);
+                            if player.current_cursored_item.is_some() {
+                                log::info!("and this {}", inventory.items.get(&(packet.slot as i8)).unwrap().id
+                                != player.current_cursored_item.clone().unwrap().id);
+                            }
                             player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
                             player.write(ServerPacket::Transaction {
@@ -751,20 +1081,99 @@ pub fn handle_packet(
                             *invslot = curcurid.clone();
                         }
                         if (1..10).contains(&packet.slot) {
-                            log::debug!("Check recipe here!");
-                            let recipe = [
-                                inventory.items.get(&1).clone().unwrap().clone(),
-                                inventory.items.get(&2).clone().unwrap().clone(),
-                                inventory.items.get(&3).clone().unwrap().clone(),
-                                inventory.items.get(&4).clone().unwrap().clone(),
-                                inventory.items.get(&5).clone().unwrap().clone(),
-                                inventory.items.get(&6).clone().unwrap().clone(),
-                                inventory.items.get(&7).clone().unwrap().clone(),
-                                inventory.items.get(&8).clone().unwrap().clone(),
-                                inventory.items.get(&9).clone().unwrap().clone(),
-                            ];
-                            log::debug!("Testing {:?}", recipe);
-                            if let Some(out) = registry.get_recipe_3x3(recipe) {
+                            let mut grid = Grid::default();
+                            grid[0][0] = if let Some(a) = inventory.items.get(&1) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[1][0] = if let Some(a) = inventory.items.get(&2) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[2][0] = if let Some(a) = inventory.items.get(&3) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[0][1] = if let Some(a) = inventory.items.get(&4) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[1][1] = if let Some(a) = inventory.items.get(&5) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[2][1] = if let Some(a) = inventory.items.get(&6) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[0][2] = if let Some(a) = inventory.items.get(&7) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[1][2] = if let Some(a) = inventory.items.get(&8) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            grid[2][2] = if let Some(a) = inventory.items.get(&9) {
+                                let a = a.clone();
+                                if a.id == 0 {
+                                    None
+                                } else {
+                                    Some(a)
+                                }
+                            } else {
+                                None
+                            };
+                            log::info!("Grid: {:?}", grid);
+                            if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
                                 log::debug!("Got it!");
                                 *inventory.items.get_mut(&0).unwrap() = out;
                             };
@@ -1024,14 +1433,12 @@ pub fn handle_packet(
                         exopacket.y -= 1;
                     }
                     1 => {
-                        exopacket.y = match exopacket
-                            .y
-                            .checked_add(1) {
-                                Some(num) => num,
-                                None => {
-                                    return Ok(());
-                                }
+                        exopacket.y = match exopacket.y.checked_add(1) {
+                            Some(num) => num,
+                            None => {
+                                return Ok(());
                             }
+                        }
                     }
                     2 => {
                         exopacket.z -= 1;

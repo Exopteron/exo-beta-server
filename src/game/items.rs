@@ -3,6 +3,8 @@ use once_cell::sync::OnceCell;
 pub mod default;
 pub mod block_utils;
 pub mod block;
+pub mod crafting;
+use crafting::*;
 pub static ITEM_REGISTRY: OnceCell<ItemRegistry> = OnceCell::new();
 use std::collections::HashMap;
 #[derive(Hash, PartialEq)]
@@ -15,11 +17,14 @@ impl Eq for Recipe2X2 {}
 pub struct Recipe3X3 {
     recipe: [ItemStack; 9],
 }
+#[derive(Hash, PartialEq)]
+pub struct RecipeShapeless {
+    recipe: [[Option<ItemStack>; 3]; 3],
+}
 impl Eq for Recipe3X3 {}
 pub struct ItemRegistry {
     items: HashMap<i16, Arc<RegistryItem>>,
-    recipe2x2: HashMap<Recipe2X2, ItemStack>,
-    recipe3x3: HashMap<Recipe3X3, ItemStack>,
+    recipe_solver: Solver,
 }
 pub enum ToolType {
     PICKAXE,
@@ -34,20 +39,26 @@ impl ItemRegistry {
     } 
     pub fn new() -> Self {
         log::info!("[ItemRegistry] Initializing item registry");
-        Self { items: HashMap::new(), recipe2x2: HashMap::new(), recipe3x3: HashMap::new() }
+        Self { items: HashMap::new(), recipe_solver: Solver::new() }
     }
     pub fn register_item(&mut self, id: i16, registry_name: &str, item: Box<dyn Item + Send + Sync>) {
         log::info!("[ItemRegistry] Registering item \"{}\" ({})", registry_name, id);
         self.items.insert(id, Arc::new(RegistryItem { name: registry_name.to_string(), item: Arc::new(item) }));
     }
-    pub fn register_3x3_recipe(&mut self, recipe: [ItemStack; 9], output: ItemStack) {
+    pub fn get_solver(&mut self) -> &mut Solver {
+        &mut self.recipe_solver
+    }
+    pub fn get_solver_ref(&self) -> &Solver {
+        &self.recipe_solver
+    }
+    pub fn get_item(&self, id: i16) -> Option<Arc<RegistryItem>> {
+        Some(self.items.get(&id)?.clone())
+    }
+/*     pub fn register_3x3_recipe(&mut self, recipe: [ItemStack; 9], output: ItemStack) {
         self.recipe3x3.insert(Recipe3X3 { recipe }, output);
     }
     pub fn register_2x2_recipe(&mut self, recipe: [ItemStack; 4], output: ItemStack) {
         self.recipe2x2.insert(Recipe2X2 { recipe }, output);
-    }
-    pub fn get_item(&self, id: i16) -> Option<Arc<RegistryItem>> {
-        Some(self.items.get(&id)?.clone())
     }
     pub fn get_recipe_3x3(&self, recipe: [ItemStack; 9]) -> Option<ItemStack> {
         for (recipe_ot, out) in self.recipe3x3.iter() {
@@ -63,7 +74,7 @@ impl ItemRegistry {
     }
     pub fn get_recipe(&self, recipe: [ItemStack; 4]) -> Option<ItemStack> {
         Some(self.recipe2x2.get(&Recipe2X2 { recipe })?.clone())
-    }
+    } */
 }
 pub trait Item {
     fn is_block(&self) -> bool;

@@ -51,8 +51,16 @@ where
             if block_utils::place_validator(game, &packet) {
                 //log::info!("Valid!");
                 let mut hand = player.get_item_in_hand();
-                hand.count -= 1;
+                if hand.count - 1 > 0 {
+                    hand.count -= 1;
+                } else {
+                    hand.count = 0;
+                    hand.id = 0;
+                    hand.damage = 0;
+                }
+                log::debug!("Held item: {:?}", hand);
                 drop(hand);
+                player.held_item_changed(true);
                 event_handler.cause_event(Box::new(BlockPlacementEvent {
                     cancelled: false,
                     packet: packet.clone(),

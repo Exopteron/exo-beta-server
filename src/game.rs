@@ -153,12 +153,20 @@ pub enum DamageType {
     None,
     Fall,
 }
-#[derive(Clone, PartialEq, Debug, Hash)]
+#[derive(Clone, PartialEq, Debug, Hash, Copy, Ord)]
 pub struct ItemStack {
     pub id: i16,
     pub damage: i16,
     pub count: i8,
 }
+use std::cmp::*;
+impl PartialOrd for ItemStack {
+    fn partial_cmp(&self, other: &ItemStack) -> Option<Ordering> {
+        Some(self.count.cmp(&other.count))
+    }
+}
+//impl std::borrow::Borrow for ItemStack {}
+impl Eq for ItemStack {}
 impl std::default::Default for ItemStack {
     fn default() -> Self {
         Self {
@@ -294,6 +302,9 @@ impl PlayerRef {
     }
     pub fn get_username(&self) -> String {
         self.player.borrow().username.clone()
+    }
+    pub fn held_item_changed(&self, state: bool) {
+        self.player.borrow_mut().held_item_changed = state;
     }
     pub fn set_held_slot(&self, idx: i16) {
         self.player.borrow_mut().held_item_changed = true;
@@ -683,9 +694,9 @@ impl PlayerRef {
                     cl.write(ServerPacket::NamedEntitySpawn {
                         eid: player.1.get_id().0,
                         name: player.1.get_username(),
-                        x: (pos.x * 32.0).round() as i32,
-                        y: (pos.y * 32.0).round() as i32,
-                        z: (pos.z * 32.0).round() as i32,
+                        x: (pos.x * 32.0) as i32,
+                        y: (pos.y * 32.0) as i32,
+                        z: (pos.z * 32.0) as i32,
                         rotation: 0,
                         pitch: 0,
                         current_item: 0,
