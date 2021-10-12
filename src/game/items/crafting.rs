@@ -67,12 +67,12 @@ impl Solver {
                 .filter_map(|slot| *slot)
                 .for_each(|item| inputs.push(item));
             inputs.sort_unstable();
-            log::info!("Inputs: {:?}", inputs);
+            log::debug!("Inputs: {:?}", inputs);
             if let Some(output) = self.shapeless.get(&inputs).copied() {
-                log::info!("There is some!");
+                log::debug!("There is some!");
                 Some(output)
             } else {
-                log::info!("None, loser!");
+                log::debug!("None, loser!");
                 None
             }
         }
@@ -88,10 +88,12 @@ impl Solver {
     }
 
     fn register_shaped(&mut self, shaped: ShapedRecipe) {
+        log::info!("[Feather Crafting Solver] Registering shaped crafting recipe for item {}", shaped.output.id);
         self.shaped.insert(shaped.input, shaped.output);
     }
 
     fn register_shapeless(&mut self, shapeless: ShapelessRecipe) {
+        log::info!("[Feather Crafting Solver] Registering shapeless crafting recipe for item {}", shapeless.output.id);
         self.shapeless.insert(shapeless.input, shapeless.output);
     }
 }

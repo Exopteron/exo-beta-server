@@ -9,7 +9,7 @@ use crate::network::packet::{ServerPacket, ClientPacket};
 pub struct Worker {
     reader: PacketReader,
     writer: PacketWriter,
-    addr: SocketAddr,
+    pub addr: SocketAddr,
     new_players: Sender<NewPlayer>,
     pub packet_send_sender: Sender<ServerPacket>,
     pub recv_packets_recv: Receiver<ClientPacket>,

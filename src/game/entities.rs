@@ -1,4 +1,5 @@
 pub mod item_entity;
+pub mod slime_entity;
 use super::*;
 pub trait Entity {
     fn spawn_entity(&mut self, player: &mut RefMut<'_, Player>);
@@ -8,6 +9,15 @@ pub trait Entity {
     fn get_id(&self) -> EntityID;
     fn broadcast_pos_change(&mut self) -> bool {
         true
+    }
+    fn damage(&mut self, game: &mut Game, amount: i16) {
+
+    }
+    fn add_velocity(&mut self, velocity: [f64; 3]) {
+        
+    }
+    fn is_dead(&self) -> bool {
+        false
     }
     fn as_any(&mut self) -> &mut dyn Any;
 }

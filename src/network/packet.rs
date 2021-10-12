@@ -489,12 +489,25 @@ pub enum ServerPacket {
     EntityRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8 },
     EntityLookAndRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8, yaw: i8, pitch: i8 },
     OpenWindow { window_id: i8, inventory_type: i8, window_title: String, num_slots: i8 },
+    MobSpawn { eid: i32, m_type: i8, x: i32, y: i32, z: i32, yaw: i8, pitch: i8 },
 }
 
 
 impl ServerPacket {
     pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
         match self {
+            ServerPacket::MobSpawn { eid, m_type, x, y, z, yaw, pitch } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*eid);
+                builder.insert_byte(*m_type);
+                builder.insert_int(*x);
+                builder.insert_int(*y);
+                builder.insert_int(*z);
+                builder.insert_byte(*yaw);
+                builder.insert_byte(*pitch);
+                builder.insert_byte(0x7F);
+                builder.build(0x18)
+            }
             ServerPacket::OpenWindow { window_id, inventory_type, window_title, num_slots } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_byte(*window_id);
@@ -640,7 +653,7 @@ impl ServerPacket {
             }
             ServerPacket::Disconnect { reason } => {
                 let mut builder = ClassicPacketBuilder::new();
-                builder.insert_string(reason);
+                builder.insert_string16(reason);
                 builder.build(0xFF)
             }
             ServerPacket::DestroyEntity { eid } => {

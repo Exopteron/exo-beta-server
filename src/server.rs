@@ -8,11 +8,13 @@ use std::sync::Arc;
 use std::cell::RefCell;
 use std::time::Duration;
 use std::time::Instant;
+use std::net::*;
 pub struct NewPlayer {
     pub username: String,
     pub recv_packets_recv: Receiver<ClientPacket>,
     pub packet_send_sender: Sender<ServerPacket>,
     pub id: EntityID,
+    pub addr: SocketAddr,
 }
 impl NewPlayer {
     pub async fn write(&mut self, packet: ServerPacket) -> anyhow::Result<()> {
@@ -29,6 +31,7 @@ pub struct Client {
     pub username: String,
     pub id: EntityID,
     pub all_clients: Arc<RefCell<HashMap<EntityID, Arc<RefCell<Client>>>>>,
+    pub addr: SocketAddr,
 }
 impl Client {
     pub fn new(player: NewPlayer, id: EntityID, all_clients: Arc<RefCell<HashMap<EntityID, Arc<RefCell<Client>>>>>) -> Self {
@@ -38,6 +41,7 @@ impl Client {
             username: player.username,
             id,
             all_clients,
+            addr: player.addr,
         }
     }
     pub fn write(&mut self, packet: ServerPacket) -> anyhow::Result<()> {

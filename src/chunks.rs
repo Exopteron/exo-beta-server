@@ -1,6 +1,6 @@
+use crate::configuration::CONFIGURATION;
 use crate::game::ChunkCoords;
 use crate::network::packet::ServerPacket;
-use crate::configuration::CONFIGURATION;
 use flume::{Receiver, Sender};
 use std::collections::HashMap;
 #[derive(Clone, Copy, Debug)]
@@ -154,6 +154,96 @@ pub struct Chunk {
     pub data: [Option<ChunkSection>; 8],
 }
 impl Chunk {
+    pub fn to_file(&self, path: &str) -> anyhow::Result<()> {
+        use nbt::encode::write_zlib_compound_tag;
+        use nbt::CompoundTag;
+        let mut root = CompoundTag::new();
+        let mut tags = Vec::new();
+        //let start = Instant::now();
+        for section in self.data.iter() {
+            if let Some(section) = section {
+                let mut tag = CompoundTag::new();
+                let mut blockdatadata = Vec::new();
+                let mut metadatadata = Vec::new();
+                let mut blocklightdata = Vec::new();
+                let mut skylightdata = Vec::new();
+                let mut metadata = Vec::with_capacity(section.data.len());
+                let mut blocklight = Vec::with_capacity(section.data.len());
+                let mut skylight = Vec::with_capacity(section.data.len());
+                for byte in &section.data {
+                    blockdatadata.push(byte.b_type as i8);
+                    metadata.push(byte.b_metadata);
+                    blocklight.push(byte.b_light);
+                    skylight.push(byte.b_skylight);
+                }
+                metadatadata.append(&mut compress_to_nibble(metadata).unwrap());
+                blocklightdata.append(&mut compress_to_nibble(blocklight).unwrap());
+                skylightdata.append(&mut compress_to_nibble(skylight).unwrap());
+                let mut newvec = Vec::new();
+                for byte in metadatadata {
+                    newvec.push(byte as i8);
+                }
+                tag.insert_i8_vec("metadata", newvec);
+                tag.insert_i8_vec("blox", blockdatadata);
+                tag.insert_i32("chunkx", self.x);
+                tag.insert_i32("chunkz", self.z);
+                tag.insert_i8("section", section.section);
+                tags.push(tag);
+            }
+        }
+        root.insert_compound_tag_vec("sections", tags);
+        let mut file = std::fs::File::create(path)?;
+        write_zlib_compound_tag(&mut file, &root)?;
+        //log::info!("It took {}ms.", start.elapsed().as_millis());
+        Ok(())
+    }
+    pub fn from_file(path: &str) -> Option<Self> {
+        use nbt::decode::read_zlib_compound_tag;
+        use nbt::CompoundTag;
+        let mut file = std::fs::File::open(path).ok()?;
+        let root = read_zlib_compound_tag(&mut file).ok()?;
+        let sections = root.get_compound_tag_vec("sections").ok()?;
+        let mut x = 0;
+        let mut z = 0;
+        let mut chunksections = Vec::new();
+        for section in sections {
+            let blox = section.get_i8_vec("blox").ok()?;
+            let metadata = section.get_i8_vec("metadata").ok()?;
+            let chunk_x = section.get_i32("chunkx").ok()?;
+            let chunk_z = section.get_i32("chunkz").ok()?;
+            let section = section.get_i8("section").ok()?;
+            let mut newvec = Vec::with_capacity(metadata.len());
+            for byte in metadata {
+                newvec.push(*byte as u8);
+            }
+            let metadata = decompress_vec(newvec).unwrap();
+            let mut data = Vec::new();
+            let mut iter = 0;
+            for block in blox {
+                data.push(Block { b_type: *block as u8, b_metadata: metadata[iter], b_light: 0, b_skylight: 0 });
+                iter += 1;
+            }
+            x = chunk_x;
+            z = chunk_z;
+            let section = ChunkSection { section, x: chunk_x, z: chunk_z, data };
+            chunksections.push(section);
+        }
+        let chunk = Chunk {
+            x: x,
+            z: z,
+            data: [
+                Some(chunksections[0].clone()),
+                Some(chunksections[1].clone()),
+                Some(chunksections[2].clone()),
+                Some(chunksections[3].clone()),
+                Some(chunksections[4].clone()),
+                Some(chunksections[5].clone()),
+                Some(chunksections[6].clone()),
+                Some(chunksections[7].clone())
+            ],
+        };
+        Some(chunk)
+    }
     pub fn calculate_skylight(&mut self, time: i64) {
         for x in 0..16 {
             for z in 0..16 {
@@ -234,12 +324,37 @@ impl Chunk {
             *section = Some(ChunkSection::new(self.x, self.z, sec_num as i8));
         }
         let section = section.as_mut().unwrap();
-        for x in 0..16 {
-            for z in 0..16 {
+        for x in 0..17 {
+            for z in 0..17 {
                 **section
                     .get_block(ChunkSection::pos_to_index(x, y, z))
                     .as_mut()
                     .unwrap() = block;
+            }
+        }
+        Ok(())
+    }
+    pub fn fill_layer_air(&mut self, y: i32, block: Block) -> anyhow::Result<()> {
+        let section = y / 16;
+        if section < 0 {
+            return Err(anyhow::anyhow!("Section below zero!"));
+        }
+        let sec_num = section;
+        let section = self
+            .data
+            .get_mut(section as usize)
+            .ok_or(anyhow::anyhow!("Can't get section!"))?;
+        if section.is_none() {
+            *section = Some(ChunkSection::new(self.x, self.z, sec_num as i8));
+        }
+        let section = section.as_mut().unwrap();
+        for x in 0..17 {
+            for z in 0..17 {
+                let mut w_block = section.get_block(ChunkSection::pos_to_index(x, y, z));
+                let w_block = w_block.as_mut().unwrap();
+                if w_block.b_type == 0 {
+                    **w_block = block;
+                }
             }
         }
         Ok(())
@@ -251,10 +366,77 @@ pub struct World {
 }
 use std::time::*;
 impl World {
+    pub fn to_file(&mut self, file: &str) {
+        let start = Instant::now();
+        log::info!("[World Saver] Saving world to {}", file);
+        use std::fs;
+        fs::create_dir_all(file).unwrap();
+        for (coords, chunk) in self.chunks.iter() {
+            let path = format!("{}/{}-{}.nbt", file, coords.x, coords.z);
+            let chunk = chunk.clone();
+            tokio::spawn(async move {
+                if let Err(e) = chunk.to_file(&path) {
+                    log::error!("Error saving chunk: {:?}", e);
+                }
+            });
+        }
+        use nbt::encode::write_compound_tag;
+        use nbt::CompoundTag;
+        let mut root = CompoundTag::new();
+        root.insert_i64("seed", self.generator.get_seed() as i64);
+        root.insert_str("generator", self.generator.get_name());
+        let mut file = std::fs::File::create(format!("{}/main", file)).unwrap();
+        write_compound_tag(&mut file, &root).unwrap();
+        log::info!("[World Saver] Saved in {} seconds.", start.elapsed().as_secs());
+    }
+    pub fn from_file(file: &str) -> anyhow::Result<Self> {
+        let start = Instant::now();
+        log::info!("[World Loader] Loading world from {}/", file);
+        let mut faxvec: Vec<std::path::PathBuf> = Vec::new();
+        for element in std::path::Path::new(file).read_dir()? {
+            let path = element.unwrap().path();
+            if let Some(extension) = path.extension() {
+                if extension == "nbt" {
+                    faxvec.push(path);
+                }
+            }
+        }
+        let mut chunks = HashMap::new();
+        for path in faxvec {
+            let insert = Chunk::from_file(path.to_str().unwrap()).ok_or(anyhow::anyhow!("cant make chunk"))?;
+            log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
+            chunks.insert(ChunkCoords { x: insert.x, z: insert.z }, insert);
+        }
+        use nbt::decode::read_compound_tag;
+        use nbt::CompoundTag;
+        let mut file = std::fs::File::open(format!("{}/main", file)).unwrap();
+        let root = read_compound_tag(&mut file).unwrap();
+        let generator: Box<dyn ChunkGenerator> = match root.get_str("generator").unwrap() {
+            "FlatChunkGenerator" => {
+                Box::new(FlatChunkGenerator {})
+            }
+            "FunnyChunkGenerator" => {
+                Box::new(FunnyChunkGenerator::new(root.get_i64("seed").unwrap() as u64, FunnyChunkPreset::REGULAR))
+            }
+            "MountainChunkGenerator" => {
+                Box::new(MountainChunkGenerator::new(root.get_i64("seed").unwrap() as u64))
+            }
+            _ => {
+                Box::new(FlatChunkGenerator {})
+            }
+        };
+        log::info!("[World Loader] Done in {}s.", start.elapsed().as_secs());
+        Ok(Self { chunks, generator: generator})
+    }
+    pub fn epic_test(&mut self) {
+        let chunk = self.chunks.get_mut(&ChunkCoords { x: 0, z: 0 }).unwrap();
+        chunk.to_file("bstestfile");
+        *chunk = Chunk::from_file("bstestfile").unwrap();
+    }
     pub fn generate_spawn_chunks(&mut self) {
         let start_time = Instant::now();
         let interval = Duration::from_secs(1);
-        let mut last_update = Instant::now(); 
+        let mut last_update = Instant::now();
         let mut count = 0;
         log::info!("[World] Generating spawn chunks..");
         for x in -8..8 {
@@ -274,18 +456,24 @@ impl World {
                 {
                     self.chunks.insert(
                         coords,
-                        self.generator.gen_chunk(ChunkCoords { x: coords.x, z :coords.z }), // crate::chunks::Chunk::epic_generate(coords.x, coords.z) 
-                        /*                 Chunk { 
-                                                                                     x: idx.0,
-                                                                                     z: idx.1,
-                                                                                     data: [None, None, None, None, None, None, None, None],
-                                                                                 }, */
+                        self.generator.gen_chunk(ChunkCoords {
+                            x: coords.x,
+                            z: coords.z,
+                        }), // crate::chunks::Chunk::epic_generate(coords.x, coords.z)
+                            /*                 Chunk {
+                                x: idx.0,
+                                z: idx.1,
+                                data: [None, None, None, None, None, None, None, None],
+                            }, */
                     );
                     count += 1;
                 }
             }
         }
-        log::info!("[World] Done! ({}s)", Instant::now().duration_since(start_time).as_secs());
+        log::info!(
+            "[World] Done! ({}s)",
+            Instant::now().duration_since(start_time).as_secs()
+        );
     }
     pub fn check_chunk_exists(&self, coords: ChunkCoords) -> bool {
         self.chunks.get(&coords).is_some()
@@ -444,6 +632,23 @@ fn make_nibble_byte(mut a: u8, mut b: u8) -> Option<u8> {
     b &= 0b00001111;
     return Some(a | b);
 }
+fn decompress_nibble(input: u8) -> (u8, u8) {
+    let a = input & 0b11110000;
+    let b = input & 0b00001111;
+    (a, b)
+}
+fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
+    let mut output = vec![];
+    if input.len() <= 0 {
+        return None;
+    }
+    for i in 0..input.len() {
+        let decompressed = decompress_nibble(input[i]);
+        output.push(decompressed.0);
+        output.push(decompressed.1);
+    }
+    return Some(output);
+}
 fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
     let mut output = vec![];
     if input.len() <= 0 {
@@ -457,32 +662,221 @@ fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
 
 pub trait ChunkGenerator {
     fn gen_chunk(&self, coords: ChunkCoords) -> Chunk;
+    fn get_seed(&self) -> u64 {
+        0
+    }
+    fn get_name(&self) -> String;
 }
+use rand::Rng;
+use rand::SeedableRng;
+use rand_xorshift::*;
 use worldgen::constraint;
 use worldgen::noise::perlin::PerlinNoise;
 use worldgen::noisemap::ScaledNoiseMap;
 use worldgen::noisemap::{NoiseMap, NoiseMapGenerator, NoiseMapGeneratorBase, Seed, Size, Step};
 use worldgen::world::tile::{Constraint, ConstraintType};
 use worldgen::world::{Tile, World as NGWorld};
-use rand::SeedableRng;
-use rand_xorshift::*;
-use rand::Rng;
-pub struct FunnyChunkGenerator {
+pub struct MountainChunkGenerator {
     noise: ScaledNoiseMap<NoiseMap<PerlinNoise>>,
     seed: u64,
 }
-impl FunnyChunkGenerator {
+impl MountainChunkGenerator {
     pub fn new(seed: u64) -> Self {
         let noise = PerlinNoise::new();
         let nm = NoiseMap::new(noise)
             .set(Size::of(16, 16))
             .set(Seed::of_value(seed))
             .set(Step::of(-0.02, 0.02));
-        let nm = nm * 10;
-        Self { noise: nm, seed: seed }
+        let nm = nm * 25;
+        Self {
+            noise: nm,
+            seed: seed,
+        }
+    }
+}
+pub struct FunnyChunkGenerator {
+    noise: ScaledNoiseMap<NoiseMap<PerlinNoise>>,
+    seed: u64,
+}
+pub enum FunnyChunkPreset {
+    REGULAR,
+    MOUNTAIN,
+}
+impl FunnyChunkGenerator {
+    pub fn new(seed: u64, preset: FunnyChunkPreset) -> Self {
+        match preset {
+            FunnyChunkPreset::MOUNTAIN => {
+                let noise = PerlinNoise::new();
+                let nm = NoiseMap::new(noise)
+                    .set(Size::of(16, 16))
+                    .set(Seed::of_value(seed))
+                    .set(Step::of(-0.02, 0.02));
+                let nm = nm * 25;
+                Self {
+                    noise: nm,
+                    seed: seed,
+                }
+            }
+            FunnyChunkPreset::REGULAR => {
+                let noise = PerlinNoise::new();
+                let nm = NoiseMap::new(noise)
+                    .set(Size::of(16, 16))
+                    .set(Seed::of_value(seed))
+                    .set(Step::of(-0.02, 0.02));
+                let nm = nm * 10;
+                Self {
+                    noise: nm,
+                    seed: seed,
+                }
+            }
+        }
+    }
+}
+impl ChunkGenerator for MountainChunkGenerator {
+    fn get_seed(&self) -> u64 {
+        self.seed
+    }
+    fn get_name(&self) -> String {
+        "MountainChunkGenerator".to_string()
+    }
+    fn gen_chunk(&self, coords: ChunkCoords) -> Chunk {
+        static WATER_HEIGHT: i32 = 25;
+        use siphasher::sip::SipHasher13;
+        use std::hash::Hasher;
+        let mut hash = SipHasher13::new_with_keys(self.seed, self.seed);
+        hash.write_i32(coords.x);
+        hash.write_i32(coords.z);
+        let hash = hash.finish();
+        let mut rng = XorShiftRng::seed_from_u64(hash);
+        if CONFIGURATION.logging.chunk_gen {
+            log::info!("Generating chunk at ({}, {})", coords.x, coords.z);
+        }
+        //log::info!("coords: {:?}", coords);
+        let mut blocks = Vec::new();
+        let mut chunk = Chunk {
+            x: coords.x,
+            z: coords.z,
+            data: [
+                Some(ChunkSection {
+                    data: blocks,
+                    x: coords.x,
+                    z: coords.z,
+                    section: 0,
+                }),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+        };
+        let noise = self
+            .noise
+            .generate_chunk(-(coords.z as i64), -(coords.x as i64));
+        let mut noisevec = Vec::new();
+        /*         for value in noise[0].iter() {
+            noisevec.push(*value);
+        } */
+        for row in noise {
+            for value in row.into_iter() {
+                noisevec.push(value);
+            }
+        }
+        //log::info!("Noisevec length: {:?}", noisevec.len());
+        for x in 0..16 {
+            for z in 0..16 {
+                if noisevec.len() <= 0 {
+                    break;
+                }
+                let mut num = noisevec.pop().unwrap() as i32;
+                num += 40;
+                if num > 11 {
+                    //continue;
+                }
+                if num < WATER_HEIGHT {
+                    *chunk.get_block(x, num, z).unwrap() = Block {
+                        b_type: 13,
+                        b_metadata: 0,
+                        b_light: 0,
+                        b_skylight: 0,
+                    };
+                } else {
+                    *chunk.get_block(x, num, z).unwrap() = Block {
+                        b_type: 2,
+                        b_metadata: 0,
+                        b_light: 0,
+                        b_skylight: 0,
+                    };
+                }
+                for y in 0..num - 3 {
+                    *chunk.get_block(x, y, z).unwrap() = Block {
+                        b_type: 1,
+                        b_metadata: 0,
+                        b_light: 0,
+                        b_skylight: 0,
+                    };
+                }
+                for y in num - 3..num {
+                    *chunk.get_block(x, y, z).unwrap() = Block {
+                        b_type: 3,
+                        b_metadata: 0,
+                        b_light: 0,
+                        b_skylight: 0,
+                    };
+                }
+            }
+        }
+        let tree_x = rng.gen_range(0..16);
+        let tree_z = rng.gen_range(0..16);
+        for y in (WATER_HEIGHT..127).rev() {
+            let block = chunk.get_block(tree_x, y, tree_z).unwrap();
+            if block.b_type != 2 {
+                continue;
+            }
+            for offset in 1..rng.gen_range(3..8) {
+                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap();
+                block.set_type(17);
+            }
+        }
+        for y in 0..WATER_HEIGHT {
+            chunk
+                .fill_layer_air(
+                    y,
+                    Block {
+                        b_type: 9,
+                        b_metadata: 0,
+                        b_light: 0,
+                        b_skylight: 0,
+                    },
+                )
+                .unwrap();
+        }
+        chunk
+            .fill_layer(
+                0,
+                Block {
+                    b_type: 7,
+                    b_metadata: 0,
+                    b_light: 0,
+                    b_skylight: 0,
+                },
+            )
+            .unwrap();
+        for thing in chunk.data.iter() {
+            //log::info!("IS? {}", thing.is_some());
+        }
+        chunk
     }
 }
 impl ChunkGenerator for FunnyChunkGenerator {
+    fn get_seed(&self) -> u64 {
+        self.seed
+    }
+    fn get_name(&self) -> String {
+        "FunnyChunkGenerator".to_string()
+    }
     fn gen_chunk(&self, coords: ChunkCoords) -> Chunk {
         use siphasher::sip::SipHasher13;
         use std::hash::Hasher;
@@ -515,7 +909,9 @@ impl ChunkGenerator for FunnyChunkGenerator {
                 None,
             ],
         };
-        let noise = self.noise.generate_chunk(-(coords.z as i64), -(coords.x as i64));
+        let noise = self
+            .noise
+            .generate_chunk(-(coords.z as i64), -(coords.x as i64));
         let mut noisevec = Vec::new();
         /*         for value in noise[0].iter() {
             noisevec.push(*value);
@@ -563,12 +959,12 @@ impl ChunkGenerator for FunnyChunkGenerator {
         let tree_x = rng.gen_range(0..16);
         let tree_z = rng.gen_range(0..16);
         for y in (0..127).rev() {
-            let block = chunk.get_block(tree_x, y, tree_z).unwrap(); 
+            let block = chunk.get_block(tree_x, y, tree_z).unwrap();
             if block.b_type != 2 {
                 continue;
             }
             for offset in 1..rng.gen_range(3..8) {
-                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap(); 
+                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap();
                 block.set_type(17);
             }
         }
@@ -586,40 +982,14 @@ impl ChunkGenerator for FunnyChunkGenerator {
         for thing in chunk.data.iter() {
             //log::info!("IS? {}", thing.is_some());
         }
-        //log::info!("Generated chunk: {:?}", chunk.data.len());
-        /*         for i in 0..4 {
-            chunk
-                .fill_layer(
-                    i,
-                    Block {
-                        b_type: 3,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    },
-                )
-                .unwrap();
-        }
-        use rand::prelude::*;
-        let rng = rand::thread_rng().gen_range(0..3);
-        for i in 0..rng {
-            chunk
-                .fill_layer(
-                    i + 4,
-                    Block {
-                        b_type: 3,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    },
-                )
-                .unwrap();
-        } */
         chunk
     }
 }
 pub struct FlatChunkGenerator {}
 impl ChunkGenerator for FlatChunkGenerator {
+    fn get_name(&self) -> String {
+        "FlatChunkGenerator".to_string()
+    }
     fn gen_chunk(&self, coords: ChunkCoords) -> Chunk {
         let blocks = Vec::new();
         /*         for _ in 0..4096 {

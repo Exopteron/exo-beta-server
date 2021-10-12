@@ -5,9 +5,12 @@ pub struct ServerConfig {
     pub listen_port: u16,
     pub server_name: String,
     pub server_motd: String,
+    pub max_players: u32,
+    pub level_name: String,
     pub chunk_distance: i32,
     pub chunk_generator: String,
     pub tps: i32,
+    pub world_seed: Option<u64>,
     pub logging: LoggingConfig,
     // generic configuration, max players etc
 }
@@ -32,6 +35,12 @@ server_name = "Hello!"
 # Server MOTD (unused)
 server_motd = "there!"
 
+# Max players.
+max_players = 32
+
+# World file location. Currently a strange NBT format I cooked up at 2am. dw about it
+level_name = "world"
+
 # Player chunk load distance
 chunk_distance = 8
 
@@ -40,6 +49,9 @@ chunk_generator = "noise"
 
 # Server TPS (Ticks Per Second), probably shouldn't change it. But who's stopping you?
 tps = 20
+
+# World seed, optional. If not specified the server will use a random seed. Must be an unsigned 64 bit number. (u64 type)
+# world_seed = 420
 
 # Logging options
 

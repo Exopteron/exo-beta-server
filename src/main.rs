@@ -35,6 +35,7 @@ async fn main() -> anyhow::Result<()> {
     });
     systems.add_system(|game| {
         game.ticks += 1;
+        //log::info!("Players: {:?}", game.players.0.borrow().len());
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>()?;
         systems::sync_positions(game, &mut server)?;
@@ -45,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
         systems::rem_old_clients(game, &mut server)?;
         //systems::spawn_players(game, &mut server)?;
         systems::entity_positions(game, &mut server)?;
-        systems::update_positions(game, &mut server)?;
+        //systems::update_positions(game, &mut server)?;
         /*         systems::chat_msgs(game, &mut server)?; */
         systems::ping(game, &mut server)?;
         systems::cull_players(game, &mut server)?;
@@ -73,11 +74,25 @@ use std::panic::{self, AssertUnwindSafe};
 use sysinfo::ProcessorExt;
 fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     std::env::set_var("RUST_BACKTRACE", "1");
+    use std::sync::mpsc::channel;
+    let (tx, rx) = channel();
+    ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
+    .expect("Error setting Ctrl-C handler");
     TickLoop::new(move || {
+        if rx.try_recv().is_ok() {
+            log::info!("Shutting down.");
+            let plrs = game.players.0.borrow().clone();
+            for player in plrs.iter() {
+                player.1.disconnect("Server closed".to_string());
+            }
+            game.world.to_file(&CONFIGURATION.level_name);
+            std::process::exit(0);
+        }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
             let systems = game.systems.clone();
             systems.borrow_mut().run(&mut game);
         })) {
+            game.world.to_file(&CONFIGURATION.level_name);
             println!("========================================");
             println!("\nPlease report this!\n");
             println!("========================================");

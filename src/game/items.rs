@@ -32,6 +32,7 @@ pub enum ToolType {
     LEGGINGS,
     HELMET,
     BOOTS,
+    AXE,
 }
 impl ItemRegistry {
     pub fn global() -> &'static ItemRegistry {
@@ -53,6 +54,14 @@ impl ItemRegistry {
     }
     pub fn get_item(&self, id: i16) -> Option<Arc<RegistryItem>> {
         Some(self.items.get(&id)?.clone())
+    }
+    pub fn get_item_name(&self, id: i8) -> Option<String> {
+        for item in self.items.iter() {
+            if *item.0 == id as i16 {
+                return Some(item.1.name.clone());
+            }
+        }
+        None
     }
 /*     pub fn register_3x3_recipe(&mut self, recipe: [ItemStack; 9], output: ItemStack) {
         self.recipe3x3.insert(Recipe3X3 { recipe }, output);
@@ -88,6 +97,9 @@ pub trait Item {
     }
     fn wearable(&self) -> bool {
         false
+    }
+    fn recipe(&self) -> Option<Recipe> {
+        None
     }
 }
 pub struct RegistryItem {

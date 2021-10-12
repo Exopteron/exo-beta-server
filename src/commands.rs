@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::any::Any;
 pub trait CommandExecutor {
     fn as_any(&mut self) -> &mut dyn Any;
+    fn send_message(&mut self, message: crate::game::Message);
 }
 #[derive(Clone)]
 pub enum CommandArgumentTypes {

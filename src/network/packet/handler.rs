@@ -19,7 +19,7 @@ pub fn handle_packet(
                 return Ok(());
             }
             if packet.on_ground == false && player.get_checking_fall() {
-                //log::info!("Off ground");
+                //log::debug!("Off ground");
                 player.set_offground_height(player.get_position_clone().y as f32);
                 player.set_checking_fall(false);
             } else if packet.on_ground == true {
@@ -36,7 +36,7 @@ pub fn handle_packet(
                 return Ok(());
             }
             if packet.on_ground == false && player.get_checking_fall() {
-                //log::info!("Off ground");
+                //log::debug!("Off ground");
                 player.set_offground_height(player.get_position_clone().y as f32);
                 player.set_checking_fall(false);
             } else if packet.on_ground == true {
@@ -55,7 +55,7 @@ pub fn handle_packet(
                 return Ok(());
             }
             if packet.on_ground == false && player.get_checking_fall() {
-                //log::info!("Off ground");
+                //log::debug!("Off ground");
                 player.set_offground_height(player.get_position_clone().y as f32);
                 player.set_checking_fall(false);
             } else if packet.on_ground == true {
@@ -71,7 +71,7 @@ pub fn handle_packet(
             //let mut pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
             /*             if pos.distance(&player.last_position) > 16.0 && player.last_position != pos
             {
-                log::info!("Position: {:?}", pos);
+                log::debug!("Position: {:?}", pos);
                 if pos.y < 0.0 || player.last_position.y < 0.0 {
                     player.last_position = pos;
                     pos = pos;
@@ -97,7 +97,7 @@ pub fn handle_packet(
                 return Ok(());
             }
             if packet.on_ground == false && player.get_checking_fall() {
-                //log::info!("Off ground");
+                //log::debug!("Off ground");
                 player.set_offground_height(player.get_position_clone().y as f32);
                 player.set_checking_fall(false);
             } else if packet.on_ground == true {
@@ -114,7 +114,7 @@ pub fn handle_packet(
             /*             let mut pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
             if pos.distance(&player.last_position) > 16.0 && player.last_position != pos
             {
-                log::info!("Position: {:?}", pos);
+                log::debug!("Position: {:?}", pos);
                 if pos.y < 0.0 || player.last_position.y < 0.0 {
                     player.last_position = pos;
                     pos = pos;
@@ -148,10 +148,26 @@ pub fn handle_packet(
             if message.message.len() > 64 {
                 return Ok(());
             }
-            if message.message == "balls" {
+            use crate::game::entities::*;
+            if message.message == "panicmeballs" {
+                panic!("Panic!");
                 //game.spawn_entity(Box::new(crate::game::entities::item_entity::ItemEntity::new(player.get_position_clone(), game.ticks, ItemStack::new(1, 0, 1))));
             }
-/*             let mut inv = player.get_inventory();
+            if message.message == "makeaslime" {
+                game.spawn_entity(Box::new(
+                    slime_entity::SlimeEntity::new(
+                        player.get_position_clone(),
+                        game.ticks,
+                    ),
+                ));
+            }
+/*             if message.message == "chunksave" {
+                game.world.to_file("world");
+            } */
+/*             if message.message == "chunkload" {
+                game.world = crate::chunks::World::from_file("world").unwrap();
+            } */
+            /*             let mut inv = player.get_inventory();
             let mut slot = inv
                 .get_slot(39)
                 .expect("Player doesn't have expected slot!"); /*
@@ -192,16 +208,16 @@ pub fn handle_packet(
             //player.sync_inventory();
             if message.message.starts_with("/") {
                 message.message.remove(0);
-                log::info!(
+                log::debug!(
                     "{} issued server command /{}",
                     player.get_username(),
                     message.message
                 );
                 use std::ops::DerefMut;
-                //log::info!("A");
+                //log::debug!("A");
                 let res =
                     game.execute_command(player.unwrap().unwrap().deref_mut(), &message.message)?;
-                //log::info!("B");
+                //log::debug!("B");
                 match res {
                     0 => {}
                     4 => {
@@ -213,12 +229,12 @@ pub fn handle_packet(
                     }
                 }
             } else {
-                //log::info!("sx");
+                //log::debug!("sx");
                 let message = message.message;
                 //let message = message.replace("&", "§");
                 let message = Message::new(&format!("<{}> {}", player.get_username(), message));
                 log::info!("[Server task] {}", message.message);
-                //log::info!("bx");
+                //log::debug!("bx");
                 for (id, player_iter) in game.players.0.borrow().clone() {
                     if id == player.get_id() {
                         player.send_message(message.clone());
@@ -227,7 +243,7 @@ pub fn handle_packet(
                         player.send_message(message.clone());
                     }
                 }
-                //log::info!("nx");
+                //log::debug!("nx");
             }
         }
         ClientPacket::Respawn(_) => {
@@ -254,8 +270,25 @@ pub fn handle_packet(
         }
         ClientPacket::Animation(packet) => {
             if packet.animate == 1 {
-                let len = game.players.0.borrow().len().clone();
-                for i in 0..len {
+                let id = player.get_id().clone();
+                let name = player.get_username();
+                let list = game.players.0.borrow().clone();
+                for list2 in list {
+                    if !list2.1.can_borrow() {
+                        continue;
+                    }
+                    let mut player_new = list2.1.unwrap().unwrap();
+                    if let Some(_) = player_new.rendered_players.get(&(id, name.clone())) {
+                        player_new.write(ServerPacket::Animation {
+                            eid: id.0,
+                            animate: 1,
+                        });
+                    } else {
+                        //log::info!("Player {} does not have ({}, {}) IN THEIR RENDERD PLAYE.R", player_new.username, player.get_id().0, player.get_username());
+                        continue;
+                    }
+                }
+                /*                 for i in 0..len {
                     if i as i32 == player.get_id().0 {
                         continue;
                     }
@@ -278,16 +311,26 @@ pub fn handle_packet(
                             animate: 1,
                         });
                     } else {
+                        log::info!("Player {} does not have ({}, {}) IN THEIR RENDERD PLAYE.R", player_new.username, player.get_id().0, player.get_username());
                         continue;
                     }
-                }
+                } */
             }
         }
         ClientPacket::Disconnect(_) => {
-            player.unwrap().unwrap().remove();
+            player.unwrap().unwrap().remove(None);
         }
         ClientPacket::HoldingChange(packet) => {
             player.set_held_slot(packet.slot_id);
+        }
+        ClientPacket::WindowClick(packet) => {
+            if let Err(e) = window_click_handler(packet, player.clone(), game) {
+                log::debug!(
+                    "Error handling packet from user {}: {:?}",
+                    player.get_username(),
+                    e
+                );
+            }
         }
         ClientPacket::WindowClick(mut packet) => {
             use std::ops::DerefMut;
@@ -320,7 +363,7 @@ pub fn handle_packet(
                         .expect("Slot doesn't exist!")
                         != &item
                     {
-                        log::info!("Declined! Tried to get {}", packet.slot);
+                        log::debug!("Declined! Tried to get {}", packet.slot);
                         player.sync_inventory();
                         //crate::systems::sync_inv_force(game, server, player)?;
                         player.write(ServerPacket::Transaction {
@@ -363,7 +406,7 @@ pub fn handle_packet(
                         {
                             if packet.slot != 0 {
                                 //*invslot = ItemStack::default();
-                                //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
+                                //log::debug!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
                                 if invslot.count as u64
                                     + player.current_cursored_item.clone().unwrap().count.max(1)
                                         as u64
@@ -395,11 +438,11 @@ pub fn handle_packet(
                                 }
                             } else {
                                 if let Some(mut curcurid) = player.current_cursored_item {
-                                    log::info!("Is some");
+                                    log::debug!("Is some");
                                     if curcurid.id == invslot.id
                                         && curcurid.damage == invslot.damage
                                     {
-                                        log::info!("Got here!");
+                                        log::debug!("Got here!");
                                         if (curcurid.count as u64 + invslot.count as u64)
                                             <= registry
                                                 .get_item(invslot.id)
@@ -739,7 +782,7 @@ pub fn handle_packet(
                             packet.item_uses.unwrap(),
                             packet.item_count.unwrap(),
                         );
-                        log::info!("Got 2 here");
+                        log::debug!("Got 2 here");
                         if inventory
                             .items
                             .get(&(packet.slot as i8))
@@ -761,7 +804,7 @@ pub fn handle_packet(
                             .get_mut(&(packet.slot as i8))
                             .expect("Slot doesn't exist!");
                         if invslot.count == 0 || registry.get_item(invslot.id).is_none() {
-                            log::info!("Is bad");
+                            log::debug!("Is bad");
                             *invslot = ItemStack::default();
                             player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
@@ -786,7 +829,7 @@ pub fn handle_packet(
                             {
                                 if packet.slot != 0 {
                                     //*invslot = ItemStack::default();
-                                    //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
+                                    //log::debug!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
                                     if invslot.count
                                         + player.current_cursored_item.clone().unwrap().count.max(1)
                                         > registry
@@ -829,7 +872,7 @@ pub fn handle_packet(
                                     }
                                 } else {
                                     if let Some(mut curcurid) = player.current_cursored_item {
-                                        log::info!("Is some");
+                                        log::debug!("Is some");
                                         if curcurid.id == invslot.id
                                             && curcurid.damage == invslot.damage
                                         {
@@ -981,18 +1024,18 @@ pub fn handle_packet(
                                 } else {
                                     None
                                 };
-                                //log::info!("Grid: {:?}", grid);
+                                //log::debug!("Grid: {:?}", grid);
                                 if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
-                                    //log::info!("Got it!");
+                                    //log::debug!("Got it!");
                                     *inventory.items.get_mut(&0).unwrap() = out;
                                 };
                                 //log::debug!("Slot zro");
                                 for i in 0..10 {
-                                    //log::info!("This is running");
+                                    //log::debug!("This is running");
                                     let slot = player.inventory.items.get_mut(&i).unwrap();
                                     if i > 0 {
                                         if slot.count - 1 <= 0 {
-                                            //log::info!("Clearing slot!");
+                                            //log::debug!("Clearing slot!");
                                             slot.id = 0;
                                             slot.count = 0;
                                             slot.damage = 0;
@@ -1009,16 +1052,23 @@ pub fn handle_packet(
                             }
                         }
                     } else {
-                        log::info!("Slot: {:?}", packet.slot);
+                        log::debug!("Slot: {:?}", packet.slot);
                         if player.current_cursored_item.is_none()
                             || (inventory.items.get(&(packet.slot as i8)).unwrap().id
                                 != player.current_cursored_item.clone().unwrap().id
                                 && inventory.items.get(&(packet.slot as i8)).unwrap().id != 0)
                         {
-                            log::info!("Stopping here {} {}", player.current_cursored_item.is_none(), inventory.items.get(&(packet.slot as i8)).unwrap().id != 0);
+                            log::debug!(
+                                "Stopping here {} {}",
+                                player.current_cursored_item.is_none(),
+                                inventory.items.get(&(packet.slot as i8)).unwrap().id != 0
+                            );
                             if player.current_cursored_item.is_some() {
-                                log::info!("and this {}", inventory.items.get(&(packet.slot as i8)).unwrap().id
-                                != player.current_cursored_item.clone().unwrap().id);
+                                log::debug!(
+                                    "and this {}",
+                                    inventory.items.get(&(packet.slot as i8)).unwrap().id
+                                        != player.current_cursored_item.clone().unwrap().id
+                                );
                             }
                             player.sync_inventory();
                             //crate::systems::sync_inv_force(game, server, player)?;
@@ -1172,7 +1222,7 @@ pub fn handle_packet(
                             } else {
                                 None
                             };
-                            log::info!("Grid: {:?}", grid);
+                            log::debug!("Grid: {:?}", grid);
                             if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
                                 log::debug!("Got it!");
                                 *inventory.items.get_mut(&0).unwrap() = out;
@@ -1210,7 +1260,7 @@ pub fn handle_packet(
         //                 .expect("Slot doesn't exist!")
         //                 != item
         //             {
-        //                 log::info!("Declined! Tried to get {}", packet.slot);
+        //                 log::debug!("Declined! Tried to get {}", packet.slot);
         //                 player.sync_inventory();
         //                 //crate::systems::sync_inv_force(game, server, player)?;
         //                 player.write(ServerPacket::Transaction {
@@ -1241,7 +1291,7 @@ pub fn handle_packet(
         //                     && packet.right_click == 0
         //                 {
         //                     //*invslot = ItemStack::default();
-        //                     //log::info!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
+        //                     //log::debug!("Maximum is {}", player.current_cursored_item.clone().unwrap().count.max(1));
         //                     invslot.count +=
         //                         curcuritem.as_ref().unwrap().count.max(1);
         //                     player.current_cursored_item = None;
@@ -1312,7 +1362,7 @@ pub fn handle_packet(
         //             }
         //         }
         //         //player.last_transaction_id = packet.action_number;
-        //         log::info!(
+        //         log::debug!(
         //             "Client sent {:?}, {:?}, {:?}",
         //             packet.item_id,
         //             packet.item_count,
@@ -1356,7 +1406,7 @@ pub fn handle_packet(
                         let x = arr[0];
                         let y = arr[1];
                         let z = arr[2];
-                        //log::info!("Adding velocity {} {} {}", x, y, z);
+                        //log::debug!("Adding velocity {} {} {}", x, y, z);
                         plr.add_velocity(
                             x as i16,
                             (((y as i64) + 2043).min(i16::MAX as i64)) as i16,
@@ -1376,6 +1426,22 @@ pub fn handle_packet(
                             player.write(ServerPacket::EntityStatus { eid: plr.id.0, entity_status: 2 });
                             player.write(ServerPacket::Animation { eid: plr.id.0, animate: 2});
                         } */
+                    }
+                } else {
+                    drop(plrs);
+                    let entities = game.entities.borrow().clone();
+                    if let Some(entity) = entities.get(&EntityID(packet.target)) {
+                        let mut entity = entity.borrow_mut();
+                        if entity.get_position().distance(&player.position) < 6.0 {
+                            if entity.is_dead() {
+                                return Ok(());
+                            }
+                            let arr = player.position.get_direction().mul(3.0).to_array();
+                            entity.add_velocity(arr);
+                            drop(player);
+                            entity.damage(game, 1);
+                            use std::ops::Mul;
+                        }
                     }
                 }
             }
@@ -1596,7 +1662,7 @@ pub fn handle_packet(
                     return Ok(());
                 }
                 //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
-                log::info!(
+                log::debug!(
                     "Setting at X: {} Y: {} Z: {}",
                     packet.x,
                     packet.y as i32,
@@ -1604,7 +1670,7 @@ pub fn handle_packet(
                 );
                 if block.get_type() == 0 {
                     //player.write(ServerPacket::BlockChange { x: packet.x, y: packet.y, z: packet.z, block_type: item.id as i8, block_metadata: 0x00 });
-                    log::info!("Setting block.");
+                    log::debug!("Setting block.");
                     block.set_type(item.id as u8);
                     game.block_updates.push(crate::game::Block {
                         position: crate::game::BlockPosition {
@@ -1638,7 +1704,7 @@ pub fn handle_packet(
                         z: packet.z as i32,
                     };
                     player.mining_block.face = packet.face;
-                    //log::info!("Got");
+                    //log::debug!("Got");
                     let block = if let Some(blk) =
                         game.world
                             .get_block(packet.x, (packet.y - 0) as i32, packet.z)
@@ -1648,7 +1714,7 @@ pub fn handle_packet(
                         return Ok(());
                     };
                     let orig_type = block.b_type.clone();
-                    //log::info!("Or ig type {}", orig_type);
+                    //log::debug!("Or ig type {}", orig_type);
                     let registry = ItemRegistry::global();
                     if let Some(item) = registry.get_item(orig_type as i16) {
                         if let None = item.get_item().as_block() {
@@ -1659,7 +1725,7 @@ pub fn handle_packet(
                     }
                     // TODO Instabreak instead of this hard-coded check
                     if orig_type != 50 {
-                        //log::info!("Denied");
+                        //log::debug!("Denied");
                         player.write(ServerPacket::BlockChange {
                             x: packet.x,
                             y: packet.y + 0,
@@ -1689,6 +1755,7 @@ pub fn handle_packet(
                             sound_data: orig_type as i32,
                         },
                     )?;
+                    player.sync_inventory();
                     let registry = ItemRegistry::global();
                     if let Some(item) = registry.get_item(orig_type as i16) {
                         if let Some(block) = item.get_item().as_block() {
@@ -1721,7 +1788,7 @@ pub fn handle_packet(
                         return Ok(());
                     };
                     let orig_type = block.b_type.clone();
-                    //log::info!("Or ig type {}", orig_type);
+                    //log::debug!("Or ig type {}", orig_type);
                     let registry = ItemRegistry::global();
                     if let Some(item) = registry.get_item(orig_type as i16) {
                         if let None = item.get_item().as_block() {
@@ -1739,7 +1806,7 @@ pub fn handle_packet(
                         })
                         && orig_type != 50
                     {
-                        //log::info!("Denied");
+                        //log::debug!("Denied");
                         player.write(ServerPacket::BlockChange {
                             x: packet.x,
                             y: packet.y + 0,
@@ -1833,4 +1900,756 @@ pub fn handle_packet(
         _ => {}
     }
     Ok(())
+}
+use crate::game::*;
+pub enum WClick {
+    Inventory(Window),
+    Player(Arc<PlayerRef>),
+}
+use std::fmt::{self, *};
+impl fmt::Display for WClick {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            WClick::Inventory(_) => write!(f, "WClick::Inventory"),
+            WClick::Player(_) => write!(f, "WClick::Player"),
+        }
+    }
+}
+impl WClick {
+    pub fn get_inventory(&self) -> std::cell::RefMut<'_, Inventory> {
+        match self {
+            WClick::Inventory(window) => window.inventory.borrow_mut(),
+            WClick::Player(player) => player.get_inventory(),
+        }
+    }
+}
+fn window_click_handler(
+    mut packet: crate::network::packet::WindowClick,
+    player: Arc<PlayerRef>,
+    game: &mut Game,
+) -> anyhow::Result<()> {
+    let registry = ItemRegistry::global();
+    let mut inventory: WClick;
+    let mut window_id = 0;
+    let mut window_type = 0;
+    if packet.window_id != 0 {
+        if let Some(inv) = player.get_open_inventories().get(&packet.window_id) {
+            window_type = inv.inventory_type;
+            inventory = WClick::Inventory(inv.clone());
+        } else {
+            return Err(anyhow::anyhow!(
+                "tried to access a window that doesn't exist!"
+            ));
+        }
+        if packet.slot as usize > inventory.get_inventory().items.len() - 1 {
+            packet.slot -= 1;
+            inventory = WClick::Player(player.clone());
+        }
+    } else {
+        window_id = packet.window_id;
+        inventory = WClick::Player(player.clone());
+    }
+    log::debug!("Window: {}", inventory);
+    let closure: anyhow::Result<()> = {
+        // If picking up from a slot
+        if packet.item_id != -1 {
+            if window_type == 0 && packet.slot == 0 {
+                let mut inv = inventory.get_inventory();
+                log::debug!("Inv: {:?}", inv.items);
+                let mut grid = Grid::default();
+                grid[0][0] = if let Some(a) = inv.items.get(&1) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[1][0] = if let Some(a) = inv.items.get(&2) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[0][1] = if let Some(a) = inv.items.get(&3) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[1][1] = if let Some(a) = inv.items.get(&4) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                log::debug!("Grid balls:\n{:?}", grid);
+                if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
+                    log::debug!("Got it!");
+                    *inv.items.get_mut(&0).unwrap() = out;
+                };
+                for i in 1..5 {
+                    if let Some(item) = inv.items.get_mut(&i) {
+                        if item.count - 1 > 0 {
+                            log::debug!("Reducing");
+                            item.count -= 1;
+                        } else {
+                            item.count = 0;
+                            item.id = 0;
+                            item.damage = 0;
+                        }
+                    }
+                }
+            } else if window_type == 1 && packet.slot == 0 {
+                let mut inv = inventory.get_inventory();
+                let mut grid = Grid::default();
+                grid[0][0] = if let Some(a) = inv.items.get(&1) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[1][0] = if let Some(a) = inv.items.get(&2) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[2][0] = if let Some(a) = inv.items.get(&3) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[0][1] = if let Some(a) = inv.items.get(&4) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[1][1] = if let Some(a) = inv.items.get(&5) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[2][1] = if let Some(a) = inv.items.get(&6) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[0][2] = if let Some(a) = inv.items.get(&7) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[1][2] = if let Some(a) = inv.items.get(&8) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                grid[2][2] = if let Some(a) = inv.items.get(&9) {
+                    let a = a.clone();
+                    if a.id == 0 {
+                        None
+                    } else {
+                        Some(a)
+                    }
+                } else {
+                    None
+                };
+                log::debug!("Grid:\n{:?}", grid);
+                if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
+                    log::debug!("Got it!");
+                    *inv.items.get_mut(&0).unwrap() = out;
+                };
+                for i in 1..10 {
+                    if let Some(item) = inv.items.get_mut(&i) {
+                        if item.count - 1 > 0 {
+                            log::debug!("Reducing");
+                            item.count -= 1;
+                        } else {
+                            item.count = 0;
+                            item.id = 0;
+                            item.damage = 0;
+                        }
+                    }
+                }
+            }
+            let cur = player.get_current_cursored_item_mut().clone();
+            let mut is_some = cur.is_some();
+            let is_some_real = is_some.clone();
+            if is_some {
+                is_some = cur.unwrap().id != 0;
+            }
+            let mut recv_item = item_packet_validator(&packet, player.clone(), &inventory)?;
+            let mut inv = inventory.get_inventory();
+            let slot = inv
+                .get_slot(packet.slot as i8)
+                .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+            if !is_some || packet.right_click == 1 {
+                if packet.right_click == 0 {
+                    if !packet.shift {
+                        slot.reset();
+                        drop(inv);
+                        *player.get_current_cursored_item_mut() = Some(recv_item);
+                    } else {
+                        log::debug!("Shift click");
+                        let mut slot = slot.clone();
+                        if window_type == 1 {
+                            inv = player.get_inventory();
+                        }
+                        for item in inv.items.iter_mut() {
+                            if *item.0 as i16 == packet.slot {
+                                continue;
+                            }
+                            let mut item = item.1;
+                            if item.id == slot.id && item.damage == slot.damage {
+                                let max_stack_size =
+                                    registry.get_item(slot.id).unwrap().get_item().stack_size()
+                                        as u64;
+                                if item.count as u64 + slot.count as u64 > max_stack_size {
+                                    for i in 0..max_stack_size - item.count as u64 {
+                                        item.count += 1;
+                                        slot.count -= 1;
+                                    }
+                                } else {
+                                    item.count += slot.count;
+                                    slot.count = 0;
+                                }
+                            }
+                            if slot.count == 0 {
+                                slot.id = 0;
+                                slot.damage = 0;
+                                break;
+                            }
+                        }
+                        if slot.id != 0 {
+                            let mut offset = 0;
+                            if window_type == 0 {
+                                offset = 9;
+                            } else if window_type == 1 {
+                                //inv = player.get_inventory();
+                                offset = 9;
+                            }
+                            for i in offset..inv.items.len() {
+                                let item = inv.items.get_mut(&(i as i8)).unwrap();
+                                if item.id == 0 {
+                                    *item = slot;
+                                    slot.reset();
+                                }
+                            }
+                            /*                             for item in inv.items.iter_mut() {
+                                if (0..offset).contains(item.0) {
+                                    continue;
+                                }
+                                let item = item.1;
+                            } */
+                        }
+                        let slot_2 = inv
+                            .get_slot(packet.slot as i8)
+                            .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                        *slot_2 = slot;
+                    }
+                } else {
+                    if !is_some {
+                        let num = equal_half(slot.count as usize);
+                        slot.count = num.1 as i8;
+                        drop(inv);
+                        recv_item.count = num.0 as i8;
+                        *player.get_current_cursored_item_mut() = Some(recv_item);
+                        log::debug!(
+                            "Current cursored item: {:?}",
+                            player.get_current_cursored_item_mut()
+                        );
+                    } else {
+                        let slot = slot.clone();
+                        drop(inv);
+                        log::debug!("NumNutz");
+                        let mut cursor2 = player.get_current_cursored_item_mut();
+                        let cursor = cursor2.as_mut().unwrap();
+                        if slot.id != cursor.id || slot.damage != cursor.damage {
+                            return Err(anyhow::anyhow!("Tried to stack two different items!"));
+                        }
+                        let max_stack_size = ItemRegistry::global()
+                            .get_item(slot.id)
+                            .unwrap()
+                            .get_item()
+                            .stack_size();
+                        if slot.count as u64 + 1 > max_stack_size as u64 {
+                            player.sync_inventory();
+                            return Err(anyhow::anyhow!("Tried to stack too large!"));
+                        } else {
+                            if cursor.count - 1 == 0 {
+                                cursor.id = 0;
+                                cursor.damage = 0;
+                            }
+                            cursor.count -= 1;
+                            drop(cursor2);
+                            let mut inv = inventory.get_inventory();
+                            log::debug!("Slot: {:?}", packet.slot);
+                            let slot = inv
+                                .get_slot(packet.slot as i8)
+                                .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                            slot.count += 1;
+                            drop(inv);
+                        }
+                    }
+                }
+            } else if is_some {
+                let slot = slot.clone();
+                drop(inv);
+                log::debug!("Else");
+                if player.get_current_cursored_item_mut().is_none() {
+                    return Err(anyhow::anyhow!("No item in cursor!"));
+                }
+                let cursored = player.get_current_cursored_item_mut().clone().unwrap();
+                if slot.id != cursored.id || slot.damage != cursored.damage {
+                    let mut inv = inventory.get_inventory();
+                    //log::debug!("Slot: {:?}", packet.slot);
+                    let slot = inv
+                        .get_slot(packet.slot as i8)
+                        .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                    let cur2 = slot.clone();
+                    *slot = cursored;
+                    drop(inv);
+                    *player.get_current_cursored_item_mut().as_mut().unwrap() = cur2;
+                    //return Err(anyhow::anyhow!("Tried to stack two different items!"));
+                } else {
+                    let max_stack_size = ItemRegistry::global()
+                        .get_item(slot.id)
+                        .unwrap()
+                        .get_item()
+                        .stack_size();
+                    if cursored.count as u64 + slot.count as u64 > max_stack_size as u64 {
+                        log::debug!("Sugmanut");
+                        for _ in 0..max_stack_size as u64 - slot.count as u64 {
+                            player
+                                .get_current_cursored_item_mut()
+                                .as_mut()
+                                .unwrap()
+                                .count -= 1;
+                            let mut inv = inventory.get_inventory();
+                            //log::debug!("Slot: {:?}", packet.slot);
+                            let slot = inv
+                                .get_slot(packet.slot as i8)
+                                .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                            slot.count += 1;
+                            drop(inv);
+                        }
+                        //return Err(anyhow::anyhow!("Tried to stack too large!"));
+                    } else if packet.slot != 0 {
+                        let mut inv = inventory.get_inventory();
+                        log::debug!("Slot: {:?}", packet.slot);
+                        let slot = inv
+                            .get_slot(packet.slot as i8)
+                            .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                        slot.count += cursored.count;
+                        drop(inv);
+                        player
+                            .get_current_cursored_item_mut()
+                            .as_mut()
+                            .unwrap()
+                            .reset();
+                    } else {
+                        let mut inv = inventory.get_inventory();
+                        log::debug!("Slot: {:?}", packet.slot);
+                        let mut cursored = cursored;
+                        let slot = inv
+                            .get_slot(packet.slot as i8)
+                            .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                        cursored.count += slot.count;
+                        slot.reset();
+                        drop(inv);
+                        *player.get_current_cursored_item_mut().as_mut().unwrap() = cursored;
+                    }
+                }
+            }
+        } else {
+            // If putting in a slot
+            log::debug!("Putting in slot");
+            if packet.slot > 0 {
+                if player.get_current_cursored_item_mut().is_none() {
+                    return Err(anyhow::anyhow!("No item in cursor!"));
+                }
+                if player.get_current_cursored_item_mut().unwrap().id == 0 {
+                    return Err(anyhow::anyhow!("Cursor is empty!"));
+                }
+                if !in_registry(player.get_current_cursored_item_mut().as_ref().unwrap().id) {
+                    return Err(anyhow::anyhow!("Item is not in registry!"));
+                }
+                let cursored = player.get_current_cursored_item_mut().unwrap().clone();
+                let mut inv = inventory.get_inventory();
+                log::debug!("Slot: {:?}", packet.slot);
+                let slot = inv
+                    .get_slot(packet.slot as i8)
+                    .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?
+                    .clone();
+                drop(inv);
+                let reg_item = ItemRegistry::global().get_item(cursored.id).unwrap();
+                if let WClick::Player(_) = inventory {
+                    if packet.slot == 0 {
+                        return Err(anyhow::anyhow!("can't put items in crafting output!"));
+                    }
+                    use crate::game::items::ToolType;
+                    if (5..9).contains(&packet.slot) {
+                        if let Some(tool_type) = reg_item.get_item().get_tool_type() {
+                            match tool_type {
+                                ToolType::HELMET => {
+                                    if packet.slot != 5 {
+                                        return Err(anyhow::anyhow!("non-armor in armor slot!"));
+                                    }
+                                }
+                                ToolType::CHESTPLATE => {
+                                    if packet.slot != 6 {
+                                        return Err(anyhow::anyhow!("non-armor in armor slot!"));
+                                    }
+                                }
+                                ToolType::LEGGINGS => {
+                                    if packet.slot != 7 {
+                                        return Err(anyhow::anyhow!("non-armor in armor slot!"));
+                                    }
+                                }
+                                ToolType::BOOTS => {
+                                    if packet.slot != 8 {
+                                        return Err(anyhow::anyhow!("non-armor in armor slot!"));
+                                    }
+                                }
+                                _ => {
+                                    return Err(anyhow::anyhow!("non-armor in armor slot!"));
+                                }
+                            }
+                        } else {
+                            return Err(anyhow::anyhow!("non-armor in armor slot!"));
+                        }
+                    }
+                }
+                if packet.right_click == 0 {
+                    log::debug!("Slot: {:?}", slot);
+                    player
+                        .get_current_cursored_item_mut()
+                        .as_mut()
+                        .unwrap()
+                        .reset();
+                    let mut inv = inventory.get_inventory();
+                    log::debug!("Slot: {:?}", packet.slot);
+                    let slot = inv
+                        .get_slot(packet.slot as i8)
+                        .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                    *slot = cursored;
+                    drop(inv);
+                } else {
+                    log::debug!("ELSE");
+                    if slot.id == 0 {
+                        log::debug!("Slot: {:?}", slot);
+                        let mut cursor2 = player.get_current_cursored_item_mut();
+                        let cursor = cursor2.as_mut().unwrap();
+                        if cursor.count - 1 == 0 {
+                            cursor.id = 0;
+                            cursor.damage = 0;
+                            //return Err(anyhow::anyhow!("Not enough items left!"));
+                        }
+                        cursor.count -= 1;
+                        drop(cursor);
+                        drop(cursor2);
+                        let mut inv = inventory.get_inventory();
+                        log::debug!("Slot: {:?}", packet.slot);
+                        let slot = inv
+                            .get_slot(packet.slot as i8)
+                            .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+                        slot.id = cursored.id;
+                        slot.count = 1;
+                        drop(inv);
+                    } else {
+                    }
+                }
+                if (1..5).contains(&packet.slot) && window_type == 0 {
+                    let mut inv = inventory.get_inventory();
+                    log::debug!("Inv: {:?}", inv.items);
+                    let mut grid = Grid::default();
+                    grid[0][0] = if let Some(a) = inv.items.get(&1) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[1][0] = if let Some(a) = inv.items.get(&2) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[0][1] = if let Some(a) = inv.items.get(&3) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[1][1] = if let Some(a) = inv.items.get(&4) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    log::debug!("Grid:\n{:?}", grid);
+                    if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
+                        log::debug!("Got it!");
+                        *inv.items.get_mut(&0).unwrap() = out;
+                    };
+                /*                     for i in 1..4 {
+                    if let Some(item) = inv.items.get_mut(&i) {
+                        if item.count > 0 {
+                            item.count -= 1;
+                        } else {
+                            item.count = 0;
+                            item.id = 0;
+                            item.damage = 0;
+                        }
+                    }
+                } */
+                } else if (1..10).contains(&packet.slot) && window_type == 1 {
+                    let mut inv = inventory.get_inventory();
+                    let mut grid = Grid::default();
+                    grid[0][0] = if let Some(a) = inv.items.get(&1) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[1][0] = if let Some(a) = inv.items.get(&2) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[2][0] = if let Some(a) = inv.items.get(&3) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[0][1] = if let Some(a) = inv.items.get(&4) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[1][1] = if let Some(a) = inv.items.get(&5) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[2][1] = if let Some(a) = inv.items.get(&6) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[0][2] = if let Some(a) = inv.items.get(&7) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[1][2] = if let Some(a) = inv.items.get(&8) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    grid[2][2] = if let Some(a) = inv.items.get(&9) {
+                        let a = a.clone();
+                        if a.id == 0 {
+                            None
+                        } else {
+                            Some(a)
+                        }
+                    } else {
+                        None
+                    };
+                    log::debug!("Grid:\n{:?}", grid);
+                    if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
+                        log::debug!("Got it!");
+                        *inv.items.get_mut(&0).unwrap() = out;
+                    };
+                }
+            } else {
+                // TODO item drop
+                log::debug!("Drop item here");
+            }
+        }
+        Ok(())
+    };
+    if let Ok(_) = closure {
+        player.write_packet(ServerPacket::Transaction {
+            window_id: packet.window_id,
+            action_number: packet.action_number,
+            accepted: true,
+        });
+        return Ok(());
+    } else if let Err(e) = closure {
+        player.write_packet(ServerPacket::Transaction {
+            window_id: packet.window_id,
+            action_number: packet.action_number,
+            accepted: false,
+        });
+        return Err(e);
+    }
+    Ok(())
+}
+pub fn item_packet_validator(
+    packet: &crate::network::packet::WindowClick,
+    player: Arc<PlayerRef>,
+    inventory: &WClick,
+) -> anyhow::Result<ItemStack> {
+    if packet.item_count == Some(0) {
+        return Err(anyhow::anyhow!("pick up an item of count 0!"));
+    }
+    if packet.item_count.is_none() {
+        return Err(anyhow::anyhow!("count is none!"));
+    }
+    if packet.item_uses.is_none() {
+        return Err(anyhow::anyhow!("damage is none!"));
+    }
+    let mut inv = inventory.get_inventory();
+    let recv_item = ItemStack::new(
+        packet.item_id,
+        packet.item_uses.unwrap() as i16,
+        packet.item_count.unwrap() as i8,
+    );
+    let slot = inv
+        .get_slot(packet.slot as i8)
+        .ok_or(anyhow::anyhow!("inventory slot does not exist!"))?;
+    if *slot != recv_item {
+        let slot = slot.clone();
+        drop(inv);
+        player.clear_cursor();
+        player.sync_inventory();
+        return Err(anyhow::anyhow!(
+            "item is incorrect! expected {:?}, got {:?}!",
+            slot,
+            recv_item
+        ));
+    }
+    if let None = ItemRegistry::global().get_item(slot.id) {
+        slot.reset();
+        drop(inv);
+        player.clear_cursor();
+        return Err(anyhow::anyhow!("item does not exist!"));
+    }
+    Ok(recv_item)
+}
+fn in_registry(id: i16) -> bool {
+    ItemRegistry::global().get_item(id).is_some()
+}
+fn equal_half(input: usize) -> (usize, usize) {
+    let x = input as f64 / 2.0;
+    let x1: usize;
+    let x2: usize;
+    if x % 1.0 != 0.0 {
+        x1 = (x - 0.5) as usize;
+        x2 = (x + 0.5) as usize;
+    } else {
+        x1 = x as usize;
+        x2 = x as usize;
+    }
+    (x1, x2)
 }

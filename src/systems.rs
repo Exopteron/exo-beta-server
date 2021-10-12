@@ -30,10 +30,13 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         for client in clients.iter_mut() {
             let mut cl = client.1.borrow_mut();
             if let Err(_) = cl.write(ServerPacket::KeepAlive) {
+                 //log::info!("eror");
                  remove.push(cl.id);
             } 
         }
+        //log::info!("Balls");
         for id in remove {
+            log::debug!("nyut");
             let username = if let Some(plr) = game.players.0.borrow().get(&id) {
                 plr.get_username() // borrow().username.clone()
             } else {
@@ -306,9 +309,11 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
         } else {
+            log::info!("entity does not exist");
             continue;
         };
         let mut player = list2; // .borrow_mut();
+        log::info!("Checking the rendering players of {}", player.get_username());
         drop(list);
         let mut packets = Vec::new();
         let name = player.get_username();
@@ -329,10 +334,15 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
                 } else {
                     //log::info!("Sending packet to {}", name);
                     //log::info!("Sending absolute");
-                    packets.push(ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
+                    let packet = ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8};
+                    //log::info!("Sending packet {:?} to {}", packet, name);
+                    packets.push(packet);
                 }
                 //log::info!("Sending entity teleport!");
                 //packets.push(ServerPacket::EntityLook { eid: id.0.0.0, yaw: pos.yaw as i8, pitch: pos.pitch as i8 });
+            } else {
+                id.1.position = pos;
+                //log::info!("Not for {}", name);
             }
             id.1.position = pos;
             //log::info!("tping {} from {:?} to {:?}", id.0.0, player.id, pos);
@@ -344,35 +354,42 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
     Ok(())
 }
 pub fn entity_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let len = game.players.0.borrow().len().clone();
-    for i in 0..len {
-        let list = game.players.0.borrow();
+    let list = game.players.0.borrow().clone();
+    for list2 in list.iter() {
+/*         let list = game.players.0.borrow();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
         } else {
             continue;
-        };
-        let mut player = list2; // .borrow_mut();
-        drop(list);
+        }; */
+        let mut player = list2.1; // .borrow_mut();
+        // drop(list);
         let mut packets = Vec::new();
         for id in player.unwrap().unwrap().rendered_entities.iter_mut() {
+            //log::info!("iterating");
             let pos = if let Some(plr) = game.entities.borrow().get(&id.0) {
                 let mut plr = plr.borrow_mut();
                 if !plr.broadcast_pos_change() {
+                    //log::info!("Continuing");
                     continue;
                 }
+                //log::info!("Got here");
                 plr.get_position().clone()
             } else {
+                //log::info!("None");
                 continue;
             };
 
             if id.1.position != pos {
+                
                 //log::info!("Sending entity teleport!");
                 packets.push(ServerPacket::EntityTeleport { eid: id.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
                 //packets.push(ServerPacket::EntityLook { eid: id.0.0.0, yaw: pos.yaw as i8, pitch: pos.pitch as i8 });
+                id.1.position = pos;
+            } else {
+                //log::info!("Not sending teleport. {:?} {:?}", id.1.position, pos);
             }
-            id.1.position = pos;
             //log::info!("tping {} from {:?} to {:?}", id.0.0, player.id, pos);
         }
         for packet in packets {

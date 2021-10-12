@@ -22,6 +22,9 @@ pub trait Block {
     fn needs_align(&self) -> bool {
         false
     }
+    fn is_fluid(&self) -> bool {
+        false
+    }
 }
 impl<T> Item for T
 where
