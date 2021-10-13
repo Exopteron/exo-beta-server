@@ -67,12 +67,12 @@ impl Solver {
                 .filter_map(|slot| *slot)
                 .for_each(|item| inputs.push(item));
             inputs.sort_unstable();
-            log::debug!("Inputs: {:?}", inputs);
+            log::info!("Inputs: {:?}", inputs);
             if let Some(output) = self.shapeless.get(&inputs).copied() {
-                log::debug!("There is some!");
+                log::info!("There is some!");
                 Some(output)
             } else {
-                log::debug!("None, loser!");
+                log::info!("None, loser!");
                 None
             }
         }

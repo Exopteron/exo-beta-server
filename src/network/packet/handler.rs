@@ -10,7 +10,7 @@ use std::sync::Arc;
 pub fn handle_packet(
     game: &mut Game,
     server: &mut Server,
-    player: Arc<PlayerRef>,
+    mut player: Arc<PlayerRef>,
     packet: ClientPacket,
 ) -> anyhow::Result<()> {
     match packet {
@@ -61,36 +61,35 @@ pub fn handle_packet(
             } else if packet.on_ground == true {
                 player.set_checking_fall(true);
             }
-            let mut pos = player.get_position();
-            pos.x = packet.x;
-            pos.y = packet.y;
-            pos.stance = packet.stance;
-            pos.z = packet.z;
-            pos.on_ground = packet.on_ground;
-            let pos = pos.clone();
-            //let mut pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
-            /*             if pos.distance(&player.last_position) > 16.0 && player.last_position != pos
-            {
-                log::debug!("Position: {:?}", pos);
-                if pos.y < 0.0 || player.last_position.y < 0.0 {
-                    player.last_position = pos;
-                    pos = pos;
+            let mut bad_move = false;
+            for y in 0..1 {
+                if let Some(block) = game.world.get_block(packet.x.floor() as i32, packet.y.floor() as i32, packet.z.floor() as i32) {
+                    if let Some(registry_block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                        if let Some(registry_block) = registry_block.get_item().as_block() {
+                            if registry_block.is_solid() {
+                                bad_move = true;
+                            }
+                        }
+                    }
                 }
-                player.write(ServerPacket::PlayerPositionAndLook {
-                    x: player.last_position.x,
-                    y: player.last_position.y,
-                    stance: player.last_position.stance,
-                    z: player.last_position.z,
-                    yaw: player.last_position.yaw,
-                    pitch: player.last_position.pitch,
-                    on_ground: player.last_position.on_ground,
-                });
-                pos = player.last_position;
-                return Ok(());
-            } */
-            let mut pos = pos.clone();
-            player.set_last_position(pos);
-            player.set_position(pos);
+            }
+            if !bad_move {
+                let mut pos = player.get_position();
+                pos.x = packet.x;
+                pos.y = packet.y;
+                pos.stance = packet.stance;
+                pos.z = packet.z;
+                pos.on_ground = packet.on_ground;
+                let pos = pos.clone();
+                let pos = pos.clone();
+                player.set_last_position(pos);
+                player.set_position(pos);
+            } else {
+                let pos = player.get_position();
+                //log::info!("Denied. TPing to {:?}", pos);
+                player.write_packet(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: pos.stance, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: pos.on_ground });
+                player.set_offground_height(0.);
+            }
         }
         ClientPacket::PlayerPositionAndLookPacket(packet) => {
             if player.is_dead() {
@@ -103,37 +102,36 @@ pub fn handle_packet(
             } else if packet.on_ground == true {
                 player.set_checking_fall(true);
             }
-            let mut pos = player.get_position();
-            pos.yaw = packet.yaw;
-            pos.pitch = packet.pitch;
-            pos.x = packet.x;
-            pos.y = packet.y;
-            pos.stance = packet.stance;
-            pos.z = packet.z;
-            pos.on_ground = packet.on_ground;
-            /*             let mut pos = crate::game::Position::from_pos(3.0, 20.0, 5.0);
-            if pos.distance(&player.last_position) > 16.0 && player.last_position != pos
-            {
-                log::debug!("Position: {:?}", pos);
-                if pos.y < 0.0 || player.last_position.y < 0.0 {
-                    player.last_position = pos;
-                    pos = pos;
+            let mut bad_move = false;
+            for y in 0..1 {
+                if let Some(block) = game.world.get_block(packet.x.floor() as i32, packet.y.floor() as i32, packet.z.floor() as i32) {
+                    if let Some(registry_block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                        if let Some(registry_block) = registry_block.get_item().as_block() {
+                            if registry_block.is_solid() {
+                                bad_move = true;
+                            }
+                        }
+                    }
                 }
-                player.write(ServerPacket::PlayerPositionAndLook {
-                    x: player.last_position.x,
-                    y: player.last_position.y,
-                    stance: player.last_position.stance,
-                    z: player.last_position.z,
-                    yaw: player.last_position.yaw,
-                    pitch: player.last_position.pitch,
-                    on_ground: player.last_position.on_ground,
-                });
-                pos = player.last_position;
-                return Ok(());
-            } */
-            let mut pos = pos.clone();
-            player.set_last_position(pos);
-            player.set_position(pos);
+            }
+            if !bad_move {
+                let mut pos = player.get_position();
+                pos.yaw = packet.yaw;
+                pos.pitch = packet.pitch;
+                pos.x = packet.x;
+                pos.y = packet.y;
+                pos.stance = packet.stance;
+                pos.z = packet.z;
+                pos.on_ground = packet.on_ground;
+                let pos = pos.clone();
+                player.set_last_position(pos);
+                player.set_position(pos);
+            } else {
+                let pos = player.get_position();
+                //log::info!("Denied. TPing to {:?}", pos);
+                player.write_packet(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: pos.stance, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: pos.on_ground });
+                player.set_offground_height(0.);
+            }
         }
         ClientPacket::EntityAction(packet) => match packet.action {
             1 => {
@@ -145,7 +143,7 @@ pub fn handle_packet(
             _ => {}
         },
         ClientPacket::ChatMessage(mut message) => {
-            if message.message.len() > 64 {
+            if message.message.len() > 256 {
                 return Ok(());
             }
             use crate::game::entities::*;
@@ -216,7 +214,7 @@ pub fn handle_packet(
                 use std::ops::DerefMut;
                 //log::debug!("A");
                 let res =
-                    game.execute_command(player.unwrap().unwrap().deref_mut(), &message.message)?;
+                    game.execute_command(&mut player, &message.message)?;
                 //log::debug!("B");
                 match res {
                     0 => {}
@@ -1389,7 +1387,31 @@ pub fn handle_packet(
                 let plrs = game.players.0.borrow();
                 let plr = plrs.get(&EntityID(packet.target)).clone();
                 if let Some(plr) = plr {
+                    let gamerule = game.gamerules.rules.get("pvp-enabled").unwrap();
+                    if let crate::game::gamerule::GameruleValue::Boolean(value) = gamerule {
+                        if !value {
+                            return Ok(());
+                        }
+                    } else {
+                        panic!("PVP Gamerule is not a boolean!");
+                    }
                     if plr.get_position().distance(&player.position) < 6.0 {
+                        let registry = ItemRegistry::global();
+                        let mut dmg = 1;
+                        if let Some(hand) = player.get_item_in_hand_mut() {
+                            if let Some(item) = registry.get_item(hand.id as i16) {
+                                if let Some(max_dmg) = item.get_item().max_uses() {
+                                    hand.damage += 2;
+                                    if hand.damage as u64 > max_dmg {
+                                        hand.reset();
+                                    }     
+                                    player.sync_inventory();
+                                }
+                                if let Some(damage) = item.get_item().damage() {
+                                    dmg = damage;
+                                }
+                            }
+                        }
                         let mut plr = plr.unwrap().unwrap();
                         if plr.dead {
                             return Ok(());
@@ -1398,7 +1420,7 @@ pub fn handle_packet(
                             DamageType::Player {
                                 damager: player.username.clone(),
                             },
-                            1,
+                            dmg,
                             Some(&mut player),
                         );
                         use std::ops::Mul;
@@ -1432,14 +1454,30 @@ pub fn handle_packet(
                     let entities = game.entities.borrow().clone();
                     if let Some(entity) = entities.get(&EntityID(packet.target)) {
                         let mut entity = entity.borrow_mut();
+                        let mut dmg = 1;
                         if entity.get_position().distance(&player.position) < 6.0 {
                             if entity.is_dead() {
                                 return Ok(());
                             }
+                            let registry = ItemRegistry::global();
+                            if let Some(hand) = player.get_item_in_hand_mut() {
+                                if let Some(item) = registry.get_item(hand.id as i16) {
+                                    if let Some(max_dmg) = item.get_item().max_uses() {
+                                        hand.damage += 2;
+                                        if hand.damage as u64 > max_dmg {
+                                            hand.reset();
+                                        }     
+                                        player.sync_inventory();
+                                    }
+                                    if let Some(damage) = item.get_item().damage() {
+                                        dmg = damage;
+                                    }
+                                }
+                            }
                             let arr = player.position.get_direction().mul(3.0).to_array();
                             entity.add_velocity(arr);
                             drop(player);
-                            entity.damage(game, 1);
+                            entity.damage(game, dmg);
                             use std::ops::Mul;
                         }
                     }
@@ -1855,6 +1893,17 @@ pub fn handle_packet(
                         },
                     )?;
                     let registry = ItemRegistry::global();
+                    if let Some(hand) = player.get_item_in_hand_mut() {
+                        if let Some(item) = registry.get_item(hand.id as i16) {
+                            if let Some(max_dmg) = item.get_item().max_uses() {
+                                hand.damage += 1;
+                                if hand.damage as u64 > max_dmg {
+                                    hand.reset();
+                                }     
+                                player.sync_inventory();
+                            }
+                        }
+                    }
                     if let Some(item) = registry.get_item(orig_type as i16) {
                         if let Some(block) = item.get_item().as_block() {
                             let tool = player.get_item_in_hand().clone();
@@ -2107,7 +2156,7 @@ fn window_click_handler(
                 } else {
                     None
                 };
-                log::debug!("Grid:\n{:?}", grid);
+                log::info!("Grid:\n{:?}", grid);
                 if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
                     log::debug!("Got it!");
                     *inv.items.get_mut(&0).unwrap() = out;
@@ -2253,7 +2302,22 @@ fn window_click_handler(
                     return Err(anyhow::anyhow!("No item in cursor!"));
                 }
                 let cursored = player.get_current_cursored_item_mut().clone().unwrap();
-                if slot.id != cursored.id || slot.damage != cursored.damage {
+                if (slot.id != cursored.id || slot.damage != cursored.damage) && packet.slot == 0 && window_type < 3 {
+                    let mut inv = inventory.get_inventory();
+                    for i in 1..10 {
+                        if let Some(item) = inv.items.get_mut(&i) {
+                            if item.count > 0 {
+                                log::debug!("Increasing");
+                                item.count += 1;
+                            } else {
+                                item.count = 0;
+                                item.id = 0;
+                                item.damage = 0;
+                            }
+                        }
+                    }
+                    return Ok(());
+                } else if slot.id != cursored.id || slot.damage != cursored.damage {
                     let mut inv = inventory.get_inventory();
                     //log::debug!("Slot: {:?}", packet.slot);
                     let slot = inv
@@ -2287,7 +2351,7 @@ fn window_click_handler(
                             drop(inv);
                         }
                         //return Err(anyhow::anyhow!("Tried to stack too large!"));
-                    } else if packet.slot != 0 {
+                    } else if packet.slot != 0 && window_type < 3 {
                         let mut inv = inventory.get_inventory();
                         log::debug!("Slot: {:?}", packet.slot);
                         let slot = inv
@@ -2456,7 +2520,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    log::debug!("Grid:\n{:?}", grid);
+                    log::info!("Grid:\n{:?}", grid);
                     if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
                         log::debug!("Got it!");
                         *inv.items.get_mut(&0).unwrap() = out;
@@ -2565,7 +2629,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    log::debug!("Grid:\n{:?}", grid);
+                    log::info!("Grid 2:\n{:?}", grid);
                     if let Some(out) = registry.get_solver_ref().solve(&mut grid) {
                         log::debug!("Got it!");
                         *inv.items.get_mut(&0).unwrap() = out;

@@ -152,10 +152,44 @@ pub struct Chunk {
     pub x: i32,
     pub z: i32,
     pub data: [Option<ChunkSection>; 8],
+    pub heightmap: [[i8; 16]; 16],
 }
 impl Chunk {
+    pub fn calculate_skylight(&mut self, time: i64) -> anyhow::Result<()> {
+        //log::info!("Calculating skylight for {}, {}", self.x, self.z);
+        for x in 0..16 {
+            for z in 0..16 {
+                let y = self.heightmap[x as usize][z as usize];
+                for y in y..127 {
+                    self.get_block(x, y as i32, z)
+                        .ok_or(anyhow::anyhow!("Block does not exist!"))?
+                        .b_skylight = 15;
+                    self.get_block(x, y as i32, z)
+                        .ok_or(anyhow::anyhow!("Block does not exist!"))?
+                        .b_light = 15;
+                }
+            }
+        }
+        Ok(())
+    }
+    pub fn calculate_heightmap(&mut self) -> anyhow::Result<()> {
+        //log::info!("Calculating heightmap for {}, {}", self.x, self.z);
+        for x in 0..16 {
+            for z in 0..16 {
+                'y_loop: for y in (0..127).rev() {
+                    if let Some(block) = self.get_block(x, y, z) {
+                        if block.b_type != 0 {
+                            self.heightmap[x as usize][z as usize] = y as i8;
+                            break 'y_loop;
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
     pub fn to_file(&self, path: &str) -> anyhow::Result<()> {
-        use nbt::encode::write_zlib_compound_tag;
+        use nbt::encode::write_gzip_compound_tag;
         use nbt::CompoundTag;
         let mut root = CompoundTag::new();
         let mut tags = Vec::new();
@@ -193,25 +227,25 @@ impl Chunk {
         }
         root.insert_compound_tag_vec("sections", tags);
         let mut file = std::fs::File::create(path)?;
-        write_zlib_compound_tag(&mut file, &root)?;
+        write_gzip_compound_tag(&mut file, &root)?;
         //log::info!("It took {}ms.", start.elapsed().as_millis());
         Ok(())
     }
     pub fn from_file(path: &str) -> Option<Self> {
-        use nbt::decode::read_zlib_compound_tag;
+        use nbt::decode::read_gzip_compound_tag;
         use nbt::CompoundTag;
-        let mut file = std::fs::File::open(path).ok()?;
-        let root = read_zlib_compound_tag(&mut file).ok()?;
-        let sections = root.get_compound_tag_vec("sections").ok()?;
+        let mut file = std::fs::File::open(path).unwrap();
+        let root = read_gzip_compound_tag(&mut file).unwrap();
+        let sections = root.get_compound_tag_vec("sections").unwrap();
         let mut x = 0;
         let mut z = 0;
         let mut chunksections = Vec::new();
         for section in sections {
-            let blox = section.get_i8_vec("blox").ok()?;
-            let metadata = section.get_i8_vec("metadata").ok()?;
-            let chunk_x = section.get_i32("chunkx").ok()?;
-            let chunk_z = section.get_i32("chunkz").ok()?;
-            let section = section.get_i8("section").ok()?;
+            let blox = section.get_i8_vec("blox").unwrap();
+            let metadata = section.get_i8_vec("metadata").unwrap();
+            let chunk_x = section.get_i32("chunkx").unwrap();
+            let chunk_z = section.get_i32("chunkz").unwrap();
+            let section = section.get_i8("section").unwrap();
             let mut newvec = Vec::with_capacity(metadata.len());
             for byte in metadata {
                 newvec.push(*byte as u8);
@@ -220,15 +254,25 @@ impl Chunk {
             let mut data = Vec::new();
             let mut iter = 0;
             for block in blox {
-                data.push(Block { b_type: *block as u8, b_metadata: metadata[iter], b_light: 0, b_skylight: 0 });
+                data.push(Block {
+                    b_type: *block as u8,
+                    b_metadata: metadata[iter],
+                    b_light: 0,
+                    b_skylight: 0,
+                });
                 iter += 1;
             }
             x = chunk_x;
             z = chunk_z;
-            let section = ChunkSection { section, x: chunk_x, z: chunk_z, data };
+            let section = ChunkSection {
+                section,
+                x: chunk_x,
+                z: chunk_z,
+                data,
+            };
             chunksections.push(section);
         }
-        let chunk = Chunk {
+        let mut chunk = Chunk {
             x: x,
             z: z,
             data: [
@@ -239,12 +283,15 @@ impl Chunk {
                 Some(chunksections[4].clone()),
                 Some(chunksections[5].clone()),
                 Some(chunksections[6].clone()),
-                Some(chunksections[7].clone())
+                Some(chunksections[7].clone()),
             ],
+            heightmap: [[0; 16]; 16],
         };
+        chunk.calculate_heightmap().ok()?;
+        //chunk.calculate_skylight(game.time).ok()?;
         Some(chunk)
     }
-    pub fn calculate_skylight(&mut self, time: i64) {
+    /*     pub fn calculate_skylight(&mut self, time: i64) {
         for x in 0..16 {
             for z in 0..16 {
                 for y in (0..127).rev() {
@@ -258,7 +305,7 @@ impl Chunk {
                 }
             }
         }
-    }
+    } */
     pub fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Block> {
         let idx = World::pos_to_index(x, y, z)?;
         if x > 15 {
@@ -307,6 +354,7 @@ impl Chunk {
                 None,
                 None,
             ],
+            heightmap: [[0; 16]; 16],
         };
         chunk
     }
@@ -332,6 +380,7 @@ impl Chunk {
                     .unwrap() = block;
             }
         }
+        self.calculate_heightmap()?;
         Ok(())
     }
     pub fn fill_layer_air(&mut self, y: i32, block: Block) -> anyhow::Result<()> {
@@ -357,12 +406,15 @@ impl Chunk {
                 }
             }
         }
+        self.calculate_heightmap()?;
         Ok(())
     }
 }
+use crate::game::Position;
 pub struct World {
     pub chunks: HashMap<ChunkCoords, Chunk>,
     pub generator: Box<dyn ChunkGenerator>,
+    pub spawn_position: Position,
 }
 use std::time::*;
 impl World {
@@ -371,15 +423,22 @@ impl World {
         log::info!("[World Saver] Saving world to {}", file);
         use std::fs;
         fs::create_dir_all(file).unwrap();
-        for (coords, chunk) in self.chunks.iter() {
+        use rayon::prelude::*;
+        self.chunks.par_iter().for_each(|x| {
+            let (coords, chunk) = x;
             let path = format!("{}/{}-{}.nbt", file, coords.x, coords.z);
             let chunk = chunk.clone();
-            tokio::spawn(async move {
-                if let Err(e) = chunk.to_file(&path) {
-                    log::error!("Error saving chunk: {:?}", e);
-                }
-            });
-        }
+            if let Err(e) = chunk.to_file(&path) {
+                log::error!("Error saving chunk: {:?}", e);
+            }
+        });
+        /*         for (coords, chunk) in self.chunks.iter() {
+            let path = format!("{}/{}-{}.nbt", file, coords.x, coords.z);
+            let chunk = chunk.clone();
+            if let Err(e) = chunk.to_file(&path) {
+                log::error!("Error saving chunk: {:?}", e);
+            }
+        } */
         use nbt::encode::write_compound_tag;
         use nbt::CompoundTag;
         let mut root = CompoundTag::new();
@@ -387,7 +446,10 @@ impl World {
         root.insert_str("generator", self.generator.get_name());
         let mut file = std::fs::File::create(format!("{}/main", file)).unwrap();
         write_compound_tag(&mut file, &root).unwrap();
-        log::info!("[World Saver] Saved in {} seconds.", start.elapsed().as_secs());
+        log::info!(
+            "[World Saver] Saved in {} seconds.",
+            start.elapsed().as_secs()
+        );
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let start = Instant::now();
@@ -402,31 +464,60 @@ impl World {
             }
         }
         let mut chunks = HashMap::new();
-        for path in faxvec {
-            let insert = Chunk::from_file(path.to_str().unwrap()).ok_or(anyhow::anyhow!("cant make chunk"))?;
-            log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
-            chunks.insert(ChunkCoords { x: insert.x, z: insert.z }, insert);
+        use std::sync::mpsc::sync_channel;
+        let (tx, rx) = sync_channel(1000000);
+        use rayon::prelude::*;
+        faxvec.into_par_iter().for_each(move |path| {
+            let tx = tx.clone();
+            let insert = Chunk::from_file(path.to_str().unwrap())
+                .ok_or(anyhow::anyhow!("cant make chunk"))
+                .unwrap();
+            //log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
+            tx.clone().send((
+                ChunkCoords {
+                    x: insert.x,
+                    z: insert.z,
+                },
+                insert,
+            ))
+            .unwrap();
+        });
+        for chunk in rx.iter() {
+            chunks.insert(chunk.0, chunk.1);
         }
+        /*         for path in faxvec {
+            let insert = Chunk::from_file(path.to_str().unwrap())
+                .ok_or(anyhow::anyhow!("cant make chunk"))?;
+            log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
+            chunks.insert(
+                ChunkCoords {
+                    x: insert.x,
+                    z: insert.z,
+                },
+                insert,
+            );
+        } */
         use nbt::decode::read_compound_tag;
         use nbt::CompoundTag;
         let mut file = std::fs::File::open(format!("{}/main", file)).unwrap();
         let root = read_compound_tag(&mut file).unwrap();
         let generator: Box<dyn ChunkGenerator> = match root.get_str("generator").unwrap() {
-            "FlatChunkGenerator" => {
-                Box::new(FlatChunkGenerator {})
-            }
-            "FunnyChunkGenerator" => {
-                Box::new(FunnyChunkGenerator::new(root.get_i64("seed").unwrap() as u64, FunnyChunkPreset::REGULAR))
-            }
-            "MountainChunkGenerator" => {
-                Box::new(MountainChunkGenerator::new(root.get_i64("seed").unwrap() as u64))
-            }
-            _ => {
-                Box::new(FlatChunkGenerator {})
-            }
+            "FlatChunkGenerator" => Box::new(FlatChunkGenerator {}),
+            "FunnyChunkGenerator" => Box::new(FunnyChunkGenerator::new(
+                root.get_i64("seed").unwrap() as u64,
+                FunnyChunkPreset::REGULAR,
+            )),
+            "MountainChunkGenerator" => Box::new(MountainChunkGenerator::new(
+                root.get_i64("seed").unwrap() as u64,
+            )),
+            _ => Box::new(FlatChunkGenerator {}),
         };
         log::info!("[World Loader] Done in {}s.", start.elapsed().as_secs());
-        Ok(Self { chunks, generator: generator})
+        Ok(Self {
+            chunks,
+            generator: generator,
+            spawn_position: Position::from_pos(3., 45., 8.)
+        })
     }
     pub fn epic_test(&mut self) {
         let chunk = self.chunks.get_mut(&ChunkCoords { x: 0, z: 0 }).unwrap();
@@ -585,6 +676,7 @@ impl World {
         Self {
             chunks: chunks,
             generator,
+            spawn_position: Position::from_pos(3., 45., 8.)
         }
     }
     /*     pub fn epic_generate() -> Self {
@@ -680,14 +772,23 @@ pub struct MountainChunkGenerator {
     noise: ScaledNoiseMap<NoiseMap<PerlinNoise>>,
     seed: u64,
 }
+/*
+        let noise = PerlinNoise::new();
+        let nm = NoiseMap::new(noise)
+            .set(Size::of(16, 16))
+            .set(Seed::of_value(seed))
+            .set(Step::of(-0.005, 0.005));
+        let nm = nm * 30;
+        cool gen
+*/
 impl MountainChunkGenerator {
     pub fn new(seed: u64) -> Self {
         let noise = PerlinNoise::new();
         let nm = NoiseMap::new(noise)
             .set(Size::of(16, 16))
             .set(Seed::of_value(seed))
-            .set(Step::of(-0.02, 0.02));
-        let nm = nm * 25;
+            .set(Step::of(-0.005, 0.005));
+        let nm = nm * 30;
         Self {
             noise: nm,
             seed: seed,
@@ -771,7 +872,9 @@ impl ChunkGenerator for MountainChunkGenerator {
                 None,
                 None,
             ],
+            heightmap: [[0; 16]; 16],
         };
+        chunk.calculate_heightmap().unwrap();
         let noise = self
             .noise
             .generate_chunk(-(coords.z as i64), -(coords.x as i64));
@@ -908,6 +1011,7 @@ impl ChunkGenerator for FunnyChunkGenerator {
                 None,
                 None,
             ],
+            heightmap: [[0; 16]; 16],
         };
         let noise = self
             .noise
@@ -1018,6 +1122,7 @@ impl ChunkGenerator for FlatChunkGenerator {
                 None,
                 None,
             ],
+            heightmap: [[0; 16]; 16],
         };
         chunk
             .fill_layer(

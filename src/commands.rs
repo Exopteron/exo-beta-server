@@ -1,9 +1,18 @@
 use crate::game::Game;
 use std::sync::Arc;
 use std::any::Any;
+/*
+Command codes:
+1 = bad syntax
+3 = generic error
+4 = unknown command 
+5 = bad permissions
+*/
 pub trait CommandExecutor {
     fn as_any(&mut self) -> &mut dyn Any;
     fn send_message(&mut self, message: crate::game::Message);
+    fn permission_level(&self) -> u8;
+    fn username(&self) -> String;
 }
 #[derive(Clone)]
 pub enum CommandArgumentTypes {

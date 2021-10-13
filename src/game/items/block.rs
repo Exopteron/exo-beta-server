@@ -10,7 +10,6 @@ impl<T> AsBlock for T where T: Block {
     fn as_block(&self) -> Option<&dyn Block> { Some(self) }
 }
 pub trait Block {
-    fn get_block_drop(&self) -> Option<ItemStack>;
     fn stack_size(&self) -> i16;
     fn on_place(&self, game: &mut Game, packet: &mut crate::network::packet::PlayerBlockPlacement, player: Arc<PlayerRef>);
     fn on_break(&self, game: &mut Game, packet: crate::network::packet::PlayerDigging, player: std::cell::RefMut<'_, Player>, tool: ItemStack) -> Option<ItemStack>;
@@ -24,6 +23,9 @@ pub trait Block {
     }
     fn is_fluid(&self) -> bool {
         false
+    }
+    fn is_solid(&self) -> bool {
+        true
     }
 }
 impl<T> Item for T

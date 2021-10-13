@@ -1,6 +1,10 @@
 use super::*;
 use events::*;
 use std::boxed::Box;
+mod material_uses {
+    pub const WOOD: u64 = 59;
+    pub const STONE: u64 = 131;
+}
 pub struct GrassBlock {}
 impl block::Block for GrassBlock {
     fn stack_size(&self) -> i16 {
@@ -13,9 +17,6 @@ impl block::Block for GrassBlock {
         player: Arc<PlayerRef>,
     ) {
         log::info!("Was used!");
-    }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(3, 0, 1))
     }
     fn on_break(
         &self,
@@ -43,9 +44,6 @@ impl block::Block for DirtBlock {
     ) {
         log::info!("Was used!");
     }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(3, 0, 1))
-    }
     fn on_break(
         &self,
         game: &mut Game,
@@ -72,9 +70,6 @@ impl block::Block for CobblestoneBlock {
     ) {
         log::info!("Was used!");
     }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(5, 0, 1))
-    }
     fn on_break(
         &self,
         game: &mut Game,
@@ -86,6 +81,62 @@ impl block::Block for CobblestoneBlock {
     }
     fn hardness(&self) -> f32 {
         2.
+    }
+}
+pub struct FenceBlock {}
+impl block::Block for FenceBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn on_break(
+        &self,
+        game: &mut Game,
+        packet: crate::network::packet::PlayerDigging,
+        player: std::cell::RefMut<'_, Player>,
+        tool: ItemStack,
+    ) -> Option<ItemStack> {
+        Some(ItemStack::new(85, 0, 1))
+    }
+    fn hardness(&self) -> f32 {
+        2.
+    }
+}
+pub struct AirBlock {}
+impl block::Block for AirBlock {
+    fn stack_size(&self) -> i16 {
+        0
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) {
+        log::info!("Was used!");
+    }
+    fn on_break(
+        &self,
+        game: &mut Game,
+        packet: crate::network::packet::PlayerDigging,
+        player: std::cell::RefMut<'_, Player>,
+        tool: ItemStack,
+    ) -> Option<ItemStack> {
+        //Some(ItemStack::new(85, 0, 1))
+        None
+    }
+    fn hardness(&self) -> f32 {
+        0.
+    }
+    fn is_solid(&self) -> bool {
+        false
     }
 }
 pub struct StoneBlock {}
@@ -100,9 +151,6 @@ impl block::Block for StoneBlock {
         player: Arc<PlayerRef>,
     ) {
         log::info!("Was used!");
-    }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(5, 0, 1))
     }
     fn on_break(
         &self,
@@ -141,9 +189,6 @@ impl block::Block for CraftingTableBlock {
     ) {
         log::info!("Was used!");
     }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(58, 0, 1))
-    }
     fn on_break(
         &self,
         game: &mut Game,
@@ -159,20 +204,23 @@ impl block::Block for CraftingTableBlock {
         packet: &mut crate::network::packet::PlayerBlockPlacement,
         player: Arc<PlayerRef>,
     ) -> bool {
-        let mut craftory = Inventory::default();
-        for i in 0..10 {
-            craftory.items.insert(i, ItemStack::default());
+        if !player.is_crouching() {
+            let mut craftory = Inventory::default();
+            for i in 0..10 {
+                craftory.items.insert(i, ItemStack::default());
+            }
+            //log::info!("Lenga: {:?}", craftory.items.len());
+            player.open_window(
+                Window {
+                    inventory_type: 1,
+                    window_title: "Crafting".to_string(),
+                    inventory: Arc::new(RefCell::new(craftory)),
+                },
+                69,
+            );
+            return false;
         }
-        //log::info!("Lenga: {:?}", craftory.items.len());
-        player.open_window(
-            Window {
-                inventory_type: 1,
-                window_title: "Crafting".to_string(),
-                inventory: Arc::new(RefCell::new(craftory)),
-            },
-            69,
-        );
-        false
+        true
     }
     fn hardness(&self) -> f32 {
         2.5
@@ -190,9 +238,6 @@ impl block::Block for TorchBlock {
         player: Arc<PlayerRef>,
     ) {
         log::info!("Was used!");
-    }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(50, 0, 1))
     }
     fn on_break(
         &self,
@@ -223,9 +268,6 @@ impl block::Block for LogBlock {
     ) {
         log::info!("Was used!");
     }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(17, 0, 1))
-    }
     fn on_break(
         &self,
         game: &mut Game,
@@ -252,10 +294,6 @@ impl block::Block for WaterBlock {
     ) {
         log::info!("Was used!");
     }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        //Some(ItemStack::new(5, 0, 1))
-        None
-    }
     fn on_break(
         &self,
         game: &mut Game,
@@ -272,6 +310,9 @@ impl block::Block for WaterBlock {
     fn is_fluid(&self) -> bool {
         true
     }
+    fn is_solid(&self) -> bool {
+        false
+    }
 }
 pub struct GlassBlock {}
 impl block::Block for GlassBlock {
@@ -285,10 +326,6 @@ impl block::Block for GlassBlock {
         player: Arc<PlayerRef>,
     ) {
         log::info!("Was used!");
-    }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        //Some(ItemStack::new(5, 0, 1))
-        None
     }
     fn on_break(
         &self,
@@ -316,9 +353,6 @@ impl block::Block for PlanksBlock {
         player: Arc<PlayerRef>,
     ) {
         log::info!("Was used!");
-    }
-    fn get_block_drop(&self) -> Option<ItemStack> {
-        Some(ItemStack::new(5, 0, 1))
     }
     fn on_break(
         &self,
@@ -425,6 +459,9 @@ impl Item for CobblestonePickaxeItem {
             output: ItemStack::new(274, 0, 1),
         }))
     }
+    fn max_uses(&self) -> Option<u64> {
+        Some(material_uses::STONE)
+    }
 }
 pub struct WoodAxeItem {}
 impl Item for WoodAxeItem {
@@ -457,6 +494,9 @@ impl Item for WoodAxeItem {
             input: grid,
             output: ItemStack::new(271, 0, 1),
         }))
+    }
+    fn max_uses(&self) -> Option<u64> {
+        Some(material_uses::WOOD)
     }
 }
 pub struct StoneAxeItem {}
@@ -491,6 +531,48 @@ impl Item for StoneAxeItem {
             output: ItemStack::new(275, 0, 1),
         }))
     }
+    fn max_uses(&self) -> Option<u64> {
+        Some(material_uses::STONE)
+    }
+}
+pub struct WoodSwordItem {}
+impl Item for WoodSwordItem {
+    fn is_block(&self) -> bool {
+        false
+    }
+    fn stack_size(&self) -> i16 {
+        1
+    }
+    fn on_use(
+        &self,
+        game: &mut Game,
+        packet: crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) -> anyhow::Result<()> {
+        Ok(())
+    }
+    fn get_tool_type(&self) -> Option<ToolType> {
+        Some(ToolType::SWORD)
+    }
+    fn recipe(&self) -> Option<Recipe> {
+        let mut grid = Grid::default();
+        //grid[0][0] = Some(ItemStack::new(5, 0, 1));
+        grid[1][0] = Some(ItemStack::new(5, 0, 1));
+        //grid[2][0] = Some(ItemStack::new(5, 0, 1));
+        grid[1][1] = Some(ItemStack::new(5, 0, 1));
+        grid[1][2] = Some(ItemStack::new(280, 0, 1));
+        crafting::normalize(&mut grid);
+        Some(Recipe::Shaped(ShapedRecipe {
+            input: grid,
+            output: ItemStack::new(268, 0, 1),
+        }))
+    }
+    fn max_uses(&self) -> Option<u64> {
+        Some(material_uses::WOOD)
+    }
+    fn damage(&self) -> Option<i16> {
+        Some(5)
+    }
 }
 pub struct WoodPickaxeItem {}
 impl Item for WoodPickaxeItem {
@@ -524,6 +606,9 @@ impl Item for WoodPickaxeItem {
             output: ItemStack::new(270, 0, 1),
         }))
     }
+    fn max_uses(&self) -> Option<u64> {
+        Some(material_uses::WOOD)
+    }
 }
 pub fn init_items(registry: &mut ItemRegistry) {
     registry.register_item(3, "dirt_block", Box::new(DirtBlock {}));
@@ -543,6 +628,9 @@ pub fn init_items(registry: &mut ItemRegistry) {
     registry.register_item(275, "stone_axe_item", Box::new(StoneAxeItem {}));
     registry.register_item(9, "water_block", Box::new(WaterBlock {}));
     registry.register_item(20, "glass_block", Box::new(GlassBlock {}));
+    registry.register_item(268, "wood_sword_item", Box::new(WoodSwordItem {}));
+    registry.register_item(85, "fence_block", Box::new(FenceBlock {}));
+    registry.register_item(0, "air", Box::new(AirBlock {}));
     let plank = ItemStack::new(5, 0, 1);
     let mut arrvec = arrayvec::ArrayVec::new();
     arrvec.push(ItemStack::new(17, 0, 1));

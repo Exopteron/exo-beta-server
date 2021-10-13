@@ -38,6 +38,7 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         for id in remove {
             log::debug!("nyut");
             let username = if let Some(plr) = game.players.0.borrow().get(&id) {
+                plr.unwrap().unwrap().save_to_mem();
                 plr.get_username() // borrow().username.clone()
             } else {
                 clients.remove(&id);
@@ -111,6 +112,9 @@ pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
 pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for _ in 0..game.block_updates.len() {
         let update = game.block_updates.pop().unwrap();
+        if let Some(chunk) = game.world.chunks.get_mut(&update.position.to_chunk_coords()) {
+            chunk.calculate_heightmap()?;
+        }
         let clients = game.players.0.borrow();
         for client in clients.iter() {
             if client.1.get_loaded_chunks().contains(&update.position.to_chunk_coords()) {
@@ -437,17 +441,17 @@ pub fn spawn_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
     Ok(())
 } */
 pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let len = game.players.0.borrow().len().clone();
-    for i in 0..len + 1 {
-        let list = game.players.0.borrow();
+    let plrs = game.players.0.borrow().clone();
+    for list2 in plrs {
+/*         let list = game.players.0.borrow();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
         } else {
             continue;
-        };
-        let mut player = list2;
-        drop(list);
+        }; */
+        let mut player = list2.1;
+        //drop(list);
         let mut to_derender = Vec::new();
         let our_name = player.get_username();
         //log::info!("For {}, len {}", our_name, player.rendered_players.len());

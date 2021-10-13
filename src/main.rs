@@ -81,6 +81,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     TickLoop::new(move || {
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
+            game.save_playerdata().unwrap();
             let plrs = game.players.0.borrow().clone();
             for player in plrs.iter() {
                 player.1.disconnect("Server closed".to_string());
@@ -92,6 +93,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             let systems = game.systems.clone();
             systems.borrow_mut().run(&mut game);
         })) {
+            game.save_playerdata().unwrap();
             game.world.to_file(&CONFIGURATION.level_name);
             println!("========================================");
             println!("\nPlease report this!\n");

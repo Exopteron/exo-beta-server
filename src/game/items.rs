@@ -33,6 +33,7 @@ pub enum ToolType {
     HELMET,
     BOOTS,
     AXE,
+    SWORD,
 }
 impl ItemRegistry {
     pub fn global() -> &'static ItemRegistry {
@@ -62,6 +63,9 @@ impl ItemRegistry {
             }
         }
         None
+    }
+    pub fn get_items(&self) -> &HashMap<i16, Arc<RegistryItem>> {
+        &self.items
     }
 /*     pub fn register_3x3_recipe(&mut self, recipe: [ItemStack; 9], output: ItemStack) {
         self.recipe3x3.insert(Recipe3X3 { recipe }, output);
@@ -101,6 +105,12 @@ pub trait Item {
     fn recipe(&self) -> Option<Recipe> {
         None
     }
+    fn max_uses(&self) -> Option<u64> {
+        None
+    }
+    fn damage(&self) -> Option<i16> {
+        None
+    }
 }
 pub struct RegistryItem {
     name: String,
@@ -109,5 +119,8 @@ pub struct RegistryItem {
 impl RegistryItem {
     pub fn get_item(&self) -> Arc<Box<dyn Item + Send + Sync>> {
         self.item.clone()
+    }
+    pub fn get_name(&self) -> &str {
+        &self.name
     }
 }

@@ -759,8 +759,8 @@ impl ServerPacket {
             ServerPacket::PlayerPositionAndLook { x, stance, y, z, yaw, pitch, on_ground } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_double(*x);
-                builder.insert_double(*y);
                 builder.insert_double(*stance);
+                builder.insert_double(*y);
                 builder.insert_double(*z);
                 builder.insert_float(*yaw);
                 builder.insert_float(*pitch);
