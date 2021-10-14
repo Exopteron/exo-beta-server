@@ -20,6 +20,7 @@ pub struct LoggingConfig {
     pub chunk_unload: bool,
     pub chunk_gen: bool,
     pub slow_ticks: bool,
+    pub profiler: bool,
 }
 const DEFAULT_CONFIG: &str = r#"# Default config
 
@@ -68,6 +69,9 @@ chunk_gen = false
 
 # Log ticks that take too long
 slow_ticks = true
+
+# Profiler
+profiler = false
 "#;
 // this will be in no way an implementation of ECS. (bcz idk how)
 pub static CONFIGURATION: Lazy<ServerConfig> = Lazy::new(|| {

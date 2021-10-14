@@ -180,10 +180,12 @@ pub fn handle_packet(
                 //game.spawn_entity(Box::new(crate::game::entities::item_entity::ItemEntity::new(player.get_position_clone(), game.ticks, ItemStack::new(1, 0, 1))));
             }
             if message.message == "makeaslime" {
-                game.spawn_entity(Box::new(slime_entity::SlimeEntity::new(
-                    player.get_position_clone(),
-                    game.ticks,
-                )));
+                for _ in 0..50000 {
+                    game.spawn_entity(Box::new(slime_entity::SlimeEntity::new(
+                        player.get_position_clone(),
+                        game.ticks,
+                    )));
+                }
             }
             /*             if message.message == "chunksave" {
                 game.world.to_file("world");

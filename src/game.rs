@@ -668,7 +668,7 @@ impl PlayerRef {
                                 coords.z
                             );
                         }
-                        if let Err(e) = game
+/*                         if let Err(e) = game
                             .world
                             .chunks
                             .get_mut(&coords)
@@ -676,7 +676,7 @@ impl PlayerRef {
                             .calculate_skylight(game.time)
                         {
                             log::warn!("Error calculating skylight: {:?}", e);
-                        }
+                        } */
 /*                         if let Some(chunk) = game.world.chunks.get(&coords) {
                             let mut chunk = chunk.clone();
                             let sender = cl.packet_send_sender.clone();
@@ -2274,7 +2274,7 @@ impl Game {
                         }),
                     );
                     loaded_chunks.push(spawnchunk.clone());
-                    if let Err(e) = self
+/*                     if let Err(e) = self
                         .world
                         .chunks
                         .get_mut(&spawnchunk)
@@ -2282,7 +2282,7 @@ impl Game {
                         .calculate_skylight(self.time)
                     {
                         log::warn!("Error calculating skylight: {:?}", e);
-                    }
+                    } */
                     self.world
                         .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())
                         .unwrap();

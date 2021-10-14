@@ -21,47 +21,97 @@ async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
     let _ = &configuration::CONFIGURATION.server_name;
     let mut systems = Systems::new();
-    systems.add_system(|game| {
+    systems.add_system("packet_accept",|game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>().unwrap();
         game.accept_packets(&mut server)?;
         Ok(())
     });
-    systems.add_system(|game| {
+    systems.add_system("poll_new_players", |game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>()?;
         game.poll_new_players(&mut server)?;
         Ok(())
     });
-    systems.add_system(|game| {
+    systems.add_system("tick_game_ticks", |game| {
         game.ticks += 1;
-        //log::info!("Players: {:?}", game.players.0.borrow().len());
+        Ok(())
+    });
+    systems.add_system("sync_positions", |game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>()?;
         systems::sync_positions(game, &mut server)?;
-        //systems::update_local_health(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("tick_entities", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::tick_entities(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("tick_players", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::tick_players(game, &mut server)?;
-        //systems::check_dead(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("rem_old_clients", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::rem_old_clients(game, &mut server)?;
-        //systems::spawn_players(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("entity_positions", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::entity_positions(game, &mut server)?;
-        //systems::update_positions(game, &mut server)?;
-        /*         systems::chat_msgs(game, &mut server)?; */
+        Ok(())
+    });
+    systems.add_system("ping", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::ping(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("cull_players", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::cull_players(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("time_update", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::time_update(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("block_updates", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::block_updates(game, &mut server)?;
+        Ok(())
+    });
+    systems.add_system("check_loaded_chunks", |game| {
+        let obj = game.objects.clone();
+        let mut server = obj.get_mut::<server::Server>()?;
         systems::check_loaded_chunks(game, &mut server)?;
-        let players = game.players.0.borrow().clone();
-        for player in players.iter() {
-            /*             systems::check_inv(game, &mut server, player.1)?;
-            systems::sync_inv(game, &mut server, player.1)?; */
-        }
+        Ok(())
+    });
+    systems.add_system("random_ticks", |game| {
         game.random_ticks();
+        Ok(())
+    });
+    systems.add_system("tile_entity_ticks", |game| {
         game.tile_entity_ticks();
+        Ok(())
+    });
+    systems.add_system("world_block_updates", |game| {
         let players = game.players.clone();
         game.world.send_block_updates(players);
+        Ok(())
+    });
+    systems.add_system("handle_events", |game| {
+        let obj = game.objects.clone();
         obj.get_mut::<game::events::EventHandler>()?
             .handle_events(game);
         Ok(())

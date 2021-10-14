@@ -4,20 +4,25 @@ use crate::network::ids::{EntityID, IDS};
 use crate::network::packet::{ClientPacket, ServerPacket};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use crate::configuration::CONFIGURATION;
 pub struct Systems {
-    systems: Vec<Box<dyn FnMut(&mut crate::game::Game) -> anyhow::Result<()> + 'static>>,
+    systems: Vec<(String, Box<dyn FnMut(&mut crate::game::Game) -> anyhow::Result<()> + 'static>)>,
 }
 impl Systems {
     pub fn new() -> Self {
         Self { systems: Vec::new() }
     }
-    pub fn add_system(&mut self, system: impl FnMut(&mut crate::game::Game) -> anyhow::Result<()> + 'static) {
-        self.systems.push(Box::new(system));
+    pub fn add_system(&mut self, name: &str, system: impl FnMut(&mut crate::game::Game) -> anyhow::Result<()> + 'static) {
+        self.systems.push((name.to_string(), Box::new(system)));
     }
     pub fn run(&mut self, game: &mut crate::game::Game) {
         for system in &mut self.systems {
-            if let Err(e) = system(game) {
+            let start_time = Instant::now();
+            if let Err(e) = system.1(game) {
                 log::error!("System returned an error. Details: {:?}", e);
+            }
+            if CONFIGURATION.logging.profiler {
+                log::info!("[Profiler] System {} took {}ms. ({}ns)", system.0, start_time.elapsed().as_millis(), start_time.elapsed().as_nanos());
             }
         }
     }
@@ -113,7 +118,7 @@ pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
     for _ in 0..game.block_updates.len() {
         let update = game.block_updates.pop().unwrap();
         if let Some(chunk) = game.world.chunks.get_mut(&update.position.to_chunk_coords()) {
-            chunk.calculate_heightmap()?;
+            //chunk.calculate_heightmap()?;
         }
         let clients = game.players.0.borrow();
         for client in clients.iter() {
