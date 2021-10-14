@@ -56,6 +56,9 @@ impl ItemRegistry {
     pub fn get_item(&self, id: i16) -> Option<Arc<RegistryItem>> {
         Some(self.items.get(&id)?.clone())
     }
+/*     pub fn get_block(&self, id: i16) -> Option<Box<dyn block::Block>> { 
+        Some(Box::new(self.items.get(&id)?.get_item().as_block()?.clone()))
+    } */
     pub fn get_item_name(&self, id: i8) -> Option<String> {
         for item in self.items.iter() {
             if *item.0 == id as i16 {

@@ -3,7 +3,7 @@ use crate::game::ChunkCoords;
 use crate::network::packet::ServerPacket;
 use flume::{Receiver, Sender};
 use std::collections::HashMap;
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Block {
     pub b_type: u8,
     pub b_metadata: u8,
@@ -62,7 +62,7 @@ impl ChunkSection {
     }
     pub fn to_packets_section_raw(
         &self,
-        player: &mut Sender<ServerPacket>,
+        player: Sender<ServerPacket>,
         has_loaded_before: &mut Vec<ChunkCoords>,
     ) -> Option<()> {
         //let mut packets = vec![];
@@ -146,6 +146,92 @@ impl ChunkSection {
         //log::debug!("G");
         return Some(());
     }
+    pub async fn to_packets_section_async(
+        &self,
+        player: Sender<ServerPacket>,
+        has_loaded_before: &mut Vec<ChunkCoords>,
+    ) -> Option<()> {
+        //let mut packets = vec![];
+        let chunk = self;
+        //let chunk = chunk?;
+        //let coords = ChunkCoords { x: chunk.x, z: chunk.x };
+        let mut size_x = 0;
+        let mut size_y = 0;
+        let mut size_z = 0;
+        let mut z_counter = 16;
+        let mut x_counter = 128;
+        //log::info!("Len: {:?}", chunk.data.len());
+        for i in 0..chunk.data.len() + 0 {
+            if size_y < 16 {
+                size_y += 1;
+            } else if size_z < 16 {
+                if z_counter >= 16 {
+                    size_z += 1;
+                    // log::info!("+1 now {}", size_z);
+                    z_counter = 0;
+                    continue;
+                }
+                z_counter += 1;
+            } else if size_x < 16 {
+                //log::info!("Done {}", i);
+                if x_counter >= 128 {
+                    size_x += 1;
+                    //  log::info!("X+1 now {}", size_x);
+                    x_counter = 0;
+                    continue;
+                }
+                x_counter += 1;
+                //size_x += 1;
+            } else {
+                break;
+            }
+        }
+        /*         let size_y = 127;
+        let rest = chunk.data.len() % size_y;
+        let size_z = 16;
+        let size_x = 16; */
+        let mut blockdata =
+            Vec::with_capacity(chunk.data.len() + (chunk.data.len() as f32 * 1.5) as usize);
+        let mut metadata = Vec::with_capacity(chunk.data.len());
+        let mut blocklight = Vec::with_capacity(chunk.data.len());
+        let mut skylight = Vec::with_capacity(chunk.data.len());
+        for byte in &chunk.data {
+            blockdata.push(byte.b_type);
+            metadata.push(byte.b_metadata);
+            blocklight.push(byte.b_light);
+            skylight.push(byte.b_skylight);
+        }
+        blockdata.append(&mut compress_to_nibble(metadata)?);
+        blockdata.append(&mut compress_to_nibble(blocklight)?);
+        blockdata.append(&mut compress_to_nibble(skylight)?);
+        let data = deflate::deflate_bytes_zlib(&blockdata);
+        /*         let size_x = size_x - 1;
+        let size_y = size_y - 1;
+        let size_z = size_z - 1; */
+        let size_x = (size_x - 1).max(0);
+        //log::info!("size_x: {}", size_x);
+        let size_y = (size_y - 1).max(0);
+        let size_z = (size_z - 1).max(0);
+        let mut epicy = ((chunk.section * 1) as i16) * 16;
+        if chunk.section > 16 {
+            //epicy -= 1;
+        }
+        //log::info!("EPIC Y: {:?} ON SECTION {}", epicy, self.section);
+        let packet = ServerPacket::MapChunk {
+            x: chunk.x * 16,
+            y: epicy,
+            z: chunk.z * 16,
+            size_x: size_x as u8,
+            size_y: size_y as u8,
+            size_z: size_z as u8,
+            compressed_size: data.len() as i32,
+            compressed_data: data,
+        };
+        log::debug!("Packet {:?}", packet);
+        player.send_async(packet).await.ok()?;
+        //log::debug!("G");
+        return Some(());
+    }
 }
 #[derive(Clone)]
 pub struct Chunk {
@@ -155,6 +241,17 @@ pub struct Chunk {
     pub heightmap: [[i8; 16]; 16],
 }
 impl Chunk {
+    pub fn to_packets_async(&mut self, player: Sender<ServerPacket>) {
+        use rayon::prelude::*;
+        self.data.par_iter().for_each(|section| {
+            if let Some(section) = section {
+                section.to_packets_section_raw(player.clone(), &mut Vec::new());
+            }
+        });
+/*         for section in &self.data {
+            tokio::task::yield_now().await;
+        } */
+    }
     pub fn calculate_skylight(&mut self, time: i64) -> anyhow::Result<()> {
         //log::info!("Calculating skylight for {}, {}", self.x, self.z);
         for x in 0..16 {
@@ -410,11 +507,13 @@ impl Chunk {
         Ok(())
     }
 }
-use crate::game::Position;
+use crate::game::{Position, BlockPosition, PlayerList};
+use std::collections::VecDeque;
 pub struct World {
     pub chunks: HashMap<ChunkCoords, Chunk>,
     pub generator: Box<dyn ChunkGenerator>,
     pub spawn_position: Position,
+    pub block_updates: VecDeque<(BlockPosition, Block)>,
 }
 use std::time::*;
 impl World {
@@ -516,7 +615,8 @@ impl World {
         Ok(Self {
             chunks,
             generator: generator,
-            spawn_position: Position::from_pos(3., 45., 8.)
+            spawn_position: Position::from_pos(3., 45., 8.),
+            block_updates: VecDeque::new(),
         })
     }
     pub fn epic_test(&mut self) {
@@ -572,8 +672,9 @@ impl World {
     pub fn chunk_to_packets(
         &self,
         coords: ChunkCoords,
-        player: &mut Sender<ServerPacket>,
+        player: Sender<ServerPacket>,
     ) -> anyhow::Result<()> {
+        use rayon::prelude::*;
         let mut initialized = Vec::new();
         let chunk = self.chunks.get(&coords).ok_or(anyhow::anyhow!("Balls"))?;
         for section in &chunk.data {
@@ -590,13 +691,13 @@ impl World {
                 section
                     .as_ref()
                     .unwrap()
-                    .to_packets_section_raw(player, &mut Vec::new());
+                    .to_packets_section_raw(player.clone(), &mut Vec::new());
                 //return Ok(());
             }
         }
         Ok(())
     }
-    pub fn bad_to_packets(&self, player: &mut Sender<ServerPacket>) -> anyhow::Result<()> {
+    pub fn bad_to_packets(&self, player: Sender<ServerPacket>) -> anyhow::Result<()> {
         let mut initialized = Vec::new();
         for (coords, chunk) in &self.chunks {
             for section in &chunk.data {
@@ -613,21 +714,43 @@ impl World {
                     section
                         .as_ref()
                         .unwrap()
-                        .to_packets_section_raw(player, &mut Vec::new());
+                        .to_packets_section_raw(player.clone(), &mut Vec::new());
                     //return Ok(());
                 }
             }
         }
         Ok(())
     }
-    pub fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Block> {
+    pub fn send_block_updates(&mut self, players: PlayerList) {
+        loop {
+            if let Some(update) = self.block_updates.pop_front() {
+                //log::info!("Update: {:?}", update);
+                for player in players.iter() {
+                    let player = player.1;
+                    if player.get_loaded_chunks().contains(&update.0.to_chunk_coords()) {
+                        if let Some(block) = self.get_block(update.0.x, update.0.y, update.0.z) {
+                            if *block != update.1 {
+                                let update = update.0;
+                                //log::info!("Sending update to {}", player.get_username());
+                                player.write_packet(ServerPacket::BlockChange { x: update.x, y: update.y as i8, z: update.z , block_type: block.b_type as i8, block_metadata: block.b_metadata as i8 }); 
+                            } 
+                        }
+                    }
+                }
+            } else {
+                self.block_updates = VecDeque::new();
+                break;
+            }
+        }
+    }
+    pub fn get_block_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Block> {
         let idx = Self::pos_to_index(x, y, z)?;
         let chunk = self
             .chunks
             .get(&ChunkCoords { x: idx.0, z: idx.1 })
             .is_some();
         if !chunk {
-            log::info!("Generating");
+            ////////////////////log::info!("Generating");
             self.chunks.insert(
                 ChunkCoords { x: idx.0, z: idx.1 },
                 self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
@@ -640,11 +763,39 @@ impl World {
             *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
         }
         let section = section.as_mut().unwrap();
-        section.get_block(ChunkSection::pos_to_index(
+        let block = section.get_block(ChunkSection::pos_to_index(
             x.rem_euclid(16),
             y.rem_euclid(16),
             z.rem_euclid(16),
-        ))
+        ))?;
+        self.block_updates.push_back((BlockPosition { x, y, z }, block.clone()));
+        Some(block)
+    }
+    pub fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<&Block> {
+        let idx = Self::pos_to_index(x, y, z)?;
+        let chunk = self
+            .chunks
+            .get(&ChunkCoords { x: idx.0, z: idx.1 })
+            .is_some();
+        if !chunk {
+            //////////////////log::info!("Generating");
+            self.chunks.insert(
+                ChunkCoords { x: idx.0, z: idx.1 },
+                self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
+            );
+        }
+        drop(chunk);
+        let chunk = self.chunks.get_mut(&ChunkCoords { x: idx.0, z: idx.1 })?;
+        let section = chunk.data.get_mut(idx.2 as usize)?;
+        if section.is_none() {
+            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
+        }
+        let section = section.as_mut().unwrap();
+        Some(section.get_block(ChunkSection::pos_to_index(
+            x.rem_euclid(16),
+            y.rem_euclid(16),
+            z.rem_euclid(16),
+        ))?)
     }
     pub fn pos_to_index(x: i32, y: i32, z: i32) -> Option<(i32, i32, i32)> {
         //log::info!("X {} Y {} Z {}", x, y, z);
@@ -676,7 +827,8 @@ impl World {
         Self {
             chunks: chunks,
             generator,
-            spawn_position: Position::from_pos(3., 45., 8.)
+            spawn_position: Position::from_pos(3., 45., 8.),
+            block_updates: VecDeque::new(),
         }
     }
     /*     pub fn epic_generate() -> Self {

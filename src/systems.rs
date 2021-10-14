@@ -264,17 +264,22 @@ pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<Playe
         let mut player = list2.unwrap().unwrap();
         drop(list);
         if let Some(_) = player.rendered_players.get(&(player_upd.get_id(), player_upd.get_username())) {
-            let animate = match player_upd.is_crouching() {
+            let bit = match player_upd.is_crouching() {
                 true => {
-                    104
+                    let x = 0;
+                    x | 0x02
                 }
                 false => {
-                    105
+                    0
                 }
             };
             log::debug!("Sending animation packet!");
+            use crate::network::metadata::Metadata;
+            let mut metadata = Metadata::new();
+            metadata.insert_byte(bit);
             player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 0 });
-            player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 104 });
+            player.write(ServerPacket::Animation { eid: player_upd.get_id().0, animate: 4 });
+            player.write(ServerPacket::EntityMetadata { eid: player_upd.get_id().0, entity_metadata: metadata });
         } else {
             continue;
         }
@@ -329,20 +334,20 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
                 continue;
             };
             if id.1.position != pos {
-                if pos.distance(&id.1.position) < 3. && true == false {
+                if pos.distance(&id.1.position) < 2. {
                     let x_diff = (pos.x - id.1.position.x);
                     let y_diff = (pos.y - id.1.position.y);
                     let z_diff = (pos.z - id.1.position.z);
                     packets.push(ServerPacket::EntityLookAndRelativeMove { eid: id.0.0.0, dX: (x_diff * 32.0) as i8, dY: (y_diff * 32.0) as i8, dZ: (z_diff * 32.0) as i8, yaw: pos.yaw as i8, pitch: pos.pitch as i8});
-                    //log::info!("Sending relative");
+                    log::info!("Sending relative");
                 } else {
                     //log::info!("Sending packet to {}", name);
-                    //log::info!("Sending absolute");
+                    log::info!("Sending absolute");
                     let packet = ServerPacket::EntityTeleport { eid: id.0.0.0, x: (pos.x * 32.0) as i32, y: (pos.y * 32.0) as i32, z: (pos.z * 32.0) as i32, yaw: pos.yaw as i8, pitch: pos.pitch as i8};
                     //log::info!("Sending packet {:?} to {}", packet, name);
                     packets.push(packet);
                 }
-                //log::info!("Sending entity teleport!");
+                log::info!("Sending entity teleport!");
                 //packets.push(ServerPacket::EntityLook { eid: id.0.0.0, yaw: pos.yaw as i8, pitch: pos.pitch as i8 });
             } else {
                 id.1.position = pos;

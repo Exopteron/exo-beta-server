@@ -63,8 +63,14 @@ pub fn handle_packet(
             }
             let mut bad_move = false;
             for y in 0..1 {
-                if let Some(block) = game.world.get_block(packet.x.floor() as i32, packet.y.floor() as i32, packet.z.floor() as i32) {
-                    if let Some(registry_block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                if let Some(block) = game.world.get_block(
+                    packet.x.floor() as i32,
+                    packet.y.floor() as i32,
+                    packet.z.floor() as i32,
+                ) {
+                    if let Some(registry_block) =
+                        ItemRegistry::global().get_item(block.b_type as i16)
+                    {
                         if let Some(registry_block) = registry_block.get_item().as_block() {
                             if registry_block.is_solid() {
                                 bad_move = true;
@@ -87,7 +93,15 @@ pub fn handle_packet(
             } else {
                 let pos = player.get_position();
                 //log::info!("Denied. TPing to {:?}", pos);
-                player.write_packet(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: pos.stance, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: pos.on_ground });
+                player.write_packet(ServerPacket::PlayerPositionAndLook {
+                    x: pos.x,
+                    stance: pos.stance,
+                    y: pos.y + 0.1,
+                    z: pos.z,
+                    yaw: pos.yaw,
+                    pitch: pos.pitch,
+                    on_ground: pos.on_ground,
+                });
                 player.set_offground_height(0.);
             }
         }
@@ -104,8 +118,14 @@ pub fn handle_packet(
             }
             let mut bad_move = false;
             for y in 0..1 {
-                if let Some(block) = game.world.get_block(packet.x.floor() as i32, packet.y.floor() as i32, packet.z.floor() as i32) {
-                    if let Some(registry_block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                if let Some(block) = game.world.get_block(
+                    packet.x.floor() as i32,
+                    packet.y.floor() as i32,
+                    packet.z.floor() as i32,
+                ) {
+                    if let Some(registry_block) =
+                        ItemRegistry::global().get_item(block.b_type as i16)
+                    {
                         if let Some(registry_block) = registry_block.get_item().as_block() {
                             if registry_block.is_solid() {
                                 bad_move = true;
@@ -119,7 +139,7 @@ pub fn handle_packet(
                 pos.yaw = packet.yaw;
                 pos.pitch = packet.pitch;
                 pos.x = packet.x;
-                pos.y = packet.y;
+                pos.y = packet.y + 0.1;
                 pos.stance = packet.stance;
                 pos.z = packet.z;
                 pos.on_ground = packet.on_ground;
@@ -129,7 +149,15 @@ pub fn handle_packet(
             } else {
                 let pos = player.get_position();
                 //log::info!("Denied. TPing to {:?}", pos);
-                player.write_packet(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: pos.stance, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: pos.on_ground });
+                player.write_packet(ServerPacket::PlayerPositionAndLook {
+                    x: pos.x,
+                    stance: pos.stance,
+                    y: pos.y,
+                    z: pos.z,
+                    yaw: pos.yaw,
+                    pitch: pos.pitch,
+                    on_ground: pos.on_ground,
+                });
                 player.set_offground_height(0.);
             }
         }
@@ -152,17 +180,15 @@ pub fn handle_packet(
                 //game.spawn_entity(Box::new(crate::game::entities::item_entity::ItemEntity::new(player.get_position_clone(), game.ticks, ItemStack::new(1, 0, 1))));
             }
             if message.message == "makeaslime" {
-                game.spawn_entity(Box::new(
-                    slime_entity::SlimeEntity::new(
-                        player.get_position_clone(),
-                        game.ticks,
-                    ),
-                ));
+                game.spawn_entity(Box::new(slime_entity::SlimeEntity::new(
+                    player.get_position_clone(),
+                    game.ticks,
+                )));
             }
-/*             if message.message == "chunksave" {
+            /*             if message.message == "chunksave" {
                 game.world.to_file("world");
             } */
-/*             if message.message == "chunkload" {
+            /*             if message.message == "chunkload" {
                 game.world = crate::chunks::World::from_file("world").unwrap();
             } */
             /*             let mut inv = player.get_inventory();
@@ -213,8 +239,7 @@ pub fn handle_packet(
                 );
                 use std::ops::DerefMut;
                 //log::debug!("A");
-                let res =
-                    game.execute_command(&mut player, &message.message)?;
+                let res = game.execute_command(&mut player, &message.message)?;
                 //log::debug!("B");
                 match res {
                     0 => {}
@@ -1404,7 +1429,7 @@ pub fn handle_packet(
                                     hand.damage += 2;
                                     if hand.damage as u64 > max_dmg {
                                         hand.reset();
-                                    }     
+                                    }
                                     player.sync_inventory();
                                 }
                                 if let Some(damage) = item.get_item().damage() {
@@ -1466,7 +1491,7 @@ pub fn handle_packet(
                                         hand.damage += 2;
                                         if hand.damage as u64 > max_dmg {
                                             hand.reset();
-                                        }     
+                                        }
                                         player.sync_inventory();
                                     }
                                     if let Some(damage) = item.get_item().damage() {
@@ -1588,6 +1613,36 @@ pub fn handle_packet(
                     log::debug!("Block: {:?}", block);
                     if let Some(i) = registry.get_item(block.b_type as i16) {
                         if let Some(i) = i.get_item().as_block() {
+                            let mut exopacket = packet.clone();
+                            match exopacket.direction {
+                                0 => {
+                                    exopacket.y -= 1;
+                                }
+                                1 => {
+                                    exopacket.y = match exopacket.y.checked_add(1) {
+                                        Some(num) => num,
+                                        None => {
+                                            return Ok(());
+                                        }
+                                    }
+                                }
+                                2 => {
+                                    exopacket.z -= 1;
+                                }
+                                3 => {
+                                    exopacket.z += 1;
+                                }
+                                4 => {
+                                    exopacket.x -= 1;
+                                }
+                                5 => {
+                                    exopacket.x += 1;
+                                }
+                                x => {
+                                    log::debug!("Fal {}", x);
+                                    //return false;
+                                }
+                            }
                             if i.on_right_click(game, &mut packet, player.clone()) == false {
                                 return Ok(());
                             }
@@ -1654,7 +1709,7 @@ pub fn handle_packet(
                 }
                 let block = if let Some(blk) =
                     game.world
-                        .get_block(packet.x, (packet.y + 0) as i32, packet.z)
+                        .get_block_mut(packet.x, (packet.y + 0) as i32, packet.z)
                 {
                     blk
                 } else {
@@ -1745,7 +1800,7 @@ pub fn handle_packet(
                     //log::debug!("Got");
                     let block = if let Some(blk) =
                         game.world
-                            .get_block(packet.x, (packet.y - 0) as i32, packet.z)
+                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
                     {
                         blk
                     } else {
@@ -1755,13 +1810,49 @@ pub fn handle_packet(
                     //log::debug!("Or ig type {}", orig_type);
                     let registry = ItemRegistry::global();
                     if let Some(item) = registry.get_item(orig_type as i16) {
-                        if let None = item.get_item().as_block() {
+                        if let Some(item) = item.get_item().as_block() {
+                            if !item.insta_break() {
+                                player.write(ServerPacket::BlockChange {
+                                    x: packet.x,
+                                    y: packet.y + 0,
+                                    z: packet.z,
+                                    block_type: block.get_type() as i8,
+                                    block_metadata: block.b_metadata as i8,
+                                });
+                                return Ok(());
+                            }
+                            let uspos = BlockPosition {
+                                x: packet.x,
+                                y: packet.y as i32,
+                                z: packet.z,
+                            };
+                            drop(block);
+                            for position in uspos.all_directions() {
+                                if let Some(block) =
+                                    game.world.get_block(position.x, position.y, position.z)
+                                {
+                                    if let Some(block) = registry.get_item(block.b_type as i16) {
+                                        if let Some(block) = block.get_item().as_block() {
+                                            block.nearby_block_update(game, uspos, position);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
                             return Ok(());
                         }
                     } else {
                         return Ok(());
                     }
-                    // TODO Instabreak instead of this hard-coded check
+                    let block = if let Some(blk) =
+                        game.world
+                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
+                    {
+                        blk
+                    } else {
+                        return Ok(());
+                    };
+                    /*
                     if orig_type != 50 {
                         //log::debug!("Denied");
                         player.write(ServerPacket::BlockChange {
@@ -1772,7 +1863,7 @@ pub fn handle_packet(
                             block_metadata: block.b_metadata as i8,
                         });
                         return Ok(());
-                    }
+                    } */
                     block.set_type(0);
                     game.block_updates.push(crate::game::Block {
                         position: crate::game::BlockPosition {
@@ -1798,7 +1889,17 @@ pub fn handle_packet(
                     if let Some(item) = registry.get_item(orig_type as i16) {
                         if let Some(block) = item.get_item().as_block() {
                             let tool = player.get_item_in_hand().clone();
-                            if let Some(drop) = block.on_break(game, packet.clone(), player, tool) {
+                            if let Some(drop) = block.on_break(
+                                game,
+                                packet.clone(),
+                                player,
+                                tool,
+                                BlockPosition {
+                                    x: packet.x,
+                                    y: packet.y as i32,
+                                    z: packet.z as i32,
+                                },
+                            ) {
                                 game.spawn_entity(Box::new(
                                     crate::game::entities::item_entity::ItemEntity::new(
                                         Position::from_pos(
@@ -1819,7 +1920,7 @@ pub fn handle_packet(
                     log::debug!("Got pos {} {} {}", packet.x, packet.y, packet.z);
                     let block = if let Some(blk) =
                         game.world
-                            .get_block(packet.x, (packet.y - 0) as i32, packet.z)
+                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
                     {
                         blk
                     } else {
@@ -1835,7 +1936,6 @@ pub fn handle_packet(
                     } else {
                         return Ok(());
                     }
-                    // TODO Instabreak instead of this hard-coded check
                     if player.mining_block.block
                         != (BlockPosition {
                             x: packet.x,
@@ -1854,33 +1954,40 @@ pub fn handle_packet(
                         });
                         return Ok(());
                     }
-                    /*                     if player.mining_block.face != packet.face {
-                        player.write(ServerPacket::BlockChange {
-                            x: packet.x,
-                            y: packet.y + 1,
-                            z: packet.z,
-                            block_type: block.get_type() as i8,
-                            block_metadata: block.b_metadata as i8,
-                        });
-                        return Ok(());
-                    } */
-                    /*                     let btype = block.b_type;
-                    drop(block);
-                    let registry = ItemRegistry::global();
-                    if let Some(bl) = registry.get_item(btype as i16) {
-                        if bl.get_item().is_block() {
-                            crate::game::items::block::AsBlock::as_block(&bl.get_item()).unwrap().on_break(game, player, BlockPosition { x: packet.x, y: (packet.y - 1) as i32, z: packet.z}, packet, orig_type as i32)?;
+                    if let Some(item) = registry.get_item(orig_type as i16) {
+                        if let Some(block) = item.get_item().as_block() {
+                            let uspos = BlockPosition {
+                                x: packet.x,
+                                y: packet.y as i32,
+                                z: packet.z,
+                            };
+                            drop(block);
+                            for position in uspos.all_directions() {
+                                if let Some(block) =
+                                    game.world.get_block(position.x, position.y, position.z)
+                                {
+                                    if let Some(block) = registry.get_item(block.b_type as i16) {
+                                        if let Some(block) = block.get_item().as_block() {
+                                            block.nearby_block_update(game, uspos, position);
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            return Ok(());
                         }
-                    } */
+                    } else {
+                        return Ok(());
+                    }
+                    let block = if let Some(blk) =
+                        game.world
+                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
+                    {
+                        blk
+                    } else {
+                        return Ok(());
+                    };
                     block.set_type(0);
-                    game.block_updates.push(crate::game::Block {
-                        position: crate::game::BlockPosition {
-                            x: packet.x,
-                            y: (packet.y + 0) as i32,
-                            z: packet.z,
-                        },
-                        block: block.clone(),
-                    });
                     log::debug!("orig_type: {}", orig_type);
                     game.broadcast_to_loaded(
                         &player,
@@ -1899,7 +2006,7 @@ pub fn handle_packet(
                                 hand.damage += 1;
                                 if hand.damage as u64 > max_dmg {
                                     hand.reset();
-                                }     
+                                }
                                 player.sync_inventory();
                             }
                         }
@@ -1907,7 +2014,17 @@ pub fn handle_packet(
                     if let Some(item) = registry.get_item(orig_type as i16) {
                         if let Some(block) = item.get_item().as_block() {
                             let tool = player.get_item_in_hand().clone();
-                            if let Some(drop) = block.on_break(game, packet.clone(), player, tool) {
+                            if let Some(drop) = block.on_break(
+                                game,
+                                packet.clone(),
+                                player,
+                                tool,
+                                BlockPosition {
+                                    x: packet.x,
+                                    y: packet.y as i32,
+                                    z: packet.z as i32,
+                                },
+                            ) {
                                 game.spawn_entity(Box::new(
                                     crate::game::entities::item_entity::ItemEntity::new(
                                         Position::from_pos(
@@ -2065,6 +2182,15 @@ fn window_click_handler(
                 }
             } else if window_type == 1 && packet.slot == 0 {
                 let mut inv = inventory.get_inventory();
+                for i in 1..10 {
+                    if let Some(item) = inv.items.get_mut(&i) {
+                        if item.count == 0 {
+                            item.count = 0;
+                            item.id = 0;
+                            item.damage = 0;
+                        }
+                    }
+                }
                 let mut grid = Grid::default();
                 grid[0][0] = if let Some(a) = inv.items.get(&1) {
                     let a = a.clone();
@@ -2173,6 +2299,15 @@ fn window_click_handler(
                         }
                     }
                 }
+                for i in 1..10 {
+                    if let Some(item) = inv.items.get_mut(&i) {
+                        if item.count == 0 {
+                            item.count = 0;
+                            item.id = 0;
+                            item.damage = 0;
+                        }
+                    }
+                }
             }
             let cur = player.get_current_cursored_item_mut().clone();
             let mut is_some = cur.is_some();
@@ -2194,8 +2329,10 @@ fn window_click_handler(
                     } else {
                         log::debug!("Shift click");
                         let mut slot = slot.clone();
-                        if window_type == 1 {
-                            inv = player.get_inventory();
+                        if let WClick::Inventory(_) = inventory {
+                            if window_type == 1 {
+                                inv = player.get_inventory();
+                            }
                         }
                         for item in inv.items.iter_mut() {
                             if *item.0 as i16 == packet.slot {
@@ -2302,7 +2439,10 @@ fn window_click_handler(
                     return Err(anyhow::anyhow!("No item in cursor!"));
                 }
                 let cursored = player.get_current_cursored_item_mut().clone().unwrap();
-                if (slot.id != cursored.id || slot.damage != cursored.damage) && packet.slot == 0 && window_type < 3 {
+                if (slot.id != cursored.id || slot.damage != cursored.damage)
+                    && packet.slot == 0
+                    && window_type < 3
+                {
                     let mut inv = inventory.get_inventory();
                     for i in 1..10 {
                         if let Some(item) = inv.items.get_mut(&i) {
@@ -2549,7 +2689,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    grid[1][0] = if let Some(a) = inv.items.get(&2) {
+                    grid[0][1] = if let Some(a) = inv.items.get(&2) {
                         let a = a.clone();
                         if a.id == 0 {
                             None
@@ -2559,7 +2699,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    grid[2][0] = if let Some(a) = inv.items.get(&3) {
+                    grid[0][2] = if let Some(a) = inv.items.get(&3) {
                         let a = a.clone();
                         if a.id == 0 {
                             None
@@ -2569,7 +2709,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    grid[0][1] = if let Some(a) = inv.items.get(&4) {
+                    grid[1][0] = if let Some(a) = inv.items.get(&4) {
                         let a = a.clone();
                         if a.id == 0 {
                             None
@@ -2589,7 +2729,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    grid[2][1] = if let Some(a) = inv.items.get(&6) {
+                    grid[1][2] = if let Some(a) = inv.items.get(&6) {
                         let a = a.clone();
                         if a.id == 0 {
                             None
@@ -2599,7 +2739,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    grid[0][2] = if let Some(a) = inv.items.get(&7) {
+                    grid[2][0] = if let Some(a) = inv.items.get(&7) {
                         let a = a.clone();
                         if a.id == 0 {
                             None
@@ -2609,7 +2749,7 @@ fn window_click_handler(
                     } else {
                         None
                     };
-                    grid[1][2] = if let Some(a) = inv.items.get(&8) {
+                    grid[2][1] = if let Some(a) = inv.items.get(&8) {
                         let a = a.clone();
                         if a.id == 0 {
                             None

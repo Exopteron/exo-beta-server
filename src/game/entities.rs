@@ -1,5 +1,7 @@
 pub mod item_entity;
 pub mod slime_entity;
+pub mod tile_entity;
+pub mod gravel_entity;
 use super::*;
 pub trait Entity {
     fn spawn_entity(&mut self, player: &mut RefMut<'_, Player>);

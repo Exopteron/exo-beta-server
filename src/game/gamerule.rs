@@ -12,6 +12,7 @@ impl std::default::Default for Gamerules {
         let mut rules = HashMap::new();
         rules.insert("pvp-enabled".to_string(), GameruleValue::Boolean(true));
         rules.insert("fall-damage".to_string(), GameruleValue::Boolean(true));
+        rules.insert("random-tick-speed".to_string(), GameruleValue::Int(3));
         Self { rules: rules }
     }
 }

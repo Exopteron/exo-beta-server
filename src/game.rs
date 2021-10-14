@@ -22,17 +22,55 @@ use std::cell::{Ref, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Debug, Hash)]
 pub struct BlockPosition {
     pub x: i32,
     pub y: i32,
     pub z: i32,
 }
+impl Eq for BlockPosition {}
 impl BlockPosition {
+    pub fn within_block(&self, pos: Position) -> bool {
+        let min_x = self.x as f64;
+        let min_y = self.y as f64;
+        let min_z = self.z as f64;
+
+        let max_x = self.x as f64 + 1.0;
+        let max_y = self.y as f64 + 1.0;
+        let max_z = self.z as f64 + 1.0;
+        (pos.x <= max_x && pos.x >= min_x) && (pos.y <= max_y && pos.y >= min_y) && (pos.z <= max_z && pos.z >= min_z)
+    }
     pub fn to_chunk_coords(&self) -> ChunkCoords {
         let x = self.x as i32 / 16;
         let z = self.z as i32 / 16;
         ChunkCoords { x, z }
+    }
+    pub fn all_directions(&self) -> impl Iterator<Item = BlockPosition> {
+        let mut list = Vec::with_capacity(6);
+        let mut clone = self.clone();
+        clone.x += 1;
+        list.push(clone);
+
+        let mut clone = self.clone();
+        clone.y += 1;
+        list.push(clone);
+
+        let mut clone = self.clone();
+        clone.z += 1;
+        list.push(clone);
+
+        let mut clone = self.clone();
+        clone.x -= 1;
+        list.push(clone);
+
+        let mut clone = self.clone();
+        clone.y -= 1;
+        list.push(clone);
+
+        let mut clone = self.clone();
+        clone.z -= 1;
+        list.push(clone);
+        list.into_iter()
     }
 }
 impl std::default::Default for BlockPosition {
@@ -196,6 +234,7 @@ pub enum DamageType {
     None,
     Fall,
     Mob { damager: String },
+    Drown,
 }
 #[derive(Clone, PartialEq, Debug, Hash, Copy, Ord)]
 pub struct ItemStack {
@@ -295,11 +334,27 @@ impl std::default::Default for Chatbox {
     }
 }
 use std::time::{Duration, Instant};
-#[derive()]
+#[derive(Clone)]
 pub struct PlayerRef {
     player: Arc<RefCell<Player>>,
 }
+use crate::network::metadata::Metadata;
 impl PlayerRef {
+    pub fn teleport(&self, game: &mut Game, position: &Position) {
+        self.set_position(*position);
+        self.check_chunks(game);
+        let pos = position;
+        let packet = ServerPacket::PlayerPositionAndLook {
+            x: pos.x,
+            y: pos.y,
+            z: pos.z,
+            yaw: pos.yaw,
+            pitch: pos.pitch,
+            on_ground: pos.on_ground,
+            stance: pos.stance,
+        };
+        self.write_packet(packet);
+    }
     pub fn set_permission_level(&self, level: u8) {
         self.player.borrow_mut().permission_level = level;
     }
@@ -404,6 +459,9 @@ impl PlayerRef {
         self.player.borrow_mut().offground_height = height;
     }
     pub fn damage(&self, damage_type: DamageType, amount: i16, damagee: Option<&mut Player>) {
+        if self.is_dead() {
+            return;
+        }
         self.set_health(self.get_health() - amount);
         let id = self.get_id().0;
         self.write_packet(ServerPacket::Animation {
@@ -508,6 +566,7 @@ impl PlayerRef {
         self.player.borrow_mut().crouching
     }
     pub fn set_crouching(&self, crouching: bool) {
+        self.player.borrow_mut().metadata_changed = true;
         self.player.borrow_mut().crouching = crouching;
     }
     pub fn get_inventory(&self) -> RefMut<'_, Inventory> {
@@ -618,13 +677,20 @@ impl PlayerRef {
                         {
                             log::warn!("Error calculating skylight: {:?}", e);
                         }
-                        //game.world.chunks.get_mut(&coords).expect("Deal with this later").calculate_skylight(game.time);
-                        let packets = game
+/*                         if let Some(chunk) = game.world.chunks.get(&coords) {
+                            let mut chunk = chunk.clone();
+                            let sender = cl.packet_send_sender.clone();
+                            chunk.to_packets_async(sender);
+/*                             tokio::spawn(async move {
+                                chunk.to_packets_async(sender.clone()).await;
+                            }); */
+                        } */
+                         let packets = game
                             .world
-                            .chunk_to_packets(coords, &mut cl.packet_send_sender);
+                            .chunk_to_packets(coords, cl.packet_send_sender.clone());
                         if packets.is_err() {
                             continue;
-                        }
+                        } 
                     }
                 } else {
                     game.world.chunks.insert(
@@ -664,7 +730,67 @@ impl PlayerRef {
             cl.write(packet);
         }
     }
+    pub fn build_metadata(&self) -> Metadata {
+        self.unwrap().unwrap().build_metadata()
+    }
+    pub fn is_underwater(&self, game: &mut Game) -> bool {
+        let pos = self.get_position();
+        let mut b1 = false;
+        let mut b2 = false;
+        if let Some(block) = game.world.get_block(
+            pos.x as i32,
+            (pos.y as i32) + 1,
+            pos.z as i32,
+        ) {
+            if let Some(reg_block) =
+                ItemRegistry::global().get_item(block.b_type as i16)
+            {
+                if let Some(reg_block) = reg_block.get_item().as_block() {
+                    if reg_block.is_fluid() {
+                        b1 = true;
+                    }
+                }
+            }
+        }
+        if let Some(block) = game.world.get_block(
+            pos.x as i32,
+            (pos.y as i32) + 0,
+            pos.z as i32,
+        ) {
+            if let Some(reg_block) =
+                ItemRegistry::global().get_item(block.b_type as i16)
+            {
+                if let Some(reg_block) = reg_block.get_item().as_block() {
+                    if reg_block.is_fluid() {
+                        b2 = true;
+                    }
+                }
+            }
+        }
+        b1 && b2
+    }
+    pub fn get_air(&self) -> u16 {
+        self.player.borrow().air
+    }
+    pub fn set_air(&self, air: u16) {
+        self.player.borrow_mut().air = air;
+    }
+    pub fn get_last_drown_tick(&self) -> u128 {
+        self.player.borrow().last_drown_tick
+    }
+    pub fn set_last_drown_tick(&self, tick: u128) {
+        self.player.borrow_mut().last_drown_tick = tick;
+    }
     pub fn tick(&self, game: &mut Game) -> anyhow::Result<()> {
+        if self.player.borrow().metadata_changed {
+            for player in game.players.iter() {
+                let player = player.1;
+                if player.get_loaded_chunks().contains(&self.get_position_clone().to_chunk_coords()) {
+                    player.write_packet(ServerPacket::EntityMetadata { eid: self.get_id().0, entity_metadata: self.build_metadata() });
+                }
+            }
+            self.player.borrow_mut().metadata_changed = false;
+        }
         if self.player.borrow().held_item_changed.clone() {
             self.equipment_check(game)?;
         }
@@ -675,6 +801,20 @@ impl PlayerRef {
             self.sync_inventory();
         }
         let interval = Duration::from_millis(750);
+        if self.is_underwater(game) {
+            let air = self.get_air();
+            if air == 0 {
+                let player = self.clone();
+                if self.get_last_drown_tick() + 20 < game.ticks {
+                    self.damage(DamageType::Drown, 2, None);
+                    self.set_last_drown_tick(game.ticks);
+                }
+            } else {
+                self.set_air(air - 1);
+            }
+        } else {
+            self.set_air(300);
+        }
         let mut cl = self.player.borrow_mut();
         // Fall damage check
         if cl.position.on_ground {
@@ -758,6 +898,9 @@ impl PlayerRef {
                 }
                 DamageType::Mob { damager } => {
                     msg = Message::new(&format!("{} got slain by {}.", cl.username, damager));
+                }
+                DamageType::Drown => {
+                    msg = Message::new(&format!("{} drowned.", cl.username));
                 }
             }
             let id = cl.id.0;
@@ -855,6 +998,7 @@ impl PlayerRef {
                         yaw: pos.yaw as i8,
                         pitch: pos.pitch as i8,
                     });
+                    cl.write(ServerPacket::EntityMetadata { eid: player.1.get_id().0, entity_metadata: player.1.build_metadata() });
                     if player.1.is_dead() {
                         cl.write(ServerPacket::EntityStatus {
                             eid: player.1.get_id().0,
@@ -877,7 +1021,7 @@ impl PlayerRef {
                 continue;
             };
             if id.1.position != pos {
-                if pos.distance(&id.1.position) < 3. && true == false {
+                if pos.distance(&id.1.position) < 2. && true == false {
                     let x_diff = (pos.x - id.1.position.x);
                     let y_diff = (pos.y - id.1.position.y);
                     let z_diff = (pos.z - id.1.position.z);
@@ -999,6 +1143,7 @@ pub struct Player {
     pub rendered_players: HashMap<(EntityID, String), RenderedPlayerInfo>,
     pub rendered_entities: HashMap<EntityID, RenderedEntityInfo>,
     pub open_inventories: HashMap<i8, Window>,
+    pub metadata_changed: bool,
     pub chatbox: Chatbox,
     pub perm_level: usize,
     pub crouching: bool,
@@ -1025,9 +1170,25 @@ pub struct Player {
     pub socket_addr: SocketAddr,
     pub all_player_data: Arc<RefCell<HashMap<String, PersistentPlayerData>>>,
     pub permission_level: u8,
+    pub air: u16,
+    pub last_drown_tick: u128,
     players_list: PlayerList,
 }
 impl Player {
+    pub fn build_metadata(&self) -> Metadata {
+        let mut metadata = Metadata::new();
+        let mut meta_val = 0;
+        match self.crouching {
+            true => {
+                meta_val |= 0x02
+            }
+            false => {
+                
+            }
+        };
+        metadata.insert_byte(meta_val);
+        metadata
+    }
     pub fn save_to_mem(&mut self) {
         log::info!("Saving playerdata");
         let name = self.username.clone();
@@ -1220,6 +1381,10 @@ impl PlayerList {
         }
         None
     }
+    pub fn iter(&self) -> impl Iterator<Item = (EntityID, Arc<PlayerRef>)> {
+        let list = self.0.borrow().clone();
+        list.into_iter()
+    }
 }
 pub struct LoadedChunks(pub Vec<ChunkCoords>);
 impl LoadedChunks {
@@ -1227,6 +1392,9 @@ impl LoadedChunks {
         if !self.0.contains(&coords) {
             self.0.push(coords);
         }
+    }
+    pub fn iter(&self) -> impl Iterator<Item = &ChunkCoords> {
+        self.0.iter()
     }
 }
 #[derive(PartialEq, Clone)]
@@ -1236,11 +1404,38 @@ pub struct PersistentPlayerData {
     pub health: i16,
     pub inventory: Inventory,
 }
+use tile_entity::*;
 impl Eq for PersistentPlayerData {}
+pub struct Scheduler {
+    tasks: Vec<(u128, Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>)>
+}
+impl Scheduler {
+    pub fn new() -> Self {
+        Self { tasks: Vec::new() }
+    }
+    pub fn schedule_task(&mut self, ticks: u128, func: Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>) {
+        self.tasks.push((ticks, func));
+    }
+    pub fn run_tasks(&mut self, game: &mut Game) {
+        let ticks = game.ticks;
+        let mut to_reschedule = Vec::new();
+        self.tasks.retain(|task| {
+            if task.0 == ticks {
+                if let Some(time) = task.1(game) {
+                    to_reschedule.push((time, task.1.clone()));
+                }
+                return false;
+            }
+            true
+        });
+        self.tasks.append(&mut to_reschedule);
+    }
+}
 pub struct Game {
     pub objects: Arc<Objects>,
     pub players: PlayerList,
     pub entities: Arc<RefCell<HashMap<EntityID, Arc<RefCell<Box<dyn Entity>>>>>>,
+    pub tile_entities: Arc<RefCell<HashMap<BlockPosition, Arc<RefCell<Box<dyn tile_entity::BlockTileEntity>>>>>>,
     pub systems: Arc<RefCell<Systems>>,
     pub world: crate::chunks::World,
     pub block_updates: Vec<Block>,
@@ -1250,9 +1445,70 @@ pub struct Game {
     pub ticks: u128,
     pub persistent_player_data: Arc<RefCell<HashMap<String, PersistentPlayerData>>>,
     pub gamerules: gamerule::Gamerules,
+    pub tps: f64,
+    pub scheduler: Scheduler,
 }
 use nbt::*;
+use rand::Rng;
 impl Game {
+    pub fn tile_entity_ticks(&mut self) {
+        let tiles = self.tile_entities.borrow().clone();
+        for (pos, entity) in tiles.iter() {
+            if self.loaded_chunks.0.contains(&pos.to_chunk_coords()) {
+                entity.borrow_mut().tick(self, *pos);
+            }
+        }
+    }
+    pub fn random_ticks(&mut self) {
+        let random_tick_speed: i32;
+        let gamerule = self.gamerules.rules.get("random-tick-speed").unwrap();
+        if let crate::game::gamerule::GameruleValue::Int(value) = gamerule {
+            random_tick_speed = *value;
+        } else {
+            panic!("Random tick speed gamerule is not an int!");
+        }
+        for chunk in self.loaded_chunks.0.clone().iter() {
+            let mut rng = rand::thread_rng();
+            let chunk = self
+                .world
+                .chunks
+                .get_mut(chunk)
+                .expect("should be impossible!");
+            let mut blocks = Vec::new();
+            for section in 0..8 {
+                for _ in 0..random_tick_speed {
+                    let mut pos = (
+                        rng.gen_range(0..16),
+                        rng.gen_range(section * 16..16 + section * 16),
+                        rng.gen_range(0..16),
+                    );
+                    let blk = chunk
+                        .get_block(pos.0, pos.1, pos.2)
+                        .expect("Should not error!")
+                        .clone();
+                    pos.0 += chunk.x * 16;
+                    pos.2 += chunk.z * 16;
+                    blocks.push((blk, pos));
+                }
+            }
+            //log::info!("Ticking {} blocks", blocks.len());
+            for block in blocks {
+                if let Some(reg_block) = ItemRegistry::global().get_item(block.0.b_type as i16) {
+                    if let Some(reg_block) = reg_block.get_item().as_block() {
+                        //log::info!("Ticking {:?}", block.1);
+                        reg_block.random_tick(
+                            self,
+                            BlockPosition {
+                                x: block.1 .0,
+                                y: block.1 .1,
+                                z: block.1 .2,
+                            },
+                        );
+                    }
+                }
+            }
+        }
+    }
     pub fn inv_to_tag(inv: &Inventory) -> CompoundTag {
         let mut inventory_tag = CompoundTag::new();
         let mut items = Vec::new();
@@ -1405,61 +1661,13 @@ impl Game {
             // BLOCKS stuff
             let block = if let Some(blk) =
                 game.world
-                    .get_block(packet.x, (packet.y + 0) as i32, packet.z)
+                    .get_block_mut(packet.x, (packet.y + 0) as i32, packet.z)
             {
                 blk
             } else {
                 //log::info!("false.");
                 return false;
             };
-
-            /*             let mut pos = player.position.clone();
-                        let held = player.get_item_in_hand_mut().unwrap();
-                        for user in game.players.0.borrow().iter() {
-            /*                     let mut pos = user.1.try_borrow();
-                            if pos.is_err() {
-                                continue;
-                            } */
-                            //let mut pos = pos;
-                            if pos.contains_block(crate::game::BlockPosition {
-                                x: packet.x,
-                                y: (packet.y + 1) as i32,
-                                z: packet.z,
-                            }) {
-                                held.count += 1;
-                                player.write(ServerPacket::BlockChange {
-                                    x: packet.x,
-                                    y: packet.y + 1,
-                                    z: packet.z,
-                                    block_type: block.get_type() as i8,
-                                    block_metadata: block.b_metadata as i8,
-                                });
-                                return false;
-                            }
-                        }
-                        if pos.contains_block(crate::game::BlockPosition {
-                            x: packet.x,
-                            y: (packet.y + 1) as i32,
-                            z: packet.z,
-                        }) {
-                            held.count += 1;
-                            player.write(ServerPacket::BlockChange {
-                                x: packet.x,
-                                y: packet.y + 1,
-                                z: packet.z,
-                                block_type: block.get_type() as i8,
-                                block_metadata: block.b_metadata as i8,
-                            });
-                            return false;
-                        } */
-            //let mut pos = crate::world::World::pos_to_index(packet.x, packet.y as i32, packet.z as i32);
-            // BLOCKS stuff
-            /*             log::info!(
-                "Setting at X: {} Y: {} Z: {}",
-                packet.x,
-                packet.y as i32,
-                packet.z
-            ); */
 
             if let Some(blk) = ItemRegistry::global().get_item(block.b_type as i16) {
                 if let Some(blk) = blk.get_item().as_block() {
@@ -1491,6 +1699,7 @@ impl Game {
         }));
         use rand::RngCore;
         items::default::init_items(&mut registry);
+        crate::game::entities::tile_entity::init_items(&mut registry);
         ITEM_REGISTRY
             .set(registry)
             .ok()
@@ -1598,7 +1807,12 @@ impl Game {
                             }
                         }
                     }
-                    log::info!("[Command] {} set gamerule \"{}\" to \"{}\"", executor.username(), rule_str, state);
+                    log::info!(
+                        "[Command] {} set gamerule \"{}\" to \"{}\"",
+                        executor.username(),
+                        rule_str,
+                        state
+                    );
                     executor.send_message(Message::new(&format!(
                         "Changed gamerule \"{}\" to \"{}\"",
                         rule_str, state
@@ -1607,6 +1821,37 @@ impl Game {
                     return Ok(3);
                 }
                 Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "kick",
+            "kick a player",
+            vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                if executor.permission_level() < 4 {
+                    return Ok(5);
+                }
+                use crate::game::gamerule::*;
+                let player_name = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                let reason = args[1].as_any().downcast_mut::<String>().unwrap().clone();
+                use std::str::FromStr;
+                let plrs = game.players.0.borrow().clone();
+                for player in plrs.iter() {
+                    let player = player.1;
+                    if player_name.contains(&player.get_username()) {
+                        player.disconnect(reason.clone());
+                        executor.send_message(Message::new(&format!(
+                            "Kicking player \"{}\" for \"{}\".",
+                            player_name, reason
+                        )));
+                        return Ok(0);
+                    }
+                }
+                executor.send_message(Message::new(&format!(
+                    "Could not find player \"{}\".",
+                    player_name
+                )));
+                Ok(3)
             }),
         ));
         command_system.register(Command::new(
@@ -1646,36 +1891,35 @@ impl Game {
                 Ok(0)
             }),
         ));
-        /*         command_system.register(Command::new(
-                    "tp",
-                    "teleport command",
-                    vec![CommandArgumentTypes::String],
-                    Box::new(|game, executor, mut args| {
-                        log::info!("g");
-                        let executor = if let Some(executor) = executor.as_any().downcast_mut::<Player>() {
-                            executor
-                        } else {
-                            return Ok(3);
-                        };
-                        let to = args[0].as_any().downcast_mut::<String>().unwrap().clone();
-                        if executor.username == to {
-                            return Ok(3);
-                        }
-                        let to = if let Some(plr) = game.players.get_player(&to) {
-                            plr.clone()
-                        } else {
-                            return Ok(3);
-                        };
-                        executor.position = to.get_position_clone();
-                        executor.pos_changed = true;
-                        executor.sync_position();
-        /*                 executor.chatbox.push(Message::new(&format!(
-                            "It works! Hello {}",
-                            args[0].display()
-                        ))); */
-                        Ok(0)
-                    }),
-                )); */
+        command_system.register(Command::new(
+            "tp",
+            "teleport command",
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                log::info!("g");
+                let executor =
+                    if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
+                        executor
+                    } else {
+                        return Ok(3);
+                    };
+                let to = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                if executor.get_username() == to {
+                    return Ok(3);
+                }
+                let to = if let Some(plr) = game.players.get_player(&to) {
+                    plr.clone()
+                } else {
+                    return Ok(3);
+                };
+                executor.teleport(game, &to.get_position_clone());
+                /*                 executor.chatbox.push(Message::new(&format!(
+                    "It works! Hello {}",
+                    args[0].display()
+                ))); */
+                Ok(0)
+            }),
+        ));
         command_system.register(Command::new(
             "kill",
             "die",
@@ -1714,6 +1958,15 @@ impl Game {
                         item.1.get_name()
                     )));
                 }
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "tps",
+            "Server TPS.",
+            vec![],
+            Box::new(|game, executor, _| {
+                executor.send_message(Message::new(&format!("TPS over the last 5 seconds: {}", game.tps)));
                 Ok(0)
             }),
         ));
@@ -1790,10 +2043,13 @@ impl Game {
             command_system: Arc::new(RefCell::new(command_system)),
             time: 0,
             ticks: 0,
+            tile_entities: Arc::new(RefCell::new(HashMap::new())),
             entities: Arc::new(RefCell::new(HashMap::new())),
             loaded_chunks: LoadedChunks(Vec::new()),
             persistent_player_data: Arc::new(RefCell::new(epic_data)),
             gamerules: gamerule::Gamerules::default(),
+            tps: 0.,
+            scheduler: Scheduler::new(),
         }
     }
     pub fn insert_object<T>(&mut self, object: T)
@@ -1861,7 +2117,7 @@ impl Game {
             if orig != player.is_crouching()
             /* .borrow().crouching */
             {
-                crate::systems::update_crouch(self, server, player.clone())?;
+                //crate::systems::update_crouch(self, server, player.clone())?;
             }
             if orig_hi != player.get_item_in_hand_clone() {
                 player.equipment_check(self)?;
@@ -2006,7 +2262,7 @@ impl Game {
                 if self.world.check_chunk_exists(spawnchunk) {
                     loaded_chunks.push(spawnchunk.clone());
                     self.world
-                        .chunk_to_packets(spawnchunk, &mut client.packet_send_sender)
+                        .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())
                         .unwrap();
                     self.loaded_chunks.push(spawnchunk);
                 } else {
@@ -2028,7 +2284,7 @@ impl Game {
                         log::warn!("Error calculating skylight: {:?}", e);
                     }
                     self.world
-                        .chunk_to_packets(spawnchunk, &mut client.packet_send_sender)
+                        .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())
                         .unwrap();
                     self.loaded_chunks.push(spawnchunk);
                 }
@@ -2106,6 +2362,9 @@ impl Game {
                 socket_addr: addr,
                 all_player_data: self.persistent_player_data.clone(),
                 permission_level: perm_level,
+                air: 300,
+                last_drown_tick: 0,
+                metadata_changed: true,
             }))),
         );
         let us = players.get_mut(&id).unwrap();

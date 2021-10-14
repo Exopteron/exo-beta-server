@@ -2,6 +2,7 @@ mod worker;
 pub mod packet;
 pub mod handshake;
 pub mod ids;
+pub mod metadata;
 use tokio::net::{TcpListener, TcpStream};
 use std::net::SocketAddr;
 use crate::server::NewPlayer;

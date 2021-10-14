@@ -490,12 +490,39 @@ pub enum ServerPacket {
     EntityLookAndRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8, yaw: i8, pitch: i8 },
     OpenWindow { window_id: i8, inventory_type: i8, window_title: String, num_slots: i8 },
     MobSpawn { eid: i32, m_type: i8, x: i32, y: i32, z: i32, yaw: i8, pitch: i8 },
+    EntityMetadata { eid: i32, entity_metadata: crate::network::metadata::Metadata },
+    AddObjectVehicle { eid: i32, obj_type: i8, x: i32, y: i32, z: i32, unknown_flag: i32, unk_1: Option<i16>, unk_2: Option<i16>, unk_3: Option<i16> }
 }
 
 
 impl ServerPacket {
     pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
         match self {
+            ServerPacket::AddObjectVehicle { eid, obj_type, x, y, z, unknown_flag, unk_1, unk_2, unk_3 } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*eid);
+                builder.insert_byte(*obj_type);
+                builder.insert_int(*x);
+                builder.insert_int(*y);
+                builder.insert_int(*z);
+                builder.insert_int(*unknown_flag);
+                if let Some(unk_1) = unk_1 {
+                    builder.insert_short(*unk_1);
+                }
+                if let Some(unk_2) = unk_2 {
+                    builder.insert_short(*unk_2);
+                }
+                if let Some(unk_3) = unk_3 {
+                    builder.insert_short(*unk_3);
+                }
+                builder.build(0x17)
+            }
+            ServerPacket::EntityMetadata { eid, entity_metadata } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*eid);
+                builder.insert_bytearray(entity_metadata.finish());
+                builder.build(0x28)
+            }
             ServerPacket::MobSpawn { eid, m_type, x, y, z, yaw, pitch } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_int(*eid);

@@ -58,6 +58,10 @@ async fn main() -> anyhow::Result<()> {
             /*             systems::check_inv(game, &mut server, player.1)?;
             systems::sync_inv(game, &mut server, player.1)?; */
         }
+        game.random_ticks();
+        game.tile_entity_ticks();
+        let players = game.players.clone();
+        game.world.send_block_updates(players);
         obj.get_mut::<game::events::EventHandler>()?
             .handle_events(game);
         Ok(())
@@ -78,6 +82,9 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     let (tx, rx) = channel();
     ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
     .expect("Error setting Ctrl-C handler");
+    use std::time::{Duration, Instant};
+    let mut tick_counter = 0;
+    let mut last_tps_check = Instant::now();
     TickLoop::new(move || {
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
@@ -90,8 +97,14 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             std::process::exit(0);
         }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
+            if last_tps_check + Duration::from_secs(5) < Instant::now() {
+                game.tps = tick_counter as f64 / 5.;
+                tick_counter = 0;
+                last_tps_check = std::time::Instant::now();
+            }
             let systems = game.systems.clone();
             systems.borrow_mut().run(&mut game);
+            tick_counter += 1;
         })) {
             game.save_playerdata().unwrap();
             game.world.to_file(&CONFIGURATION.level_name);
