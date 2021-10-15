@@ -68,8 +68,8 @@ impl ClassicPacketBuilder {
     for element in self.elements.clone() {
       match element.clone() {
         Element::String16 { string } => {
-          packet.append(&mut (string.len() as i16).to_be_bytes().to_vec());
           let utf16 = string.encode_utf16().collect::<Vec<u16>>();
+          packet.append(&mut (utf16.len() as i16).to_be_bytes().to_vec());
           for short in utf16 {
               packet.append(&mut short.to_be_bytes().to_vec());
           }

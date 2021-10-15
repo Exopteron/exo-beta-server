@@ -1,7 +1,7 @@
 pub mod item_entity;
-pub mod slime_entity;
 pub mod tile_entity;
 pub mod gravel_entity;
+pub mod mob_entity;
 use super::*;
 pub trait Entity {
     fn spawn_entity(&mut self, player: &mut RefMut<'_, Player>);
@@ -21,5 +21,5 @@ pub trait Entity {
     fn is_dead(&self) -> bool {
         false
     }
-    fn as_any(&mut self) -> &mut dyn Any;
+    fn as_any(&mut self) -> &mut (dyn Any + 'static) where Self: 'static;
 }

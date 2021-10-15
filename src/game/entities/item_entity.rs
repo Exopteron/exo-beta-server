@@ -106,36 +106,7 @@ impl Entity for ItemEntity {
                     let packet = ServerPacket::CollectItem { collected_eid: self.entity_id.0, collector_eid: plr_id.0};
                     game.broadcast_to_loaded(&player.1.unwrap().unwrap(), packet.clone()).expect("Couldn't broadcast");
                     player.1.write_packet(packet);
-                    let mut inv = player.1.get_inventory();
-                    'main: for (num, slot) in &mut inv.items {
-                        if num > &8 {
-                            if slot.id == self.item.id && slot.damage == self.item.damage {
-                                let registry = ItemRegistry::global();
-                                let mut our_count = self.item.count;
-                                if let Some(item) = registry.get_item(slot.id) {
-                                    for _ in 0..self.item.count {
-                                        if slot.count + our_count > item.get_item().stack_size() as i8 {
-                                            continue 'main;
-                                        }
-                                        our_count -= 1;
-                                        slot.count += 1;
-                                    }
-                                }
-                                //slot.count += self.item.count;
-                                return;
-                            }
-                        }
-                    }
-                    for (num, slot) in &mut inv.items {
-                        if num > &8 {
-                            if slot.id == 0 {
-                                slot.id = self.item.id;
-                                slot.damage = self.item.damage;
-                                slot.count = self.item.count;
-                                return;
-                            }
-                        }
-                    }
+                    player.1.get_inventory().insert_itemstack(self.item);
                 }
             }
         }

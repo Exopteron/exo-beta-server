@@ -149,7 +149,6 @@ impl ChunkSection {
     pub async fn to_packets_section_async(
         &self,
         player: Sender<ServerPacket>,
-        has_loaded_before: &mut Vec<ChunkCoords>,
     ) -> Option<()> {
         //let mut packets = vec![];
         let chunk = self;
@@ -161,7 +160,7 @@ impl ChunkSection {
         let mut z_counter = 16;
         let mut x_counter = 128;
         //log::info!("Len: {:?}", chunk.data.len());
-        for i in 0..chunk.data.len() + 0 {
+        for _ in 0..chunk.data.len() + 0 {
             if size_y < 16 {
                 size_y += 1;
             } else if size_z < 16 {
@@ -931,7 +930,7 @@ pub struct MountainChunkGenerator {
             .set(Seed::of_value(seed))
             .set(Step::of(-0.005, 0.005));
         let nm = nm * 30;
-        cool gen
+        cool gen ( you didn't see this. )
 */
 impl MountainChunkGenerator {
     pub fn new(seed: u64) -> Self {
@@ -939,8 +938,8 @@ impl MountainChunkGenerator {
         let nm = NoiseMap::new(noise)
             .set(Size::of(16, 16))
             .set(Seed::of_value(seed))
-            .set(Step::of(-0.005, 0.005));
-        let nm = nm * 30;
+            .set(Step::of(-0.02, 0.02));
+        let nm = nm * 25;
         Self {
             noise: nm,
             seed: seed,

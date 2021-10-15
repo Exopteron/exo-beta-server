@@ -1,5 +1,6 @@
 #![feature(specialization)]
 //pub mod error;
+pub mod async_systems;
 pub mod chunks;
 pub mod configuration;
 pub mod feather_tick_loop;
@@ -21,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
     let _ = &configuration::CONFIGURATION.server_name;
     let mut systems = Systems::new();
-    systems.add_system("packet_accept",|game| {
+    systems.add_system("packet_accept", |game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>().unwrap();
         game.accept_packets(&mut server)?;
@@ -116,22 +117,62 @@ async fn main() -> anyhow::Result<()> {
             .handle_events(game);
         Ok(())
     });
-    let mut game = game::Game::new(systems);
-    let server = server::Server::bind().await?;
+    systems.add_system("handle_async_scheduled_tasks", |game| {
+        game.handle_async_commands();
+        Ok(())
+    });
+    let mut manager = PluginManager::new();
+    load_plugins(&mut manager);
+    let (async_channel_send, async_channel_recv) = flume::unbounded();
+    async_systems::setup_async_systems(async_channel_send.clone()).await;
+    let (async_chat_send, async_chat_recv) = flume::unbounded();
+    if CONFIGURATION.experimental.async_chat {
+        let chat_manager =
+            async_systems::chat::AsyncChatManager::new(async_channel_send.clone(), async_chat_recv);
+        chat_manager.run().await;
+    }
+    let mut game = game::Game::new(
+        systems,
+        manager,
+        async_channel_recv,
+        async_chat_send.clone(),
+    );
+    let server = server::Server::bind(async_chat_send).await?;
     server.register(&mut game);
     run(game);
     loop {}
     println!("Hello, world!");
     Ok(())
-} // this is my error handling which is all i have so far because i'm scared to write any more.
+}
+fn load_plugins(manager: &mut PluginManager) {
+    let mut faxvec: Vec<std::path::PathBuf> = Vec::new();
+    std::fs::create_dir_all("plugins/").expect("Could not create plugins folder!");
+    for element in std::path::Path::new(r"plugins/").read_dir().unwrap() {
+        let path = element.unwrap().path();
+        if let Some(extension) = path.extension() {
+            if extension == "so" {
+                faxvec.push(path);
+            }
+        }
+    }
+    for plugin in faxvec {
+        unsafe {
+            if let Err(e) = manager.load_plugin(plugin) {
+                log::error!("Error loading plugin: {:?}", e);
+            }
+        }
+    }
+}
 use std::panic::{self, AssertUnwindSafe};
 use sysinfo::ProcessorExt;
+
+use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     std::env::set_var("RUST_BACKTRACE", "1");
     use std::sync::mpsc::channel;
     let (tx, rx) = channel();
     ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
-    .expect("Error setting Ctrl-C handler");
+        .expect("Error setting Ctrl-C handler");
     use std::time::{Duration, Instant};
     let mut tick_counter = 0;
     let mut last_tps_check = Instant::now();

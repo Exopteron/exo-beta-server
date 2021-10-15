@@ -180,10 +180,11 @@ pub fn handle_packet(
                 //game.spawn_entity(Box::new(crate::game::entities::item_entity::ItemEntity::new(player.get_position_clone(), game.ticks, ItemStack::new(1, 0, 1))));
             }
             if message.message == "makeaslime" {
-                for _ in 0..50000 {
-                    game.spawn_entity(Box::new(slime_entity::SlimeEntity::new(
+                for _ in 0..5 {
+                    game.spawn_entity(Box::new(mob_entity::slime_entity::SlimeEntity::new(
                         player.get_position_clone(),
                         game.ticks,
+                        3,
                     )));
                 }
             }
@@ -234,7 +235,7 @@ pub fn handle_packet(
             //player.sync_inventory();
             if message.message.starts_with("/") {
                 message.message.remove(0);
-                log::debug!(
+                log::info!(
                     "{} issued server command /{}",
                     player.get_username(),
                     message.message
@@ -245,12 +246,20 @@ pub fn handle_packet(
                 //log::debug!("B");
                 match res {
                     0 => {}
-                    4 => {
-                        player.send_message(Message::new(&format!("Unknown command.")));
+                    1 => {
+                        player.send_message(Message::new(&format!("§7Bad syntax.")));
                     }
+                    4 => {
+                        player.send_message(Message::new(&format!("§7Unknown command.")));
+                    }
+                    5 => {
+                        log::info!("Insufficient permission.");
+                        player.send_message(Message::new(&format!("§4Insufficient permission.")));
+                    }
+                    3 => {}
                     res => {
                         player
-                            .send_message(Message::new(&format!("Command returned code {}.", res)));
+                            .send_message(Message::new(&format!("§7Command returned code {}.", res)));
                     }
                 }
             } else {

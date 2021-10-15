@@ -7,6 +7,7 @@ use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
 use crate::systems::Systems;
+//pub mod aa_bounding_box;
 use items::*;
 pub mod entities;
 pub mod events;
@@ -38,7 +39,9 @@ impl BlockPosition {
         let max_x = self.x as f64 + 1.0;
         let max_y = self.y as f64 + 1.0;
         let max_z = self.z as f64 + 1.0;
-        (pos.x <= max_x && pos.x >= min_x) && (pos.y <= max_y && pos.y >= min_y) && (pos.z <= max_z && pos.z >= min_z)
+        (pos.x <= max_x && pos.x >= min_x)
+            && (pos.y <= max_y && pos.y >= min_y)
+            && (pos.z <= max_z && pos.z >= min_z)
     }
     pub fn to_chunk_coords(&self) -> ChunkCoords {
         let x = self.x as i32 / 16;
@@ -289,6 +292,81 @@ impl Inventory {
     pub fn get_slot(&mut self, slot: i8) -> Option<&mut ItemStack> {
         self.items.get_mut(&slot)
     }
+    pub fn insert_itemstack(&mut self, stack: ItemStack) -> Option<()> {
+        'main_1: for i in 36..45  {
+            let slot = if let Some(s) = self.items.get_mut(&i) {
+                s
+            } else {
+                continue
+            };
+            let num = i;
+            if num > 8 {
+                if slot.id == stack.id && slot.damage == stack.damage {
+                    let registry = ItemRegistry::global();
+                    let mut our_count = stack.count;
+                    if let Some(item) = registry.get_item(slot.id) {
+                        for _ in 0..stack.count {
+                            if slot.count as u64 + our_count as u64 > item.get_item().stack_size() as u64 {
+                                continue 'main_1;
+                            }
+                            our_count -= 1;
+                            slot.count += 1;
+                        }
+                    }
+                    //slot.count += stack.count;
+                    return Some(());
+                }
+            }
+        }
+        // TODO this will check what was just checked, fix that.
+        'main: for (num, slot) in &mut self.items {
+            if num > &8 {
+                if slot.id == stack.id && slot.damage == stack.damage {
+                    let registry = ItemRegistry::global();
+                    let mut our_count = stack.count;
+                    if let Some(item) = registry.get_item(slot.id) {
+                        for _ in 0..stack.count {
+                            if slot.count as u64 + our_count as u64 > item.get_item().stack_size() as u64 {
+                                continue 'main;
+                            }
+                            our_count -= 1;
+                            slot.count += 1;
+                        }
+                    }
+                    //slot.count += stack.count;
+                    return Some(());
+                }
+            }
+        }
+        // TODO this has the same issue as above
+        for i in 36..45  {
+            let slot = if let Some(s) = self.items.get_mut(&i) {
+                s
+            } else {
+                continue
+            };
+            let num = i;
+            if num > 8 {
+                if slot.id == 0 {
+                    slot.id = stack.id;
+                    slot.damage = stack.damage;
+                    slot.count = stack.count;
+                    return Some(());
+                }
+            }
+        }
+        for (num, slot) in &mut self.items {
+            if num > &8 {
+                if slot.id == 0 {
+                    slot.id = stack.id;
+                    slot.damage = stack.damage;
+                    slot.count = stack.count;
+                    return Some(());
+                }
+            }
+        }
+        Some(())
+    }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub struct ChunkCoords {
@@ -388,7 +466,17 @@ impl PlayerRef {
         self.player.borrow_mut().open_inventories.remove(&id);
     }
     pub fn send_message(&self, message: Message) {
-        self.player.borrow_mut().chatbox.push(message);
+        if CONFIGURATION.experimental.async_chat {
+            let us = self.player.borrow_mut();
+            if let Err(e) = us.async_chat.send(AsyncChatCommand::ChatToUser {
+                name: us.username.clone(),
+                message: message,
+            }) {
+                log::error!("Error sending async chat message: {:?}", e);
+            }
+        } else {
+            self.player.borrow_mut().chatbox.push(message);
+        }
     }
     pub fn write_packet(&self, packet: ServerPacket) {
         self.player.borrow_mut().write(packet);
@@ -668,7 +756,7 @@ impl PlayerRef {
                                 coords.z
                             );
                         }
-/*                         if let Err(e) = game
+                        /*                         if let Err(e) = game
                             .world
                             .chunks
                             .get_mut(&coords)
@@ -677,20 +765,20 @@ impl PlayerRef {
                         {
                             log::warn!("Error calculating skylight: {:?}", e);
                         } */
-/*                         if let Some(chunk) = game.world.chunks.get(&coords) {
-                            let mut chunk = chunk.clone();
-                            let sender = cl.packet_send_sender.clone();
-                            chunk.to_packets_async(sender);
-/*                             tokio::spawn(async move {
-                                chunk.to_packets_async(sender.clone()).await;
-                            }); */
-                        } */
-                         let packets = game
+                        /*                         if let Some(chunk) = game.world.chunks.get(&coords) {
+                                                    let mut chunk = chunk.clone();
+                                                    let sender = cl.packet_send_sender.clone();
+                                                    chunk.to_packets_async(sender);
+                        /*                             tokio::spawn(async move {
+                                                        chunk.to_packets_async(sender.clone()).await;
+                                                    }); */
+                                                } */
+                        let packets = game
                             .world
                             .chunk_to_packets(coords, cl.packet_send_sender.clone());
                         if packets.is_err() {
                             continue;
-                        } 
+                        }
                     }
                 } else {
                     game.world.chunks.insert(
@@ -737,14 +825,11 @@ impl PlayerRef {
         let pos = self.get_position();
         let mut b1 = false;
         let mut b2 = false;
-        if let Some(block) = game.world.get_block(
-            pos.x as i32,
-            (pos.y as i32) + 1,
-            pos.z as i32,
-        ) {
-            if let Some(reg_block) =
-                ItemRegistry::global().get_item(block.b_type as i16)
-            {
+        if let Some(block) = game
+            .world
+            .get_block(pos.x as i32, (pos.y as i32) + 1, pos.z as i32)
+        {
+            if let Some(reg_block) = ItemRegistry::global().get_item(block.b_type as i16) {
                 if let Some(reg_block) = reg_block.get_item().as_block() {
                     if reg_block.is_fluid() {
                         b1 = true;
@@ -752,14 +837,11 @@ impl PlayerRef {
                 }
             }
         }
-        if let Some(block) = game.world.get_block(
-            pos.x as i32,
-            (pos.y as i32) + 0,
-            pos.z as i32,
-        ) {
-            if let Some(reg_block) =
-                ItemRegistry::global().get_item(block.b_type as i16)
-            {
+        if let Some(block) = game
+            .world
+            .get_block(pos.x as i32, (pos.y as i32) + 0, pos.z as i32)
+        {
+            if let Some(reg_block) = ItemRegistry::global().get_item(block.b_type as i16) {
                 if let Some(reg_block) = reg_block.get_item().as_block() {
                     if reg_block.is_fluid() {
                         b2 = true;
@@ -785,8 +867,14 @@ impl PlayerRef {
         if self.player.borrow().metadata_changed {
             for player in game.players.iter() {
                 let player = player.1;
-                if player.get_loaded_chunks().contains(&self.get_position_clone().to_chunk_coords()) {
-                    player.write_packet(ServerPacket::EntityMetadata { eid: self.get_id().0, entity_metadata: self.build_metadata() });
+                if player
+                    .get_loaded_chunks()
+                    .contains(&self.get_position_clone().to_chunk_coords())
+                {
+                    player.write_packet(ServerPacket::EntityMetadata {
+                        eid: self.get_id().0,
+                        entity_metadata: self.build_metadata(),
+                    });
                 }
             }
             self.player.borrow_mut().metadata_changed = false;
@@ -998,7 +1086,10 @@ impl PlayerRef {
                         yaw: pos.yaw as i8,
                         pitch: pos.pitch as i8,
                     });
-                    cl.write(ServerPacket::EntityMetadata { eid: player.1.get_id().0, entity_metadata: player.1.build_metadata() });
+                    cl.write(ServerPacket::EntityMetadata {
+                        eid: player.1.get_id().0,
+                        entity_metadata: player.1.build_metadata(),
+                    });
                     if player.1.is_dead() {
                         cl.write(ServerPacket::EntityStatus {
                             eid: player.1.get_id().0,
@@ -1172,6 +1263,7 @@ pub struct Player {
     pub permission_level: u8,
     pub air: u16,
     pub last_drown_tick: u128,
+    pub async_chat: Sender<AsyncChatCommand>,
     players_list: PlayerList,
 }
 impl Player {
@@ -1179,12 +1271,8 @@ impl Player {
         let mut metadata = Metadata::new();
         let mut meta_val = 0;
         match self.crouching {
-            true => {
-                meta_val |= 0x02
-            }
-            false => {
-                
-            }
+            true => meta_val |= 0x02,
+            false => {}
         };
         metadata.insert_byte(meta_val);
         metadata
@@ -1249,7 +1337,7 @@ impl Player {
                 player
                     .1
                     .clone()
-                    .send_message(Message::new(&format!("{} left the game.", self.username)));
+                    .send_message(Message::new(&format!("§e{} left the game.", self.username)));
             }
             /*             if let Ok(mut plr) = player.1.try_borrow_mut() {
             } else {
@@ -1407,13 +1495,17 @@ pub struct PersistentPlayerData {
 use tile_entity::*;
 impl Eq for PersistentPlayerData {}
 pub struct Scheduler {
-    tasks: Vec<(u128, Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>)>
+    tasks: Vec<(u128, Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>)>,
 }
 impl Scheduler {
     pub fn new() -> Self {
         Self { tasks: Vec::new() }
     }
-    pub fn schedule_task(&mut self, ticks: u128, func: Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>) {
+    pub fn schedule_task(
+        &mut self,
+        ticks: u128,
+        func: Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>,
+    ) {
         self.tasks.push((ticks, func));
     }
     pub fn run_tasks(&mut self, game: &mut Game) {
@@ -1431,11 +1523,21 @@ impl Scheduler {
         self.tasks.append(&mut to_reschedule);
     }
 }
+use crate::async_systems::chat::*;
+use crate::async_systems::AsyncGameCommand;
+use plugins::*;
+#[derive(Clone, Debug)]
+pub struct CachedCommandData {
+    args: Vec<CommandArgumentTypes>,
+    root: String,
+    desc: String,
+}
 pub struct Game {
     pub objects: Arc<Objects>,
     pub players: PlayerList,
     pub entities: Arc<RefCell<HashMap<EntityID, Arc<RefCell<Box<dyn Entity>>>>>>,
-    pub tile_entities: Arc<RefCell<HashMap<BlockPosition, Arc<RefCell<Box<dyn tile_entity::BlockTileEntity>>>>>>,
+    pub tile_entities:
+        Arc<RefCell<HashMap<BlockPosition, Arc<RefCell<Box<dyn tile_entity::BlockTileEntity>>>>>>,
     pub systems: Arc<RefCell<Systems>>,
     pub world: crate::chunks::World,
     pub block_updates: Vec<Block>,
@@ -1447,10 +1549,60 @@ pub struct Game {
     pub gamerules: gamerule::Gamerules,
     pub tps: f64,
     pub scheduler: Scheduler,
+    pub plugin_manager: PluginManager,
+    pub async_commands: Receiver<AsyncGameCommand>,
+    pub async_chat_manager: Sender<AsyncChatCommand>,
+    pub perm_level_map: HashMap<String, u8>,
+    pub cached_command_list: Vec<CachedCommandData>,
 }
 use nbt::*;
 use rand::Rng;
 impl Game {
+    pub fn op_status_message(&mut self, username: &str, message: &str) {
+        let epic_msg = format!("({}: {})", username, message);
+        log::info!("[Server task] {}", epic_msg);
+        let epic_msg = format!("§7{}", epic_msg);
+        for (_, player) in self.players.iter() {
+            if player.get_permission_level() >= 4 {
+                let mut player = player;
+                player.send_message(Message::new(&epic_msg));
+            }
+        }
+    }
+    pub fn add_op(&mut self, player: &str) {
+        self.perm_level_map.insert(player.to_string(), 4);
+        if let Some(player) = self.players.get_player(player) {
+            player.set_permission_level(4);
+        }
+        crate::configuration::add_op(player);
+    }
+    pub fn handle_async_commands(&mut self) {
+        let mut to_execute = Vec::new();
+        for command in self.async_commands.try_iter() {
+            match command {
+                AsyncGameCommand::ScheduleSyncTask { func } => {
+                    to_execute.push(func);
+                }
+            }
+        }
+        for func in to_execute {
+            func(self);
+        }
+    }
+    pub fn broadcast_player_loaded_entity(&mut self, id: EntityID, packet: ServerPacket) {
+        for player in self.players.0.borrow().clone().iter() {
+            if player
+                .1
+                .unwrap()
+                .unwrap()
+                .rendered_entities
+                .get(&id)
+                .is_some()
+            {
+                player.1.write_packet(packet.clone());
+            }
+        }
+    }
     pub fn tile_entity_ticks(&mut self) {
         let tiles = self.tile_entities.borrow().clone();
         for (pos, entity) in tiles.iter() {
@@ -1615,7 +1767,12 @@ impl Game {
             .borrow_mut()
             .insert(entity.get_id(), Arc::new(RefCell::new(entity)));
     }
-    pub fn new(systems: Systems) -> Self {
+    pub fn new(
+        systems: Systems,
+        plugin_manager: PluginManager,
+        recv: Receiver<AsyncGameCommand>,
+        async_chat_manager: Sender<AsyncChatCommand>,
+    ) -> Self {
         let mut registry = ItemRegistry::new();
         let mut event_handler = EventHandler::new();
         event_handler.register_handler(Box::new(|event, game| {
@@ -1732,9 +1889,9 @@ impl Game {
                     if let Some(s) = CONFIGURATION.world_seed {
                         seed = s as u64;
                     }
-                    seed = 14686157966026215583;
+                    //seed = 14686157966026215583;
                     log::info!(
-                        "Initializing world with chunk generator \"noise\" with seed ({})",
+                        "Initializing world with chunk generator \"mountain\" with seed ({})",
                         seed
                     );
                     Box::new(MountainChunkGenerator::new(seed)) as Box<dyn ChunkGenerator>
@@ -1756,13 +1913,6 @@ impl Game {
                 if executor.permission_level() < 4 {
                     return Ok(5);
                 }
-                let executor =
-                    if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
-                        executor
-                    } else {
-                        return Ok(3);
-                    };
-                // let item_id = args[0].as_any().downcast_mut::<i32>().unwrap();
                 let time = *args[0].as_any().downcast_mut::<i32>().unwrap();
                 if !(0..24001).contains(&time) {
                     return Ok(3);
@@ -1824,6 +1974,47 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
+            "op",
+            "op a player",
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                if executor.permission_level() < 4 {
+                    return Ok(5);
+                }
+                use crate::game::gamerule::*;
+                let player_name = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                let player_name = player_name.trim();
+                //let reason = args[1].as_any().downcast_mut::<String>().unwrap().clone();
+                use std::str::FromStr;
+                let mut plrs = game.players.0.borrow().clone();
+                for player in plrs.iter_mut() {
+                    let player = player.1;
+                    if player_name.contains(&player.get_username()) {
+                        if player.get_permission_level() >= 4 {
+                            executor.send_message(Message::new(&format!(
+                                "§7Nothing changed. That player is already an operator."
+                            )));
+                            return Ok(3);
+                        } else {
+                            game.add_op(&player_name);
+                            game.op_status_message(&executor.username(), &format!("Opping {}", player_name.trim()));
+                            player.send_message(Message::new("§eYou are now OP!"));
+                            executor.send_message(Message::new(&format!(
+                                "Made \"{}\" a server operator",
+                                player_name.trim()
+                            )));
+                            return Ok(0);
+                        }
+                    }
+                }
+                executor.send_message(Message::new(&format!(
+                    "Could not find player \"{}\".",
+                    player_name
+                )));
+                Ok(3)
+            }),
+        ));
+        command_system.register(Command::new(
             "kick",
             "kick a player",
             vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
@@ -1867,6 +2058,7 @@ impl Game {
                     if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
                         executor
                     } else {
+                        executor.send_message(Message::new("§7You are not a player."));
                         return Ok(3);
                     };
                 // let item_id = args[0].as_any().downcast_mut::<i32>().unwrap();
@@ -1882,9 +2074,16 @@ impl Game {
                 if ItemRegistry::global().get_item(item.id).is_none() {
                     return Ok(3);
                 }
-                *executor.get_item_in_hand() = item;
+                executor.get_inventory().insert_itemstack(item);
+                //*executor.get_item_in_hand() = item;
+                game.op_status_message(&executor.username(), &format!(
+                    "Giving {} {} to {}",
+                    args[1].display(),
+                    args[0].display(),
+                    executor.username(),
+                ));
                 executor.send_message(Message::new(&format!(
-                    "Giving you {} {}.",
+                    "§7Giving you {} {}.",
                     args[1].display(),
                     args[0].display()
                 )));
@@ -1945,6 +2144,52 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
+            "tell",
+            "tell (player) (message)",
+            vec![CommandArgumentTypes::String, CommandArgumentTypes::StringRest],
+            Box::new(|game, executor, mut args| {
+                let target = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                let message = args[1].as_any().downcast_mut::<Vec<String>>().unwrap().clone().join(" ");
+                if let Some(mut player) = game.players.get_player(&target) {
+                    executor.send_message(Message::new(&format!("§7You whisper {} to {}", message, player.get_username())));
+                    let msg = format!("§7{} whispers {}", executor.username(), message);
+                    log::info!("{} whispers {} to {}", executor.username(), message, player.get_username());
+                    player.send_message(Message::new(&msg));
+                } else {
+                    executor.send_message(Message::new(&format!("§7There's no player by that name online.")));
+                }
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "me",
+            "me (message)",
+            vec![CommandArgumentTypes::StringRest],
+            Box::new(|game, executor, mut args| {
+                let message = args[0].as_any().downcast_mut::<Vec<String>>().unwrap().clone().join(" ");
+                game.broadcast_message(Message::new(&format!("* {} {}", executor.username(), message))).expect("Not possible!");
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "help",
+            "get help",
+            vec![],
+            Box::new(|game, executor, _| {
+                executor.send_message(Message::new("Command help:"));
+                let registry = ItemRegistry::global();
+                for item in game.cached_command_list.iter() {
+                    executor.send_message(Message::new(&format!(
+                        "/{} - {}. Args: {:?}",
+                        item.root,
+                        item.desc,
+                        item.args,
+                    )));
+                }
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
             "list-items",
             "List items.",
             vec![],
@@ -1962,11 +2207,33 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
+            "cause-lag",
+            "Cause lag for x ms.",
+            vec![CommandArgumentTypes::Int],
+            Box::new(|game, executor, mut args| {
+                if executor.permission_level() < 4 {
+                    return Ok(5);
+                }
+                let amount = args[0].as_any().downcast_mut::<i32>().unwrap().clone();
+                if amount < 0 {
+                    return Ok(3);
+                }
+                executor.send_message(Message::new(&format!("Stalling server for {}ms..", amount)));
+                std::thread::sleep(Duration::from_millis(amount as u64));
+                executor.send_message(Message::new("Complete!"));
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
             "tps",
             "Server TPS.",
             vec![],
             Box::new(|game, executor, _| {
-                executor.send_message(Message::new(&format!("TPS over the last 5 seconds: {}", game.tps)));
+                //executor.send_message(Message::new(&format!("Memory usage: {}")));
+                executor.send_message(Message::new(&format!(
+                    "TPS over the last 5 seconds: {}",
+                    game.tps
+                )));
                 Ok(0)
             }),
         ));
@@ -2034,6 +2301,21 @@ impl Game {
         Arc::get_mut(&mut objects)
             .expect("cyrntly borwd")
             .insert(event_handler);
+        let mut perm_level_map = HashMap::new();
+        let ops = crate::configuration::get_ops();
+        if ops.len() > 0 {
+            log::info!("[Server task] Loading operators from ops.toml");
+            for op in ops {
+                log::info!("[Server task] Loading operator {}", op);
+                perm_level_map.insert(op, 4);
+            }
+        } else {
+            log::info!("[Server task] No server operators in file.");
+        }
+        let mut cached_command_list = Vec::new();
+        for command in command_system.commands.iter() {
+            cached_command_list.push(CachedCommandData { root: command.root.to_string(), desc: command.description.to_string(), args: command.arguments.clone()  });
+        }
         Self {
             objects: objects,
             players: PlayerList(Arc::new(RefCell::new(HashMap::new()))),
@@ -2050,6 +2332,11 @@ impl Game {
             gamerules: gamerule::Gamerules::default(),
             tps: 0.,
             scheduler: Scheduler::new(),
+            plugin_manager,
+            async_commands: recv,
+            async_chat_manager: async_chat_manager,
+            perm_level_map: perm_level_map,
+            cached_command_list: cached_command_list,
         }
     }
     pub fn insert_object<T>(&mut self, object: T)
@@ -2223,10 +2510,6 @@ impl Game {
             })?;
             return Err(anyhow::anyhow!("The server is full!"));
         }
-        self.broadcast_message(Message::new(&format!(
-            "{} joined the game.",
-            client.username
-        )))?;
         let plrs = self.players.0.borrow();
         let plrs2 = plrs.clone();
         drop(plrs);
@@ -2274,7 +2557,7 @@ impl Game {
                         }),
                     );
                     loaded_chunks.push(spawnchunk.clone());
-/*                     if let Err(e) = self
+                    /*                     if let Err(e) = self
                         .world
                         .chunks
                         .get_mut(&spawnchunk)
@@ -2320,8 +2603,8 @@ impl Game {
             client.write(ServerPacket::UpdateHealth { health })?;
         }
         let mut perm_level = 1;
-        if client.username == "Exopteron" {
-            perm_level = 4;
+        if let Some(level) = self.perm_level_map.get(&client.username) {
+            perm_level = *level;
         }
         players.insert(
             id,
@@ -2365,9 +2648,15 @@ impl Game {
                 air: 300,
                 last_drown_tick: 0,
                 metadata_changed: true,
+                async_chat: self.async_chat_manager.clone(),
             }))),
         );
-        let us = players.get_mut(&id).unwrap();
+        let us = players.get(&id).unwrap().clone();
+        drop(players);
+        self.broadcast_message(Message::new(&format!(
+            "§e{} joined the game.",
+            client.username
+        )))?;
         if self
             .persistent_player_data
             .borrow()

@@ -5,78 +5,76 @@ pub struct SlimeEntity {
     entity_id: EntityID,
     position: Position,
     ticks_spawned: u128,
-    to_remove: bool,
-    do_movement: bool,
     health: i16,
     dead: bool,
     despawn_at: Option<u128>,
     last_move: u128,
     last_hit: u128,
+    size: u8,
+    motion: Motion,
 }
 impl SlimeEntity {
-    pub fn new(position: Position, ticks_spawned: u128) -> Self {
+    pub fn new(position: Position, ticks_spawned: u128, size: u8) -> Self {
         Self {
             entity_id: EntityID::new(),
             position: position,
             ticks_spawned: ticks_spawned,
-            to_remove: false,
-            do_movement: false,
             health: 10,
             dead: false,
             despawn_at: None,
             last_move: 0,
             last_hit: 0,
+            size: size,
+            motion: Motion::default(),
         }
     }
     pub fn destruct(self) {
         IDS.lock().unwrap().push(self.entity_id.0);
     }
 }
-impl Entity for SlimeEntity {
-    fn as_any(&mut self) -> &mut dyn Any {
+impl MobEntity for SlimeEntity {
+    fn get_speed(&self) -> f64 {
+        1.0
+    }
+    fn get_motion(&mut self) -> &mut Motion {
+        &mut self.motion
+    }
+    fn as_any(&self) -> &dyn Any {
         self
     }
     fn get_id(&self) -> EntityID {
         self.entity_id.clone()
     }
-    fn destruct_entity(&self, mut player: &mut RefMut<'_, Player>) {
-        player.write(ServerPacket::DestroyEntity {
-            eid: self.entity_id.0,
-        });
-    }
     fn is_dead(&self) -> bool {
         self.dead
     }
-    fn spawn_entity(&mut self, player: &mut RefMut<'_, Player>) {
-        player.write(ServerPacket::MobSpawn {
-            eid: self.entity_id.0,
-            m_type: 55,
-            x: (self.position.x * 32.0) as i32,
-            y: (self.position.y * 32.0) as i32,
-            z: (self.position.z * 32.0) as i32,
-            yaw: self.position.yaw as i8,
-            pitch: self.position.pitch as i8,
-        });
+    fn get_metadata(&mut self) -> Metadata {
+        let mut md = Metadata::new();
+        md.insert_byte_idx(self.size, 16);
+        md
     }
-    fn add_velocity(&mut self, velocity: [f64; 3]) {
-        //self.position.x += velocity[0];
-        //self.position.y += velocity[1];
-        //self.position.z += velocity[2];
+    fn set_position(&mut self, pos: Position) {
+        self.position = pos;
+    }
+    fn set_dead(&mut self, state: bool) {
+        self.dead = state;
+    }
+    fn get_health(&self) -> i16 {
+        self.health
+    }
+    fn set_health(&mut self, health: i16) {
+        self.health = health;
     }
     fn damage(&mut self, game: &mut Game, amount: i16) {
         //log::info!("I am being damaged!");
-        for player in game.players.0.borrow().clone().iter() {
-            if player.1.unwrap().unwrap().rendered_entities.get(&self.entity_id).is_some() {
-                player.1.write_packet(ServerPacket::Animation {
-                    eid: self.entity_id.0,
-                    animate: 2,
-                });
-                player.1.write_packet(ServerPacket::EntityStatus {
-                    eid: self.entity_id.0,
-                    entity_status: 2,
-                });
-            }
-        }
+        game.broadcast_player_loaded_entity(self.entity_id, ServerPacket::Animation {
+            eid: self.entity_id.0,
+            animate: 2,
+        });
+        game.broadcast_player_loaded_entity(self.entity_id, ServerPacket::EntityStatus {
+            eid: self.entity_id.0,
+            entity_status: 2,
+        });
         self.health -= amount;
     }
     fn tick(&mut self, game: &mut Game) {
@@ -107,7 +105,8 @@ impl Entity for SlimeEntity {
                 }
             }
             if self.last_move + 15 < game.ticks {
-                self.position.move_towards(&closest_position.unwrap(), 0.5);
+                self.motion.1 += 1.;
+                //self.position.move_towards(&closest_position.unwrap(), 0.5);
                 self.last_move = game.ticks;
             }
             //self.position.y += 1.0;
@@ -135,5 +134,8 @@ impl Entity for SlimeEntity {
     }
     fn get_position(&mut self) -> &mut Position {
         &mut self.position
+    }
+    fn get_type(&mut self) -> i8 {
+        55
     }
 }

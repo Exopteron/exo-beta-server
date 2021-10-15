@@ -14,8 +14,9 @@ pub trait CommandExecutor {
     fn permission_level(&self) -> u8;
     fn username(&self) -> String;
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum CommandArgumentTypes {
+    StringRest,
     String,
     Int,
 }
@@ -39,15 +40,23 @@ impl CommandArgument for i32 {
         self
     }
 }
+impl CommandArgument for Vec<String> {
+    fn display(&self) -> String {
+        format!("{:?}", self)
+    }
+    fn as_any(&mut self) -> &mut dyn Any {
+        self
+    }
+}
 #[derive(Clone)]
 pub struct Command {
-    root: String,
-    description: String,
-    arguments: Vec<CommandArgumentTypes>,
+    pub root: String,
+    pub description: String,
+    pub arguments: Vec<CommandArgumentTypes>,
     function: Arc<Box<dyn Fn(&mut Game, &mut dyn CommandExecutor, Vec<Box<dyn CommandArgument>>) -> anyhow::Result<usize>>>,
 }
 pub struct CommandSystem {
-    commands: Vec<Command>,
+    pub commands: Vec<Command>,
 }
 impl Command {
     pub fn new(root: &str, description: &str, arguments: Vec<CommandArgumentTypes>, function: Box<dyn Fn(&mut Game, &mut dyn CommandExecutor, Vec<Box<dyn CommandArgument>>) -> anyhow::Result<usize>>) -> Self {
@@ -83,6 +92,18 @@ impl CommandSystem {
         let mut args: Vec<Box<dyn CommandArgument>> = Vec::new();
         for argument in &cmd.arguments {
             match argument {
+                CommandArgumentTypes::StringRest => {
+                    let mut epic_args = Vec::new();
+                    loop {
+                        if let Some(arg) = command.get(argselect) {
+                            epic_args.push(arg.to_string());
+                            argselect += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    args.push(Box::new(epic_args));
+                }
                 CommandArgumentTypes::String => {
                     if let Some(arg) = command.get(argselect) {
                         args.push(Box::new(arg.to_string()));

@@ -1,3 +1,5 @@
+use crate::async_systems::chat::AsyncChatCommand;
+use crate::configuration::CONFIGURATION;
 use crate::game::{Position, BlockPosition, FixedPointShort, Inventory};
 use tokio::io::AsyncReadExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
@@ -92,11 +94,15 @@ impl PacketReader {
     pub fn new(stream: OwnedReadHalf, send: Sender<ClientPacket>) -> Self {
         Self { stream: PacketReaderFancy::new(Box::pin(stream)), send }
     }
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(mut self, async_chat: Sender<ClientPacket>) -> anyhow::Result<()> {
         //log::info!("lOOP STRTED");
         loop {
             //log::info!("HI THERE");
             let packet = self.stream.read_generic().await?;
+            if matches!(packet.packet_type(), ClientPacketTypes::ChatMessage) && CONFIGURATION.experimental.async_chat {
+                async_chat.send_async(packet).await?;
+                continue;
+            }
             if matches!(packet.packet_type(), ClientPacketTypes::UnknownPacket) {
                 log::info!("unk knon");
                 continue;
@@ -282,8 +288,9 @@ pub struct SetBlock {
 pub struct PositionAndOrientation {
     pub player_id: u8, pub position: Position,
 }
+#[derive(Clone)]
 pub struct ChatMessage {
-    message: String
+    pub message: String
 }
 pub struct PlayerPacket {
     on_ground: bool,
@@ -489,12 +496,12 @@ pub enum ServerPacket {
     EntityRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8 },
     EntityLookAndRelativeMove { eid: i32, dX: i8, dY: i8, dZ: i8, yaw: i8, pitch: i8 },
     OpenWindow { window_id: i8, inventory_type: i8, window_title: String, num_slots: i8 },
-    MobSpawn { eid: i32, m_type: i8, x: i32, y: i32, z: i32, yaw: i8, pitch: i8 },
+    MobSpawn { eid: i32, m_type: i8, x: i32, y: i32, z: i32, yaw: i8, pitch: i8, metadata: crate::network::metadata::Metadata },
     EntityMetadata { eid: i32, entity_metadata: crate::network::metadata::Metadata },
     AddObjectVehicle { eid: i32, obj_type: i8, x: i32, y: i32, z: i32, unknown_flag: i32, unk_1: Option<i16>, unk_2: Option<i16>, unk_3: Option<i16> }
 }
 
-
+use super::message::NetMessage;
 impl ServerPacket {
     pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
         match self {
@@ -523,7 +530,7 @@ impl ServerPacket {
                 builder.insert_bytearray(entity_metadata.finish());
                 builder.build(0x28)
             }
-            ServerPacket::MobSpawn { eid, m_type, x, y, z, yaw, pitch } => {
+            ServerPacket::MobSpawn { eid, m_type, x, y, z, yaw, pitch, metadata } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_int(*eid);
                 builder.insert_byte(*m_type);
@@ -532,7 +539,7 @@ impl ServerPacket {
                 builder.insert_int(*z);
                 builder.insert_byte(*yaw);
                 builder.insert_byte(*pitch);
-                builder.insert_byte(0x7F);
+                builder.insert_bytearray(metadata.finish());
                 builder.build(0x18)
             }
             ServerPacket::OpenWindow { window_id, inventory_type, window_title, num_slots } => {

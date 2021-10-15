@@ -9,7 +9,7 @@ pub fn place_validator(game: &mut Game, packet: &crate::network::packet::PlayerB
     // BLOCKS thing
     let block = if let Some(blk) = game
         .world
-        .get_block(packet.x, (packet.y + 0) as i32, packet.z)
+        .get_block(packet.x, packet.y as i32, packet.z)
     {
         blk
     } else {

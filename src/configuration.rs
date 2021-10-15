@@ -1,4 +1,8 @@
 use once_cell::sync::Lazy;
+#[derive(serde_derive::Serialize, serde_derive::Deserialize)]
+struct SerializeOPS {
+    ops: Vec<String>,
+}
 #[derive(serde_derive::Deserialize, Debug)]
 pub struct ServerConfig {
     pub listen_address: String,
@@ -12,7 +16,12 @@ pub struct ServerConfig {
     pub tps: i32,
     pub world_seed: Option<u64>,
     pub logging: LoggingConfig,
+    pub experimental: ExperimentalConfig,
     // generic configuration, max players etc
+}
+#[derive(serde_derive::Deserialize, Debug)]
+pub struct ExperimentalConfig {
+    pub async_chat: bool,
 }
 #[derive(serde_derive::Deserialize, Debug)]
 pub struct LoggingConfig {
@@ -45,7 +54,7 @@ level_name = "world"
 # Player chunk load distance
 chunk_distance = 8
 
-# Chunk generator, can be: (flat, noise). Noise is quite slow (working on it).
+# Chunk generator, can be: (flat, noise, mountain). Noise is quite slow (working on it).
 chunk_generator = "noise"
 
 # Server TPS (Ticks Per Second), probably shouldn't change it. But who's stopping you?
@@ -72,6 +81,13 @@ slow_ticks = true
 
 # Profiler
 profiler = false
+
+# Experimental options
+
+[experimental]
+
+# Async chat system
+async_chat = false
 "#;
 // this will be in no way an implementation of ECS. (bcz idk how)
 pub static CONFIGURATION: Lazy<ServerConfig> = Lazy::new(|| {
@@ -93,4 +109,63 @@ pub fn get_options() -> ServerConfig {
         std::process::exit(1);
     };
     config
+}
+
+pub fn get_ops() -> Vec<String> {
+    let file = if let Ok(f) = std::fs::read_to_string("ops.toml") {
+        f
+    } else {
+        log::info!("Generating ops file.");
+        std::fs::write("ops.toml", r#"ops = []"#).unwrap();
+        r#"ops = []"#.to_string()
+    };
+    let config: SerializeOPS = if let Ok(c) = toml::from_str(&file) {
+        c
+    } else {
+        log::error!("Invalid ops file!");
+        std::process::exit(1);
+    };
+    config.ops
+}
+pub fn add_op(username: &str) {
+    let file = if let Ok(f) = std::fs::read_to_string("ops.toml") {
+        f
+    } else {
+        log::info!("Generating ops file.");
+        std::fs::write("ops.toml", r#"ops = []"#).unwrap();
+        r#"ops = []"#.to_string()
+    };
+    let mut config: SerializeOPS = if let Ok(c) = toml::from_str(&file) {
+        c
+    } else {
+        log::error!("Invalid ops file!");
+        std::process::exit(1);
+    };
+    let mut doit = true;
+    for name in &config.ops {
+        if name == username {
+            doit = false;
+        }
+    }
+    if doit {
+        config.ops.push(username.to_string());
+        std::fs::write("ops.toml", toml::to_string(&config).unwrap()).unwrap();
+    }
+}
+pub fn remove_op(username: &str) {
+    let file = if let Ok(f) = std::fs::read_to_string("ops.toml") {
+        f
+    } else {
+        log::info!("Generating ops file.");
+        std::fs::write("ops.toml", r#"ops = []"#).unwrap();
+        r#"ops = []"#.to_string()
+    };
+    let mut config: SerializeOPS = if let Ok(c) = toml::from_str(&file) {
+        c
+    } else {
+        log::error!("Invalid ops file!");
+        std::process::exit(1);
+    };
+    config.ops.retain(|name| name != username);
+    std::fs::write("ops.toml", toml::to_string(&config).unwrap()).unwrap();
 }
