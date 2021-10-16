@@ -99,6 +99,11 @@ impl block::Block for GrassBlock {
         } */
         for i in 0..3 {
             for pos in position.all_directions() {
+                if let Some(block) = game.world.get_block(pos.x, pos.y + 1, pos.z) {
+                    if block.b_type != 0 {
+                        continue;
+                    }
+                }
                 if let Some(block) = game.world.get_block_mut(pos.x, pos.y, pos.z) {
                     if block.b_type == 3 {
                         if rand::thread_rng().gen_range(0..5) == 2 {
@@ -425,6 +430,7 @@ impl block::Block for GravelBlock {
                                 game.ticks,
                             ),
                         ));
+                        player.get_item_in_hand().count -= 1;
                         return false;
                     }
                 }

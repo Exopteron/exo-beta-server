@@ -1,11 +1,11 @@
 use crate::game::Game;
-use std::sync::Arc;
 use std::any::Any;
+use std::sync::Arc;
 /*
 Command codes:
 1 = bad syntax
 3 = generic error
-4 = unknown command 
+4 = unknown command
 5 = bad permissions
 */
 pub trait CommandExecutor {
@@ -53,24 +53,83 @@ pub struct Command {
     pub root: String,
     pub description: String,
     pub arguments: Vec<CommandArgumentTypes>,
-    function: Arc<Box<dyn Fn(&mut Game, &mut dyn CommandExecutor, Vec<Box<dyn CommandArgument>>) -> anyhow::Result<usize>>>,
+    pub perm_level: u8,
+    function: Arc<
+        Box<
+            dyn Fn(
+                &mut Game,
+                &mut dyn CommandExecutor,
+                Vec<Box<dyn CommandArgument>>,
+            ) -> anyhow::Result<usize>,
+        >,
+    >,
 }
 pub struct CommandSystem {
     pub commands: Vec<Command>,
 }
 impl Command {
-    pub fn new(root: &str, description: &str, arguments: Vec<CommandArgumentTypes>, function: Box<dyn Fn(&mut Game, &mut dyn CommandExecutor, Vec<Box<dyn CommandArgument>>) -> anyhow::Result<usize>>) -> Self {
-        Self { root: root.to_string(), description: description.to_string(), arguments, function: Arc::new(function) }
+    pub fn new(
+        root: &str,
+        description: &str,
+        perm_level: u8,
+        arguments: Vec<CommandArgumentTypes>,
+        function: Box<
+            dyn Fn(
+                &mut Game,
+                &mut dyn CommandExecutor,
+                Vec<Box<dyn CommandArgument>>,
+            ) -> anyhow::Result<usize>,
+        >,
+    ) -> Self {
+        Self {
+            root: root.to_string(),
+            description: description.to_string(),
+            arguments,
+            function: Arc::new(function),
+            perm_level,
+        }
     }
+}
+pub fn code_to_message(res: usize) -> Option<String> {
+    //log::debug!("B");
+    match res {
+        0 => {}
+        1 => {
+            return Some(String::from("§7Bad syntax."));
+            //player.send_message(Message::new(&format!("§7Bad syntax.")));
+        }
+        4 => {
+            return Some(String::from("§7Unknown command."));
+           // player.send_message(Message::new(&format!("§7Unknown command.")));
+        }
+        5 => {
+            return Some(String::from("§4Insufficient permission."));
+            //log::info!("§4Insufficient permission.");
+            //player.send_message(Message::new(&format!("§4Insufficient permission.")));
+        }
+        3 => {}
+        res => {
+            return Some(format!("§7Command returned code {}.", res));
+            //player.send_message(Message::new(&format!("§7Command returned code {}.", res)));
+        }
+    }
+    None
 }
 impl CommandSystem {
     pub fn new() -> Self {
-        Self { commands: Vec::new() }
+        Self {
+            commands: Vec::new(),
+        }
     }
     pub fn register(&mut self, command: Command) {
         self.commands.push(command);
     }
-    pub fn execute(&mut self, game: &mut Game, executor: &mut dyn CommandExecutor, command: &str) -> anyhow::Result<usize> {
+    pub fn execute(
+        &mut self,
+        game: &mut Game,
+        executor: &mut dyn CommandExecutor,
+        command: &str,
+    ) -> anyhow::Result<usize> {
         let command = command.split(" ").collect::<Vec<&str>>();
         if command.len() < 1 {
             return Ok(1);
@@ -85,10 +144,13 @@ impl CommandSystem {
         }
         if cmd.is_none() {
             //log::info!("none");
-            return Ok(4);  
+            return Ok(4);
         }
         let mut argselect = 1;
         let cmd = cmd.unwrap();
+        if executor.permission_level() < cmd.perm_level {
+            return Ok(5);
+        }
         let mut args: Vec<Box<dyn CommandArgument>> = Vec::new();
         for argument in &cmd.arguments {
             match argument {

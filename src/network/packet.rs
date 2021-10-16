@@ -465,7 +465,7 @@ impl ClientPacket {
 #[derive(Clone, Debug)]
 pub enum ServerPacket {
     ChatMessage { message: String },
-    ServerLoginRequest { entity_id: i32, unknown: String, unknown_2: String, map_seed: i64, dimension: i8 },
+    ServerLoginRequest { entity_id: i32, unknown: String, map_seed: i64, dimension: i8 },
     Handshake { connection_hash: String },
     PreChunk { x: i32, z: i32, mode: bool },
     MapChunk { x: i32, y: i16, z: i32, size_x: u8, size_y: u8, size_z: u8, compressed_size: i32, compressed_data: Vec<u8> },
@@ -498,13 +498,29 @@ pub enum ServerPacket {
     OpenWindow { window_id: i8, inventory_type: i8, window_title: String, num_slots: i8 },
     MobSpawn { eid: i32, m_type: i8, x: i32, y: i32, z: i32, yaw: i8, pitch: i8, metadata: crate::network::metadata::Metadata },
     EntityMetadata { eid: i32, entity_metadata: crate::network::metadata::Metadata },
-    AddObjectVehicle { eid: i32, obj_type: i8, x: i32, y: i32, z: i32, unknown_flag: i32, unk_1: Option<i16>, unk_2: Option<i16>, unk_3: Option<i16> }
+    AddObjectVehicle { eid: i32, obj_type: i8, x: i32, y: i32, z: i32, unknown_flag: i32, unk_1: Option<i16>, unk_2: Option<i16>, unk_3: Option<i16> },
+    NewInvalidState { reason: i8 },
+    Thunderbolt { eid: i32, unknown: bool, x: i32, y: i32, z: i32 }
 }
 
 use super::message::NetMessage;
 impl ServerPacket {
     pub fn as_bytes(&self) -> anyhow::Result<Vec<u8>> {
         match self {
+            ServerPacket::Thunderbolt { eid, unknown, x, y, z} => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_int(*eid);
+                builder.insert_byte_raw(*unknown as u8);
+                builder.insert_int(*x);
+                builder.insert_int(*y);
+                builder.insert_int(*z);
+                builder.build(0x47)
+            }
+            ServerPacket::NewInvalidState { reason } => {
+                let mut builder = ClassicPacketBuilder::new();
+                builder.insert_byte(*reason);
+                builder.build(0x46)
+            }
             ServerPacket::AddObjectVehicle { eid, obj_type, x, y, z, unknown_flag, unk_1, unk_2, unk_3 } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_int(*eid);
@@ -750,11 +766,10 @@ impl ServerPacket {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.build(0x00)
             }
-            ServerPacket::ServerLoginRequest { entity_id, unknown, unknown_2, map_seed, dimension } => {
+            ServerPacket::ServerLoginRequest { entity_id, unknown, map_seed, dimension } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_int(*entity_id);
-                builder.insert_string(&unknown);
-                builder.insert_string(&unknown_2);
+                builder.insert_string16(&unknown);
                 builder.insert_long(*map_seed);
                 builder.insert_byte(*dimension);
                 builder.build(0x01)

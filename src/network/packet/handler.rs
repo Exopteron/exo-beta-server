@@ -236,14 +236,18 @@ pub fn handle_packet(
             if message.message.starts_with("/") {
                 message.message.remove(0);
                 log::info!(
-                    "{} issued server command /{}",
+                    "{} issued server command \"/{}\".",
                     player.get_username(),
                     message.message
                 );
                 use std::ops::DerefMut;
                 //log::debug!("A");
                 let res = game.execute_command(&mut player, &message.message)?;
-                //log::debug!("B");
+                if let Some(msg) = crate::commands::code_to_message(res) {
+                    log::info!("{}", msg);
+                    player.send_message(Message::new(&msg));
+                }
+/*                 //log::debug!("B");
                 match res {
                     0 => {}
                     1 => {
@@ -253,7 +257,7 @@ pub fn handle_packet(
                         player.send_message(Message::new(&format!("§7Unknown command.")));
                     }
                     5 => {
-                        log::info!("Insufficient permission.");
+                        log::info!("§4Insufficient permission.");
                         player.send_message(Message::new(&format!("§4Insufficient permission.")));
                     }
                     3 => {}
@@ -261,7 +265,7 @@ pub fn handle_packet(
                         player
                             .send_message(Message::new(&format!("§7Command returned code {}.", res)));
                     }
-                }
+                } */
             } else {
                 //log::debug!("sx");
                 let message = message.message;

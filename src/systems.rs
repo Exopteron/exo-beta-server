@@ -19,7 +19,7 @@ impl Systems {
         for system in &mut self.systems {
             let start_time = Instant::now();
             if let Err(e) = system.1(game) {
-                log::error!("System returned an error. Details: {:?}", e);
+                log::error!("System {} returned an error. Details: {:?}", system.0, e);
             }
             if CONFIGURATION.logging.profiler {
                 log::info!("[Profiler] System {} took {}ms. ({}ns)", system.0, start_time.elapsed().as_millis(), start_time.elapsed().as_nanos());
@@ -49,7 +49,7 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
                 clients.remove(&id);
                 continue;
             };
-            log::info!("{} left the game.", username);
+            log::info!("§e{} left the game.", username);
             game.players.0.borrow_mut().remove(&id);
             clients.remove(&id);
             IDS.lock().unwrap().push(id.0);

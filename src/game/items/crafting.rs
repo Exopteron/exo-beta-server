@@ -40,6 +40,7 @@ pub enum Recipe {
 
 impl Solver {
     pub fn new() -> Self {
+        log::info!("[Feather Crafting Solver] Initializing crafting solver");
         Self::default()
     }
 
@@ -88,12 +89,12 @@ impl Solver {
     }
 
     fn register_shaped(&mut self, shaped: ShapedRecipe) {
-        log::info!("[Feather Crafting Solver] Registering shaped crafting recipe for item {}", shaped.output.id);
+        //log::info!("[Feather Crafting Solver] Registering shaped crafting recipe for item {}", shaped.output.id);
         self.shaped.insert(shaped.input, shaped.output);
     }
 
     fn register_shapeless(&mut self, shapeless: ShapelessRecipe) {
-        log::info!("[Feather Crafting Solver] Registering shapeless crafting recipe for item {}", shapeless.output.id);
+        //log::info!("[Feather Crafting Solver] Registering shapeless crafting recipe for item {}", shapeless.output.id);
         self.shapeless.insert(shapeless.input, shapeless.output);
     }
 }

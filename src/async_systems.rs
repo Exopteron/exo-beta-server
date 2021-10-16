@@ -31,22 +31,25 @@ pub async fn setup_async_systems(command_sender: Sender<AsyncGameCommand>) {
             }
             if let Err(e) = sender_2.send(AsyncGameCommand::ScheduleSyncTask { func: Arc::new(Box::new(move |game| {
                 if let Ok(code) = game.execute_command(&mut ConsoleCommandExecutor {}, line.clone().trim()) {
-                    match code {
+                    if let Some(msg) = crate::commands::code_to_message(code) {
+                        log::info!("{}", msg);
+                    }
+/*                     match code {
                         0 => {}
                         1 => {
-                            log::info!("Bad syntax.");
+                            log::info!("§7Bad syntax.");
                         }
                         4 => {
-                            log::info!("Unknown command.");
+                            log::info!("§7Unknown command.");
                         }
                         5 => {
-                            log::info!("Insufficient permission. (Somehow?)");
+                            log::info!("§4Insufficient permission. (Somehow?)");
                         }
                         3 => {}
                         res => {
-                            log::info!("Command returned code {}.", res);
+                            log::info!("§7Command returned code {}.", res);
                         }
-                    }
+                    } */
                     std::io::stdout().write(b"> ").expect("handle later");
                     std::io::stdout().flush().expect("handle later");
                 } else {
@@ -145,30 +148,16 @@ pub mod chat {
                                 self.game_sender.send_async(AsyncGameCommand::ScheduleSyncTask { func: Arc::new(Box::new(move |game| {
                                         let mut player = game.players.get_player(&(name.clone()))?;
                                         log::info!(
-                                            "{} issued server command /{}",
+                                            "{} issued server command \"/{}\".",
                                             player.get_username(),
                                             packet.message
                                         );
                                         //log::debug!("A");
                                         let res = game.execute_command(&mut player, &packet.message).ok()?;
                                         //log::debug!("B");
-                                        match res {
-                                            0 => {}
-                                            1 => {
-                                                player.send_message(Message::new(&format!("§7Bad syntax.")));
-                                            }
-                                            4 => {
-                                                player.send_message(Message::new(&format!("§7Unknown command.")));
-                                            }
-                                            5 => {
-                                                log::info!("Insufficient permission.");
-                                                player.send_message(Message::new(&format!("§4Insufficient permission.")));
-                                            }
-                                            3 => {}
-                                            res => {
-                                                player
-                                                    .send_message(Message::new(&format!("§7Command returned code {}.", res)));
-                                            }
+                                        if let Some(msg) = crate::commands::code_to_message(res) {
+                                            log::info!("{}", msg);
+                                            player.send_message(Message::new(&msg));
                                         }
                                         None
                                 }))}).await.expect("this shouldn't happen");

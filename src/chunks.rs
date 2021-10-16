@@ -46,7 +46,7 @@ impl ChunkSection {
         if possible.is_some() {
             return self.data.get_mut(idx);
         } else {
-            for i in 0..idx + 1 {
+            for i in 0..idx + 5 {
                 if let None = self.data.get_mut(i) {
                     self.data.push(Block {
                         b_type: 0,
@@ -146,10 +146,7 @@ impl ChunkSection {
         //log::debug!("G");
         return Some(());
     }
-    pub async fn to_packets_section_async(
-        &self,
-        player: Sender<ServerPacket>,
-    ) -> Option<()> {
+    pub async fn to_packets_section_async(&self, player: Sender<ServerPacket>) -> Option<()> {
         //let mut packets = vec![];
         let chunk = self;
         //let chunk = chunk?;
@@ -247,7 +244,7 @@ impl Chunk {
                 section.to_packets_section_raw(player.clone(), &mut Vec::new());
             }
         });
-/*         for section in &self.data {
+        /*         for section in &self.data {
             tokio::task::yield_now().await;
         } */
     }
@@ -468,10 +465,13 @@ impl Chunk {
             *section = Some(ChunkSection::new(self.x, self.z, sec_num as i8));
         }
         let section = section.as_mut().unwrap();
-        for x in 0..17 {
-            for z in 0..17 {
+        for x in 0..16 {
+            for z in 0..16 {
+                if x == 0 && z == 0 {
+                    log::debug!("Doing {} {} {}", x, y, z);
+                }
                 **section
-                    .get_block(ChunkSection::pos_to_index(x, y, z))
+                    .get_block(ChunkSection::pos_to_index(x, y, z - section.section as i32))
                     .as_mut()
                     .unwrap() = block;
             }
@@ -493,12 +493,20 @@ impl Chunk {
             *section = Some(ChunkSection::new(self.x, self.z, sec_num as i8));
         }
         let section = section.as_mut().unwrap();
-        for x in 0..17 {
-            for z in 0..17 {
-                let mut w_block = section.get_block(ChunkSection::pos_to_index(x, y, z));
+        for x in 0..16 {
+            for z in 0..16 {
+                let mut w_block =
+                    section.get_block(ChunkSection::pos_to_index(x, y, z - section.section as i32));
                 let w_block = w_block.as_mut().unwrap();
                 if w_block.b_type == 0 {
+                    if x == 0 && z == 0 {
+                        log::debug!("Doing {} {} {}", x, y, z);
+                    }
                     **w_block = block;
+                } else {
+                    if x == 0 && z == 0 {
+                        log::debug!("Not doing {} {} {} it is type {}", x, y, z, w_block.b_type);
+                    }
                 }
             }
         }
@@ -506,7 +514,7 @@ impl Chunk {
         Ok(())
     }
 }
-use crate::game::{Position, BlockPosition, PlayerList};
+use crate::game::{BlockPosition, PlayerList, Position};
 use std::collections::VecDeque;
 pub struct World {
     pub chunks: HashMap<ChunkCoords, Chunk>,
@@ -518,7 +526,7 @@ use std::time::*;
 impl World {
     pub fn to_file(&mut self, file: &str) {
         let start = Instant::now();
-        log::info!("[World Saver] Saving world to {}", file);
+        log::info!("[World Saver] Saving world to \"{}\"", file);
         use std::fs;
         fs::create_dir_all(file).unwrap();
         use rayon::prelude::*;
@@ -544,10 +552,7 @@ impl World {
         root.insert_str("generator", self.generator.get_name());
         let mut file = std::fs::File::create(format!("{}/main", file)).unwrap();
         write_compound_tag(&mut file, &root).unwrap();
-        log::info!(
-            "[World Saver] Saved in {} seconds.",
-            start.elapsed().as_secs()
-        );
+        log::info!("[World Saver] Done in {}ms.", start.elapsed().as_millis());
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let start = Instant::now();
@@ -571,14 +576,15 @@ impl World {
                 .ok_or(anyhow::anyhow!("cant make chunk"))
                 .unwrap();
             //log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
-            tx.clone().send((
-                ChunkCoords {
-                    x: insert.x,
-                    z: insert.z,
-                },
-                insert,
-            ))
-            .unwrap();
+            tx.clone()
+                .send((
+                    ChunkCoords {
+                        x: insert.x,
+                        z: insert.z,
+                    },
+                    insert,
+                ))
+                .unwrap();
         });
         for chunk in rx.iter() {
             chunks.insert(chunk.0, chunk.1);
@@ -726,13 +732,26 @@ impl World {
                 //log::info!("Update: {:?}", update);
                 for player in players.iter() {
                     let player = player.1;
-                    if player.get_loaded_chunks().contains(&update.0.to_chunk_coords()) {
+                    if player
+                        .get_loaded_chunks()
+                        .contains(&update.0.to_chunk_coords())
+                    {
                         if let Some(block) = self.get_block(update.0.x, update.0.y, update.0.z) {
                             if *block != update.1 {
                                 let update = update.0;
                                 //log::info!("Sending update to {}", player.get_username());
-                                player.write_packet(ServerPacket::BlockChange { x: update.x, y: update.y as i8, z: update.z , block_type: block.b_type as i8, block_metadata: block.b_metadata as i8 }); 
-                            } 
+                                player.write_packet(ServerPacket::BlockChange {
+                                    x: update.x,
+                                    y: update.y as i8,
+                                    z: update.z,
+                                    block_type: block.b_type as i8,
+                                    block_metadata: block.b_metadata as i8,
+                                });
+                                self.chunks
+                                    .get_mut(&update.to_chunk_coords())
+                                    .expect("Impossible")
+                                    .calculate_heightmap();
+                            }
                         }
                     }
                 }
@@ -767,7 +786,8 @@ impl World {
             y.rem_euclid(16),
             z.rem_euclid(16),
         ))?;
-        self.block_updates.push_back((BlockPosition { x, y, z }, block.clone()));
+        self.block_updates
+            .push_back((BlockPosition { x, y, z }, block.clone()));
         Some(block)
     }
     pub fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<&Block> {

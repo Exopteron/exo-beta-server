@@ -17,9 +17,12 @@ use systems::Systems;
 pub mod commands;
 use anyhow::anyhow;
 use std::io::Read;
+const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
+    let start = Instant::now();
+    log::info!("Starting server version {} for Minecraft b1.7.3", VERSION);
     let _ = &configuration::CONFIGURATION.server_name;
     let mut systems = Systems::new();
     systems.add_system("packet_accept", |game| {
@@ -121,6 +124,20 @@ async fn main() -> anyhow::Result<()> {
         game.handle_async_commands();
         Ok(())
     });
+    systems.add_system("check_rain", |game| {
+        game.check_rain();
+        Ok(())
+    });
+    systems.add_system("handle_scheduler", |game| {
+        let obj = game.objects.clone();
+        obj.get_mut::<game::Scheduler>()?
+            .run_tasks(game);
+        Ok(())
+    });
+    systems.add_system("check_world_save", |game| {
+        game.check_world_save();
+        Ok(())
+    });
     let mut manager = PluginManager::new();
     load_plugins(&mut manager);
     let (async_channel_send, async_channel_recv) = flume::unbounded();
@@ -139,6 +156,8 @@ async fn main() -> anyhow::Result<()> {
     );
     let server = server::Server::bind(async_chat_send).await?;
     server.register(&mut game);
+    let obj = game.objects.clone();
+    log::info!("Done! ({}ms) For command help, run \"help\".", start.elapsed().as_millis());
     run(game);
     loop {}
     println!("Hello, world!");
@@ -164,6 +183,7 @@ fn load_plugins(manager: &mut PluginManager) {
     }
 }
 use std::panic::{self, AssertUnwindSafe};
+use std::time::Instant;
 use sysinfo::ProcessorExt;
 
 use plugins::PluginManager;
@@ -179,13 +199,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     TickLoop::new(move || {
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
-            game.save_playerdata().unwrap();
-            let plrs = game.players.0.borrow().clone();
-            for player in plrs.iter() {
-                player.1.disconnect("Server closed".to_string());
-            }
-            game.world.to_file(&CONFIGURATION.level_name);
-            std::process::exit(0);
+            game.stop_server();
         }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
             if last_tps_check + Duration::from_secs(5) < Instant::now() {

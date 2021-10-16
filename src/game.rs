@@ -141,6 +141,12 @@ impl std::default::Default for Position {
         }
     }
 }
+use std::fmt;
+impl std::fmt::Display for Position {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {}, {})", self.x, self.y, self.z)
+    }
+}
 impl Position {
     pub const FEET_DISTANCE: i16 = 51;
     pub fn from_pos(x: f64, y: f64, z: f64) -> Self {
@@ -293,11 +299,11 @@ impl Inventory {
         self.items.get_mut(&slot)
     }
     pub fn insert_itemstack(&mut self, stack: ItemStack) -> Option<()> {
-        'main_1: for i in 36..45  {
+        'main_1: for i in 36..45 {
             let slot = if let Some(s) = self.items.get_mut(&i) {
                 s
             } else {
-                continue
+                continue;
             };
             let num = i;
             if num > 8 {
@@ -306,7 +312,9 @@ impl Inventory {
                     let mut our_count = stack.count;
                     if let Some(item) = registry.get_item(slot.id) {
                         for _ in 0..stack.count {
-                            if slot.count as u64 + our_count as u64 > item.get_item().stack_size() as u64 {
+                            if slot.count as u64 + our_count as u64
+                                > item.get_item().stack_size() as u64
+                            {
                                 continue 'main_1;
                             }
                             our_count -= 1;
@@ -326,7 +334,9 @@ impl Inventory {
                     let mut our_count = stack.count;
                     if let Some(item) = registry.get_item(slot.id) {
                         for _ in 0..stack.count {
-                            if slot.count as u64 + our_count as u64 > item.get_item().stack_size() as u64 {
+                            if slot.count as u64 + our_count as u64
+                                > item.get_item().stack_size() as u64
+                            {
                                 continue 'main;
                             }
                             our_count -= 1;
@@ -339,11 +349,11 @@ impl Inventory {
             }
         }
         // TODO this has the same issue as above
-        for i in 36..45  {
+        for i in 36..45 {
             let slot = if let Some(s) = self.items.get_mut(&i) {
                 s
             } else {
-                continue
+                continue;
             };
             let num = i;
             if num > 8 {
@@ -466,6 +476,7 @@ impl PlayerRef {
         self.player.borrow_mut().open_inventories.remove(&id);
     }
     pub fn send_message(&self, message: Message) {
+        //log::info!("[{} CHAT] {}", self.get_username(), message.message);
         if CONFIGURATION.experimental.async_chat {
             let us = self.player.borrow_mut();
             if let Err(e) = us.async_chat.send(AsyncChatCommand::ChatToUser {
@@ -1278,7 +1289,7 @@ impl Player {
         metadata
     }
     pub fn save_to_mem(&mut self) {
-        log::info!("Saving playerdata");
+        //log::info!("Saving playerdata");
         let name = self.username.clone();
         let mut data = self.all_player_data.borrow_mut();
         let data = data.get_mut(&name).expect("This should not be possible!");
@@ -1331,7 +1342,7 @@ impl Player {
                 extra
             );
         }
-        log::info!("{} left the game.", self.username);
+        log::info!("§e{} left the game.", self.username);
         for player in self.players_list.0.borrow().iter() {
             if player.1.can_borrow() {
                 player
@@ -1548,16 +1559,82 @@ pub struct Game {
     pub persistent_player_data: Arc<RefCell<HashMap<String, PersistentPlayerData>>>,
     pub gamerules: gamerule::Gamerules,
     pub tps: f64,
-    pub scheduler: Scheduler,
     pub plugin_manager: PluginManager,
     pub async_commands: Receiver<AsyncGameCommand>,
     pub async_chat_manager: Sender<AsyncChatCommand>,
     pub perm_level_map: HashMap<String, u8>,
     pub cached_command_list: Vec<CachedCommandData>,
+    pub rain_ticks: u128,
+    pub is_raining: bool,
+    pub is_storming: bool,
+    pub world_saving: bool,
 }
 use nbt::*;
 use rand::Rng;
 impl Game {
+    pub fn check_world_save(&mut self) {
+        if self.world_saving {
+            if self.time % 1200 == 0 {
+                self.op_status_message("CONSOLE", "Auto-saving the world..");
+                if let Err(e) = self.save_playerdata() {
+                    log::info!("Error saving playerdata: {:?}", e);
+                }
+                self.world.to_file(&CONFIGURATION.level_name);      
+                self.op_status_message("CONSOLE", "Auto-save complete."); 
+            }
+        }
+    }
+    pub fn strike_lightning(&mut self, pos: BlockPosition) {
+        let id = EntityID::new();
+        self.packet_to_chunk(
+            pos.to_chunk_coords(),
+            ServerPacket::Thunderbolt {
+                eid: id.0,
+                unknown: true,
+                x: pos.x,
+                y: pos.y,
+                z: pos.z,
+            },
+        );
+        IDS.lock().unwrap().push(id.0);
+    }
+    pub fn packet_to_chunk(&mut self, chunk: ChunkCoords, packet: ServerPacket) {
+        for player in self.players.iter() {
+            if player.1.get_loaded_chunks().contains(&chunk) {
+                player.1.write_packet(packet.clone());
+            }
+        }
+    }
+    pub fn check_rain(&mut self) {
+        if self.rain_ticks > 0 {
+            self.rain_ticks -= 1;
+            if !self.is_raining {
+                self.is_raining = true;
+                for player in self.players.iter() {
+                    player
+                        .1
+                        .write_packet(ServerPacket::NewInvalidState { reason: 1 });
+                }
+            }
+        } else if self.is_raining {
+            self.is_raining = false;
+            self.is_storming = false;
+            for player in self.players.iter() {
+                player
+                    .1
+                    .write_packet(ServerPacket::NewInvalidState { reason: 2 });
+            }
+        }
+    }
+    pub fn stop_server(&mut self) {
+        self.save_playerdata().unwrap();
+        let plrs = self.players.0.borrow().clone();
+        for player in plrs.iter() {
+            player.1.disconnect("Server closed".to_string());
+        }
+        self.world.to_file(&CONFIGURATION.level_name);
+        std::process::exit(0);
+    }
     pub fn op_status_message(&mut self, username: &str, message: &str) {
         let epic_msg = format!("({}: {})", username, message);
         log::info!("[Server task] {}", epic_msg);
@@ -1569,9 +1646,24 @@ impl Game {
             }
         }
     }
+    pub fn remove_op(&mut self, player: &str) {
+        if let Some(plr) = self.perm_level_map.get_mut(player) {
+            *plr = 1;
+        }
+        crate::configuration::remove_op(player);
+        if let Some(mut player) = self.players.get_player(player) {
+            player.send_message(Message::new("§eYou are no longer OP!"));
+            player.set_permission_level(1);
+        }
+    }
     pub fn add_op(&mut self, player: &str) {
-        self.perm_level_map.insert(player.to_string(), 4);
-        if let Some(player) = self.players.get_player(player) {
+        if let Some(plr) = self.perm_level_map.get_mut(player) {
+            *plr = 4;
+        } else {
+            self.perm_level_map.insert(player.to_string(), 4);
+        }
+        if let Some(mut player) = self.players.get_player(player) {
+            player.send_message(Message::new("§eYou are now OP!"));
             player.set_permission_level(4);
         }
         crate::configuration::add_op(player);
@@ -1905,14 +1997,26 @@ impl Game {
         }
         let mut command_system = CommandSystem::new();
         command_system.register(Command::new(
-            "time",
-            "set tie time",
+            "rain",
+            "set the rain status",
+            4,
             vec![CommandArgumentTypes::Int],
             Box::new(|game, executor, mut args| {
-                //log::info!("g");
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
+                let rain_ticks = *args[0].as_any().downcast_mut::<i32>().unwrap();
+                game.rain_ticks = rain_ticks as u128;
+                executor.send_message(Message::new(&format!(
+                    "Setting the rain ticks to {}.",
+                    args[0].display(),
+                )));
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "time",
+            "set tie time",
+            4,
+            vec![CommandArgumentTypes::Int],
+            Box::new(|game, executor, mut args| {
                 let time = *args[0].as_any().downcast_mut::<i32>().unwrap();
                 if !(0..24001).contains(&time) {
                     return Ok(3);
@@ -1928,11 +2032,9 @@ impl Game {
         command_system.register(Command::new(
             "gamerule",
             "change a gamerule",
+            4,
             vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
             Box::new(|game, executor, mut args| {
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
                 use crate::game::gamerule::*;
                 let rule_str = args[0].as_any().downcast_mut::<String>().unwrap().clone();
                 let state = args[1].as_any().downcast_mut::<String>().unwrap().clone();
@@ -1974,42 +2076,59 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
-            "op",
-            "op a player",
+            "deop",
+            "deop a player",
+            4,
             vec![CommandArgumentTypes::String],
             Box::new(|game, executor, mut args| {
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
                 use crate::game::gamerule::*;
                 let player_name = args[0].as_any().downcast_mut::<String>().unwrap().clone();
                 let player_name = player_name.trim();
-                //let reason = args[1].as_any().downcast_mut::<String>().unwrap().clone();
-                use std::str::FromStr;
-                let mut plrs = game.players.0.borrow().clone();
-                for player in plrs.iter_mut() {
-                    let player = player.1;
-                    if player_name.contains(&player.get_username()) {
-                        if player.get_permission_level() >= 4 {
-                            executor.send_message(Message::new(&format!(
-                                "§7Nothing changed. That player is already an operator."
-                            )));
-                            return Ok(3);
-                        } else {
-                            game.add_op(&player_name);
-                            game.op_status_message(&executor.username(), &format!("Opping {}", player_name.trim()));
-                            player.send_message(Message::new("§eYou are now OP!"));
-                            executor.send_message(Message::new(&format!(
-                                "Made \"{}\" a server operator",
-                                player_name.trim()
-                            )));
-                            return Ok(0);
-                        }
+                if let Some(plr) = game.perm_level_map.get(player_name) {
+                    if plr <= &1 {
+                        executor.send_message(Message::new(&format!(
+                            "§7Nothing changed. That player is not an operator."
+                        )));
+                        return Ok(3);
                     }
                 }
+                game.remove_op(&player_name);
+                game.op_status_message(
+                    &executor.username(),
+                    &format!("De-opping {}", player_name.trim()),
+                );
                 executor.send_message(Message::new(&format!(
-                    "Could not find player \"{}\".",
-                    player_name
+                    "Made \"{}\" no longer a server operator",
+                    player_name.trim()
+                )));
+                Ok(3)
+            }),
+        ));
+        command_system.register(Command::new(
+            "op",
+            "op a player",
+            4,
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                use crate::game::gamerule::*;
+                let player_name = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                let player_name = player_name.trim();
+                if let Some(plr) = game.perm_level_map.get(player_name) {
+                    if plr >= &4 {
+                        executor.send_message(Message::new(&format!(
+                            "§7Nothing changed. That player is already an operator."
+                        )));
+                        return Ok(3);
+                    }
+                }
+                game.add_op(&player_name);
+                game.op_status_message(
+                    &executor.username(),
+                    &format!("Opping {}", player_name.trim()),
+                );
+                executor.send_message(Message::new(&format!(
+                    "Made \"{}\" a server operator",
+                    player_name.trim()
                 )));
                 Ok(3)
             }),
@@ -2017,11 +2136,9 @@ impl Game {
         command_system.register(Command::new(
             "kick",
             "kick a player",
+            4,
             vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
             Box::new(|game, executor, mut args| {
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
                 use crate::game::gamerule::*;
                 let player_name = args[0].as_any().downcast_mut::<String>().unwrap().clone();
                 let reason = args[1].as_any().downcast_mut::<String>().unwrap().clone();
@@ -2046,13 +2163,37 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
+            "smite",
+            "smite a player",
+            4,
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                use crate::game::gamerule::*;
+                let player_name = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                use std::str::FromStr;
+                let plrs = game.players.0.borrow().clone();
+                for player in plrs.iter() {
+                    let player = player.1;
+                    if player_name.contains(&player.get_username()) {
+                        let pos = player.get_position();
+                        game.strike_lightning(BlockPosition { x: pos.x as i32, y: pos.y as i32, z: pos.z as i32 });
+                        game.op_status_message(&executor.username(), &format!("Smiting {}", player_name));
+                        return Ok(0);
+                    }
+                }
+                executor.send_message(Message::new(&format!(
+                    "Could not find player \"{}\".",
+                    player_name
+                )));
+                Ok(3)
+            }),
+        ));
+        command_system.register(Command::new(
             "give",
             "give an item and count",
-            vec![CommandArgumentTypes::Int, CommandArgumentTypes::Int],
+            4,
+            vec![CommandArgumentTypes::String, CommandArgumentTypes::Int, CommandArgumentTypes::Int],
             Box::new(|game, executor, mut args| {
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
                 //log::info!("g");
                 let executor =
                     if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
@@ -2062,72 +2203,110 @@ impl Game {
                         return Ok(3);
                     };
                 // let item_id = args[0].as_any().downcast_mut::<i32>().unwrap();
-                let count = *args[1].as_any().downcast_mut::<i32>().unwrap() as i8;
+                let player = args[0].as_any().downcast_mut::<String>().unwrap();
+                if game.players.get_player(&player).is_none() {
+                    executor.send_message(Message::new(&format!(
+                        "§7Player does not exist.",
+                    )));
+                    return Ok(3);
+                }
+                let player = game.players.get_player(&player).unwrap();
+                let count = *args[2].as_any().downcast_mut::<i32>().unwrap() as i8;
                 if !(0..65).contains(&count) {
+                    executor.send_message(Message::new(&format!(
+                        "§7Amount must be between 0 and 64!",
+                    )));
                     return Ok(3);
                 }
                 let item = ItemStack::new(
-                    *args[0].as_any().downcast_mut::<i32>().unwrap() as i16,
+                    *args[1].as_any().downcast_mut::<i32>().unwrap() as i16,
                     0,
                     count,
                 );
-                if ItemRegistry::global().get_item(item.id).is_none() {
+                let name;
+                if let Some(reg_item) = ItemRegistry::global().get_item(item.id) {
+                    name = reg_item.get_name().to_string();
+                } else {
+                    executor.send_message(Message::new(&format!("§7Item does not exist.",)));
                     return Ok(3);
                 }
-                executor.get_inventory().insert_itemstack(item);
+                player.get_inventory().insert_itemstack(item);
                 //*executor.get_item_in_hand() = item;
-                game.op_status_message(&executor.username(), &format!(
-                    "Giving {} {} to {}",
-                    args[1].display(),
-                    args[0].display(),
-                    executor.username(),
-                ));
-                executor.send_message(Message::new(&format!(
-                    "§7Giving you {} {}.",
-                    args[1].display(),
-                    args[0].display()
-                )));
+                game.op_status_message(
+                    &executor.username(),
+                    &format!(
+                        "Giving {} {} ({}) to {}",
+                        args[2].display(),
+                        name,
+                        args[1].display(),
+                        args[0].display(),
+                    ),
+                );
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "weather",
+            "change weather",
+            4,
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, executor, mut args| {
+                let status = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                match status.as_str() {
+                    "clear" => {
+                        game.rain_ticks = 0;
+                        game.is_storming = false;
+                    }
+                    "rain" => {
+                        game.rain_ticks +=
+                            rand::thread_rng().gen_range((2 * 60) * 20..(10 * 60) * 20);
+                    }
+                    "storm" => {
+                        game.rain_ticks = 0;
+                        game.rain_ticks +=
+                            rand::thread_rng().gen_range((2 * 60) * 20..(10 * 60) * 20);
+                        game.is_storming = true;
+                    }
+                    status => {
+                        executor
+                            .send_message(Message::new(&format!("Unknown status \"{}\".", status)));
+                        return Ok(3);
+                    }
+                }
+                executor.send_message(Message::new(&format!("Changed weather to \"{}\".", status)));
                 Ok(0)
             }),
         ));
         command_system.register(Command::new(
             "tp",
             "teleport command",
-            vec![CommandArgumentTypes::String],
+            4,
+            vec![CommandArgumentTypes::String, CommandArgumentTypes::String],
             Box::new(|game, executor, mut args| {
-                log::info!("g");
-                let executor =
-                    if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
-                        executor
+                //log::info!("g");
+                let from = args[0].as_any().downcast_mut::<String>().unwrap().clone();
+                let to = args[1].as_any().downcast_mut::<String>().unwrap().clone();
+                if let Some(from) = game.players.get_player(&from) {
+                    if let Some(to) = game.players.get_player(&to) {
+                        game.op_status_message(&executor.username(), &format!("Teleporting {} to {}.", from.get_username(), to.get_username()));
+                        from.teleport(game, &to.get_position());
                     } else {
+                        executor.send_message(Message::new(&format!("Can't find user {}. No tp.", to)));
                         return Ok(3);
-                    };
-                let to = args[0].as_any().downcast_mut::<String>().unwrap().clone();
-                if executor.get_username() == to {
-                    return Ok(3);
-                }
-                let to = if let Some(plr) = game.players.get_player(&to) {
-                    plr.clone()
+                    }
                 } else {
+                    executor.send_message(Message::new(&format!("Can't find user {}. No tp.", from)));
                     return Ok(3);
                 };
-                executor.teleport(game, &to.get_position_clone());
-                /*                 executor.chatbox.push(Message::new(&format!(
-                    "It works! Hello {}",
-                    args[0].display()
-                ))); */
                 Ok(0)
             }),
         ));
         command_system.register(Command::new(
             "kill",
             "die",
+            4,
             vec![],
             Box::new(|game, executor, mut args| {
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
-                log::info!("g");
                 let executor =
                     if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
                         executor
@@ -2136,27 +2315,65 @@ impl Game {
                     };
                 executor.set_offground_height(0.);
                 executor.damage(DamageType::Void, 9999, None);
-                /*                 executor.chatbox.push(Message::new(&format!(
-                    "It works! Hello {}",
-                    args[0].display()
-                ))); */
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "save-off",
+            "disable world saving",
+            4,
+            vec![],
+            Box::new(|game, executor, mut args| {
+                game.op_status_message(&executor.username(), "Disabling level saving..");
+                game.world_saving = false;
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "save-on",
+            "enable world saving",
+            4,
+            vec![],
+            Box::new(|game, executor, mut args| {
+                game.op_status_message(&executor.username(), "Enabling level saving..");
+                game.world_saving = true;
                 Ok(0)
             }),
         ));
         command_system.register(Command::new(
             "tell",
             "tell (player) (message)",
-            vec![CommandArgumentTypes::String, CommandArgumentTypes::StringRest],
+            1,
+            vec![
+                CommandArgumentTypes::String,
+                CommandArgumentTypes::StringRest,
+            ],
             Box::new(|game, executor, mut args| {
                 let target = args[0].as_any().downcast_mut::<String>().unwrap().clone();
-                let message = args[1].as_any().downcast_mut::<Vec<String>>().unwrap().clone().join(" ");
+                let message = args[1]
+                    .as_any()
+                    .downcast_mut::<Vec<String>>()
+                    .unwrap()
+                    .clone()
+                    .join(" ");
                 if let Some(mut player) = game.players.get_player(&target) {
-                    executor.send_message(Message::new(&format!("§7You whisper {} to {}", message, player.get_username())));
+                    executor.send_message(Message::new(&format!(
+                        "§7You whisper {} to {}",
+                        message,
+                        player.get_username()
+                    )));
                     let msg = format!("§7{} whispers {}", executor.username(), message);
-                    log::info!("{} whispers {} to {}", executor.username(), message, player.get_username());
+                    log::info!(
+                        "{} whispers {} to {}",
+                        executor.username(),
+                        message,
+                        player.get_username()
+                    );
                     player.send_message(Message::new(&msg));
                 } else {
-                    executor.send_message(Message::new(&format!("§7There's no player by that name online.")));
+                    executor.send_message(Message::new(&format!(
+                        "§7There's no player by that name online."
+                    )));
                 }
                 Ok(0)
             }),
@@ -2164,16 +2381,28 @@ impl Game {
         command_system.register(Command::new(
             "me",
             "me (message)",
+            1,
             vec![CommandArgumentTypes::StringRest],
             Box::new(|game, executor, mut args| {
-                let message = args[0].as_any().downcast_mut::<Vec<String>>().unwrap().clone().join(" ");
-                game.broadcast_message(Message::new(&format!("* {} {}", executor.username(), message))).expect("Not possible!");
+                let message = args[0]
+                    .as_any()
+                    .downcast_mut::<Vec<String>>()
+                    .unwrap()
+                    .clone()
+                    .join(" ");
+                game.broadcast_message(Message::new(&format!(
+                    "* {} {}",
+                    executor.username(),
+                    message
+                )))
+                .expect("Not possible!");
                 Ok(0)
             }),
         ));
         command_system.register(Command::new(
             "help",
             "get help",
+            1,
             vec![],
             Box::new(|game, executor, _| {
                 executor.send_message(Message::new("Command help:"));
@@ -2181,9 +2410,7 @@ impl Game {
                 for item in game.cached_command_list.iter() {
                     executor.send_message(Message::new(&format!(
                         "/{} - {}. Args: {:?}",
-                        item.root,
-                        item.desc,
-                        item.args,
+                        item.root, item.desc, item.args,
                     )));
                 }
                 Ok(0)
@@ -2192,6 +2419,7 @@ impl Game {
         command_system.register(Command::new(
             "list-items",
             "List items.",
+            1,
             vec![],
             Box::new(|game, executor, _| {
                 executor.send_message(Message::new("All items:"));
@@ -2209,11 +2437,9 @@ impl Game {
         command_system.register(Command::new(
             "cause-lag",
             "Cause lag for x ms.",
+            4,
             vec![CommandArgumentTypes::Int],
             Box::new(|game, executor, mut args| {
-                if executor.permission_level() < 4 {
-                    return Ok(5);
-                }
                 let amount = args[0].as_any().downcast_mut::<i32>().unwrap().clone();
                 if amount < 0 {
                     return Ok(3);
@@ -2227,6 +2453,7 @@ impl Game {
         command_system.register(Command::new(
             "tps",
             "Server TPS.",
+            1,
             vec![],
             Box::new(|game, executor, _| {
                 //executor.send_message(Message::new(&format!("Memory usage: {}")));
@@ -2238,69 +2465,87 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
-            "save-all",
-            "save the world.",
+            "stop",
+            "stop the server.",
+            4,
             vec![],
             Box::new(|game, executor, _| {
                 if executor.permission_level() < 4 {
                     return Ok(5);
                 }
-                executor.send_message(Message::new("Saving the world.."));
-                drop(executor);
-                game.save_playerdata();
-                game.world.to_file(&CONFIGURATION.level_name);
+                game.op_status_message(&executor.username(), "Stopping the server..");
+                game.stop_server();
                 Ok(0)
             }),
         ));
         command_system.register(Command::new(
-            "abc",
-            "test command 2",
-            vec![CommandArgumentTypes::String],
-            Box::new(|game, executor, args| {
-                log::info!("g");
-                let executor = if let Some(executor) = executor.as_any().downcast_mut::<Player>() {
+            "save-all",
+            "save the world.",
+            4,
+            vec![],
+            Box::new(|game, executor, _| {
+                if executor.permission_level() < 4 {
+                    return Ok(5);
+                }
+                game.op_status_message(&executor.username(), "Forcing save..");
+                //executor.send_message(Message::new("Saving the world.."));
+                if let Err(e) = game.save_playerdata() {
                     executor
-                } else {
-                    return Ok(3);
-                };
-                executor.chatbox.push(Message::new(&format!(
-                    "It works! Hello {}",
-                    args[0].display()
-                )));
+                        .send_message(Message::new(&format!("Error saving playerdata: {:?}", e)));
+                }
+                game.world.to_file(&CONFIGURATION.level_name);
+                game.op_status_message(&executor.username(), "Save complete.");
                 Ok(0)
             }),
         ));
-        /*         command_system.register(Command::new(
-            "test",
-            "test command",
-            vec![CommandArgumentTypes::String],
-            Box::new(|game, executor, args| {
-                log::info!("g");
-                let executor = if let Some(executor) = executor.as_any().downcast_mut::<Player>() {
-                    executor
-                } else {
-                    return Ok(3);
-                };
-                executor.chatbox.push(Message::new(&format!(
-                    "It works! Hello {}",
-                    args[0].display()
-                )));
-                executor.position.y += 5.0;
-                /*             let packets = world.to_packets();
-                for packet in packets {
-                    executor.write(packet)?;
-                } */
-                Ok(0)
-            }),
-        )); */
         let mut epic_data = HashMap::new();
         if let Ok(data) = Game::load_playerdata() {
             epic_data = data;
         }
+        let mut scheduler = Scheduler::new();
+        //let mut scheduler = obj.get_mut::<game::Scheduler>()?;
+        scheduler.schedule_task(
+            1,
+            std::sync::Arc::new(Box::new(|game| {
+                if game.is_storming {
+                    for chunk in game.loaded_chunks.0.clone().iter() {
+                        if rand::thread_rng().gen() {
+                            let x = rand::thread_rng().gen_range(0..16);
+                            let z = rand::thread_rng().gen_range(0..16);
+                            let y = game.world.chunks.get(&chunk).expect("impossible").heightmap[x as usize][z as usize];
+                            let x = x + (chunk.x * 16);
+                            let z = z + (chunk.z * 16);
+                            game.strike_lightning(BlockPosition { x: x, y: y as i32, z: z });
+                            break;
+                        }
+                    }
+                }
+                Some(game.ticks + rand::thread_rng().gen_range(40..250))
+            })));
+        scheduler.schedule_task(
+            1,
+            std::sync::Arc::new(Box::new(|game| {
+                if rand::thread_rng().gen_range(0..150) == rand::thread_rng().gen_range(0..50)
+                    && game.rain_ticks == 0
+                {
+                    game.rain_ticks += rand::thread_rng().gen_range((2 * 60) * 20..(10 * 60) * 20);
+                }
+                if rand::thread_rng().gen_range(0..175) == rand::thread_rng().gen_range(0..50)
+                    && game.rain_ticks != 0
+                {
+                    game.is_storming = true;
+                }
+                Some(game.ticks + 60)
+            })),
+        );
         let mut objects = Arc::new(Objects::new());
         Arc::get_mut(&mut objects)
             .expect("cyrntly borwd")
             .insert(event_handler);
+
+        Arc::get_mut(&mut objects)
+            .expect("cyrntly borwd")
+            .insert(scheduler);
         let mut perm_level_map = HashMap::new();
         let ops = crate::configuration::get_ops();
         if ops.len() > 0 {
@@ -2314,7 +2559,11 @@ impl Game {
         }
         let mut cached_command_list = Vec::new();
         for command in command_system.commands.iter() {
-            cached_command_list.push(CachedCommandData { root: command.root.to_string(), desc: command.description.to_string(), args: command.arguments.clone()  });
+            cached_command_list.push(CachedCommandData {
+                root: command.root.to_string(),
+                desc: command.description.to_string(),
+                args: command.arguments.clone(),
+            });
         }
         Self {
             objects: objects,
@@ -2331,12 +2580,15 @@ impl Game {
             persistent_player_data: Arc::new(RefCell::new(epic_data)),
             gamerules: gamerule::Gamerules::default(),
             tps: 0.,
-            scheduler: Scheduler::new(),
             plugin_manager,
             async_commands: recv,
             async_chat_manager: async_chat_manager,
             perm_level_map: perm_level_map,
             cached_command_list: cached_command_list,
+            rain_ticks: 0,
+            is_raining: false,
+            is_storming: false,
+            world_saving: true,
         }
     }
     pub fn insert_object<T>(&mut self, object: T)
@@ -2502,6 +2754,13 @@ impl Game {
         let clients = server.clients.borrow_mut();
         let client = clients.get(&id).unwrap().clone();
         let mut client = client.borrow_mut();
+        let packet = ServerPacket::ServerLoginRequest {
+            entity_id: id.0,
+            unknown: "".to_string(),
+            map_seed: self.world.generator.get_seed() as i64,
+            dimension: 0,
+        };
+        client.write(packet)?;
         let addr = client.addr;
         drop(clients);
         if self.players.0.borrow().len() + 1 > CONFIGURATION.max_players as usize {
@@ -2509,6 +2768,9 @@ impl Game {
                 reason: "The server is full!".to_string(),
             })?;
             return Err(anyhow::anyhow!("The server is full!"));
+        }
+        if self.is_raining {
+            client.write(ServerPacket::NewInvalidState { reason: 1 })?;
         }
         let plrs = self.players.0.borrow();
         let plrs2 = plrs.clone();
@@ -2528,12 +2790,18 @@ impl Game {
         let mut persist_data: Option<PersistentPlayerData> = None;
         let mut pos = self.world.spawn_position;
         if let Some(data) = self.persistent_player_data.borrow().get(&client.username) {
-            log::info!("Position from persist: {:?}", data.position);
+            log::debug!("Position from persist: {:?}", data.position);
             pos = data.position;
             pos.y += 2.;
             persist_data = Some(data.clone());
         }
-        log::info!("Using pos: {:?}", pos);
+        log::info!(
+            "{}/{} logging in with entity id {} at position {}",
+            client.username,
+            client.addr,
+            id.0,
+            pos
+        );
         let mut loaded_chunks = Vec::new();
         let spawnchunk = pos.to_chunk_coords();
         for x in -CONFIGURATION.chunk_distance..CONFIGURATION.chunk_distance {
@@ -2545,8 +2813,7 @@ impl Game {
                 if self.world.check_chunk_exists(spawnchunk) {
                     loaded_chunks.push(spawnchunk.clone());
                     self.world
-                        .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())
-                        .unwrap();
+                        .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())?;
                     self.loaded_chunks.push(spawnchunk);
                 } else {
                     self.world.chunks.insert(
@@ -2567,8 +2834,7 @@ impl Game {
                         log::warn!("Error calculating skylight: {:?}", e);
                     } */
                     self.world
-                        .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())
-                        .unwrap();
+                        .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())?;
                     self.loaded_chunks.push(spawnchunk);
                 }
             }
