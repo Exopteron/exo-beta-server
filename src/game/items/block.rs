@@ -1,21 +1,5 @@
 use super::*;
 use crate::game::entities::item_entity::*;
-pub trait AsBlock {
-    fn as_block(&self) -> Option<&dyn Block>;
-}
-impl<T> AsBlock for T {
-    default fn as_block(&self) -> Option<&dyn Block> {
-        None
-    }
-}
-impl<T> AsBlock for T
-where
-    T: Block,
-{
-    fn as_block(&self) -> Option<&dyn Block> {
-        Some(self)
-    }
-}
 pub trait Block {
     fn stack_size(&self) -> i16;
     fn on_place(
