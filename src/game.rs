@@ -1474,7 +1474,7 @@ impl PlayerList {
             if !player.1.can_borrow() {
                 continue;
             }
-            if player.1.get_username() == name {
+            if player.1.get_username().to_lowercase() == name.to_lowercase() {
                 return Some(player.1.clone());
             }
         }
@@ -1574,13 +1574,13 @@ use rand::Rng;
 impl Game {
     pub fn check_world_save(&mut self) {
         if self.world_saving {
-            if self.time % 1200 == 0 {
+            if self.time % CONFIGURATION.autosave_interval == 0 {
                 self.op_status_message("CONSOLE", "Auto-saving the world..");
                 if let Err(e) = self.save_playerdata() {
                     log::info!("Error saving playerdata: {:?}", e);
                 }
-                self.world.to_file(&CONFIGURATION.level_name);      
-                self.op_status_message("CONSOLE", "Auto-save complete."); 
+                self.world.to_file(&CONFIGURATION.level_name);
+                self.op_status_message("CONSOLE", "Auto-save complete.");
             }
         }
     }
@@ -2148,7 +2148,8 @@ impl Game {
                     let player = player.1;
                     if player_name.contains(&player.get_username()) {
                         player.disconnect(reason.clone());
-                        executor.send_message(Message::new(&format!(
+                        game.op_status_message(&executor.username(), &format!("Kicking {}", player_name));
+;                        executor.send_message(Message::new(&format!(
                             "Kicking player \"{}\" for \"{}\".",
                             player_name, reason
                         )));
@@ -2176,8 +2177,15 @@ impl Game {
                     let player = player.1;
                     if player_name.contains(&player.get_username()) {
                         let pos = player.get_position();
-                        game.strike_lightning(BlockPosition { x: pos.x as i32, y: pos.y as i32, z: pos.z as i32 });
-                        game.op_status_message(&executor.username(), &format!("Smiting {}", player_name));
+                        game.strike_lightning(BlockPosition {
+                            x: pos.x as i32,
+                            y: pos.y as i32,
+                            z: pos.z as i32,
+                        });
+                        game.op_status_message(
+                            &executor.username(),
+                            &format!("Smiting {}", player_name),
+                        );
                         return Ok(0);
                     }
                 }
@@ -2192,22 +2200,24 @@ impl Game {
             "give",
             "give an item and count",
             4,
-            vec![CommandArgumentTypes::String, CommandArgumentTypes::Int, CommandArgumentTypes::Int],
+            vec![
+                CommandArgumentTypes::String,
+                CommandArgumentTypes::Int,
+                CommandArgumentTypes::Int,
+            ],
             Box::new(|game, executor, mut args| {
                 //log::info!("g");
-                let executor =
-                    if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
-                        executor
-                    } else {
-                        executor.send_message(Message::new("§7You are not a player."));
-                        return Ok(3);
-                    };
+                /*                 let executor =
+                if let Some(executor) = executor.as_any().downcast_mut::<Arc<PlayerRef>>() {
+                    executor
+                } else {
+                    executor.send_message(Message::new("§7You are not a player."));
+                    return Ok(3);
+                }; */
                 // let item_id = args[0].as_any().downcast_mut::<i32>().unwrap();
                 let player = args[0].as_any().downcast_mut::<String>().unwrap();
                 if game.players.get_player(&player).is_none() {
-                    executor.send_message(Message::new(&format!(
-                        "§7Player does not exist.",
-                    )));
+                    executor.send_message(Message::new(&format!("§7Player does not exist.",)));
                     return Ok(3);
                 }
                 let player = game.players.get_player(&player).unwrap();
@@ -2273,7 +2283,7 @@ impl Game {
                         return Ok(3);
                     }
                 }
-                executor.send_message(Message::new(&format!("Changed weather to \"{}\".", status)));
+                game.op_status_message(&executor.username(), &format!("Changed weather to \"{}\"", status));
                 Ok(0)
             }),
         ));
@@ -2288,14 +2298,23 @@ impl Game {
                 let to = args[1].as_any().downcast_mut::<String>().unwrap().clone();
                 if let Some(from) = game.players.get_player(&from) {
                     if let Some(to) = game.players.get_player(&to) {
-                        game.op_status_message(&executor.username(), &format!("Teleporting {} to {}.", from.get_username(), to.get_username()));
+                        game.op_status_message(
+                            &executor.username(),
+                            &format!(
+                                "Teleporting {} to {}.",
+                                from.get_username(),
+                                to.get_username()
+                            ),
+                        );
                         from.teleport(game, &to.get_position());
                     } else {
-                        executor.send_message(Message::new(&format!("Can't find user {}. No tp.", to)));
+                        executor
+                            .send_message(Message::new(&format!("Can't find user {}. No tp.", to)));
                         return Ok(3);
                     }
                 } else {
-                    executor.send_message(Message::new(&format!("Can't find user {}. No tp.", from)));
+                    executor
+                        .send_message(Message::new(&format!("Can't find user {}. No tp.", from)));
                     return Ok(3);
                 };
                 Ok(0)
@@ -2512,16 +2531,22 @@ impl Game {
                         if rand::thread_rng().gen() {
                             let x = rand::thread_rng().gen_range(0..16);
                             let z = rand::thread_rng().gen_range(0..16);
-                            let y = game.world.chunks.get(&chunk).expect("impossible").heightmap[x as usize][z as usize];
+                            let y = game.world.chunks.get(&chunk).expect("impossible").heightmap
+                                [x as usize][z as usize];
                             let x = x + (chunk.x * 16);
                             let z = z + (chunk.z * 16);
-                            game.strike_lightning(BlockPosition { x: x, y: y as i32, z: z });
+                            game.strike_lightning(BlockPosition {
+                                x: x,
+                                y: y as i32,
+                                z: z,
+                            });
                             break;
                         }
                     }
                 }
                 Some(game.ticks + rand::thread_rng().gen_range(40..250))
-            })));
+            })),
+        );
         scheduler.schedule_task(
             1,
             std::sync::Arc::new(Box::new(|game| {

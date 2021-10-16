@@ -383,7 +383,7 @@ impl block::Block for GravelBlock {
         player: Arc<PlayerRef>,
     ) -> bool {
         let mut packet2 = packet.clone();
-         match packet2.direction {
+        match packet2.direction {
             0 => {
                 packet2.y -= 1;
             }
@@ -440,28 +440,25 @@ impl block::Block for GravelBlock {
     }
     fn nearby_block_update(&self, game: &mut Game, from: BlockPosition, to: BlockPosition) {
         log::info!("Got nearby");
-        if let Some(block) = game
-        .world
-        .get_block(to.x, to.y as i32 - 1, to.z)
-    {
-        if let Some(block) = ItemRegistry::global().get_item(block.b_type as i16) {
-            if let Some(block) = block.get_item().as_block() {
-                if !block.is_solid() {
-                    game.spawn_entity(Box::new(
-                        crate::game::entities::gravel_entity::GravelEntity::new(
-                            Position::from_pos(
-                                to.x as f64 + 0.5,
-                                to.y as f64 + 0.5,
-                                to.z as f64 + 0.5,
+        if let Some(block) = game.world.get_block(to.x, to.y as i32 - 1, to.z) {
+            if let Some(block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                if let Some(block) = block.get_item().as_block() {
+                    if !block.is_solid() {
+                        game.spawn_entity(Box::new(
+                            crate::game::entities::gravel_entity::GravelEntity::new(
+                                Position::from_pos(
+                                    to.x as f64 + 0.5,
+                                    to.y as f64 + 0.5,
+                                    to.z as f64 + 0.5,
+                                ),
+                                game.ticks,
                             ),
-                            game.ticks,
-                        ),
-                    ));
-                    return;
+                        ));
+                        return;
+                    }
                 }
             }
         }
-    }
     }
     fn on_break(
         &self,
@@ -547,6 +544,61 @@ impl block::Block for TorchBlock {
         packet: &mut crate::network::packet::PlayerBlockPlacement,
         player: Arc<PlayerRef>,
     ) -> bool {
+        let mut packet2 = packet.clone();
+        match packet2.direction {
+            0 => {
+                packet2.y -= 1;
+            }
+            1 => {
+                //packet.y += 1;
+                packet2.y = match packet2.y.checked_add(1) {
+                    Some(num) => num,
+                    None => {
+                        return false;
+                    }
+                }
+            }
+            2 => {
+                packet2.z -= 1;
+            }
+            3 => {
+                packet2.z += 1;
+            }
+            4 => {
+                packet2.x -= 1;
+            }
+            5 => {
+                packet2.x += 1;
+            }
+            x => {
+                log::debug!("Fal {}", x);
+                return false;
+            }
+        }
+        packet.damage = Some(match packet.direction {
+            1 => {
+                let mut num = 0;
+                if let Some(block) = game
+                .world
+                .get_block(packet2.x, packet2.y as i32 - 1, packet2.z)
+            {
+                if let Some(block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                    if let Some(block) = block.get_item().as_block() {
+                        if !block.is_solid() {
+                            num = 5;
+                        }
+                    }
+                }
+            }
+                num
+            },
+            2 => 4,
+            3 => 3,
+            4 => 2,
+            5 => 1,
+            _ => packet.damage.unwrap_or(0),
+        });
+        log::info!("Damage: {:?}", packet.damage);
         true
     }
     fn on_break(
@@ -564,6 +616,12 @@ impl block::Block for TorchBlock {
     }
     fn needs_align(&self) -> bool {
         true
+    }
+    fn insta_break(&self) -> bool {
+        true
+    }
+    fn is_solid(&self) -> bool {
+        false
     }
 }
 pub struct LogBlock {}

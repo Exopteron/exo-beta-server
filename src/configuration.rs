@@ -15,6 +15,7 @@ pub struct ServerConfig {
     pub chunk_generator: String,
     pub tps: i32,
     pub world_seed: Option<u64>,
+    pub autosave_interval: i64,
     pub logging: LoggingConfig,
     pub experimental: ExperimentalConfig,
     // generic configuration, max players etc
@@ -62,6 +63,9 @@ tps = 20
 
 # World seed, optional. If not specified the server will use a random seed. Must be an unsigned 64 bit number. (u64 type)
 # world_seed = 420
+
+# Autosave interval (in ticks)
+autosave_interval = 1200
 
 # Logging options
 

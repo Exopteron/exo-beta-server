@@ -1,9 +1,11 @@
 use super::*;
 use crate::{commands::CommandExecutor, game::*};
+use flume::{Receiver, Sender};
 use std::{any::Any, io::Write, sync::Arc};
-use flume::{Sender, Receiver};
 pub enum AsyncGameCommand {
-    ScheduleSyncTask { func: Arc<Box<dyn Fn(&mut Game) -> Option<()> + Sync + Send>> }
+    ScheduleSyncTask {
+        func: Arc<Box<dyn Fn(&mut Game) -> Option<()> + Sync + Send>>,
+    },
 }
 pub struct ConsoleCommandExecutor {}
 impl CommandExecutor for ConsoleCommandExecutor {
@@ -29,39 +31,43 @@ pub async fn setup_async_systems(command_sender: Sender<AsyncGameCommand>) {
             if let Err(e) = std::io::stdin().read_line(&mut line) {
                 log::error!("[Console thread] Error reading line from stdin: {:?}", e);
             }
-            if let Err(e) = sender_2.send(AsyncGameCommand::ScheduleSyncTask { func: Arc::new(Box::new(move |game| {
-                if let Ok(code) = game.execute_command(&mut ConsoleCommandExecutor {}, line.clone().trim()) {
-                    if let Some(msg) = crate::commands::code_to_message(code) {
-                        log::info!("{}", msg);
+            if let Err(e) = sender_2.send(AsyncGameCommand::ScheduleSyncTask {
+                func: Arc::new(Box::new(move |game| {
+                    if let Ok(code) =
+                        game.execute_command(&mut ConsoleCommandExecutor {}, line.clone().trim())
+                    {
+                        if let Some(msg) = crate::commands::code_to_message(code) {
+                            log::info!("{}", msg);
+                        }
+                        /*                     match code {
+                            0 => {}
+                            1 => {
+                                log::info!("§7Bad syntax.");
+                            }
+                            4 => {
+                                log::info!("§7Unknown command.");
+                            }
+                            5 => {
+                                log::info!("§4Insufficient permission. (Somehow?)");
+                            }
+                            3 => {}
+                            res => {
+                                log::info!("§7Command returned code {}.", res);
+                            }
+                        } */
+                        std::io::stdout().write(b"> ").expect("handle later");
+                        std::io::stdout().flush().expect("handle later");
+                    } else {
+                        log::error!("Error executing command");
                     }
-/*                     match code {
-                        0 => {}
-                        1 => {
-                            log::info!("§7Bad syntax.");
-                        }
-                        4 => {
-                            log::info!("§7Unknown command.");
-                        }
-                        5 => {
-                            log::info!("§4Insufficient permission. (Somehow?)");
-                        }
-                        3 => {}
-                        res => {
-                            log::info!("§7Command returned code {}.", res);
-                        }
-                    } */
-                    std::io::stdout().write(b"> ").expect("handle later");
-                    std::io::stdout().flush().expect("handle later");
-                } else {
-                    log::error!("Error executing command");
-                }
-                None
-            }))}) {
+                    None
+                })),
+            }) {
                 log::error!("[Console thread] Error executing command: {:?}", e);
             }
         }
     });
-/*     tokio::spawn(async move {
+    /*     tokio::spawn(async move {
         loop {
             command_sender.send_async(AsyncGameCommand::ScheduleSyncTask { func: Arc::new(Box::new(|game| {
                 log::info!("Sugmanuts");
@@ -72,11 +78,18 @@ pub async fn setup_async_systems(command_sender: Sender<AsyncGameCommand>) {
     }); */
 }
 pub mod chat {
-    use std::{collections::HashMap, hash::{Hash, Hasher}, sync::Arc};
+    use std::{
+        collections::HashMap,
+        hash::{Hash, Hasher},
+        sync::Arc,
+    };
 
-    use flume::{Sender, Receiver};
+    use flume::{Receiver, Sender};
 
-    use crate::{game::Message, network::packet::{ChatMessage, ClientPacket, ServerPacket}};
+    use crate::{
+        game::Message,
+        network::packet::{ChatMessage, ClientPacket, ServerPacket},
+    };
 
     use super::AsyncGameCommand;
 
@@ -95,8 +108,15 @@ pub mod chat {
         clients: HashMap<String, AsyncChatClient>,
     }
     impl AsyncChatManager {
-        pub fn new(game_sender: Sender<AsyncGameCommand>, recv: Receiver<AsyncChatCommand>) -> Self {
-            Self { game_sender, recv, clients: HashMap::new() }
+        pub fn new(
+            game_sender: Sender<AsyncGameCommand>,
+            recv: Receiver<AsyncChatCommand>,
+        ) -> Self {
+            Self {
+                game_sender,
+                recv,
+                clients: HashMap::new(),
+            }
         }
         pub async fn run(mut self) {
             tokio::spawn(async move {
@@ -105,7 +125,7 @@ pub mod chat {
                     self.handle_chat().await;
                     self.gc().await;
                     tokio::time::sleep(std::time::Duration::from_millis(15)).await;
-                }                
+                }
             });
         }
         pub async fn gc(&mut self) {
@@ -127,7 +147,9 @@ pub mod chat {
                     }
                     AsyncChatCommand::ChatToUser { name, message } => {
                         if let Some(client) = self.clients.get(&name) {
-                            if let Err(e) = client.sender.send(ServerPacket::ChatMessage { message: message.message }) {
+                            if let Err(e) = client.sender.send(ServerPacket::ChatMessage {
+                                message: message.message,
+                            }) {
                                 log::info!("Error sending async chat message: {:?}", e);
                             }
                         }
@@ -145,26 +167,36 @@ pub mod chat {
                                 packet.message.remove(0);
                                 let packet = packet.clone();
                                 let name = name.clone();
-                                self.game_sender.send_async(AsyncGameCommand::ScheduleSyncTask { func: Arc::new(Box::new(move |game| {
-                                        let mut player = game.players.get_player(&(name.clone()))?;
-                                        log::info!(
-                                            "{} issued server command \"/{}\".",
-                                            player.get_username(),
-                                            packet.message
-                                        );
-                                        //log::debug!("A");
-                                        let res = game.execute_command(&mut player, &packet.message).ok()?;
-                                        //log::debug!("B");
-                                        if let Some(msg) = crate::commands::code_to_message(res) {
-                                            log::info!("{}", msg);
-                                            player.send_message(Message::new(&msg));
-                                        }
-                                        None
-                                }))}).await.expect("this shouldn't happen");
+                                self.game_sender
+                                    .send_async(AsyncGameCommand::ScheduleSyncTask {
+                                        func: Arc::new(Box::new(move |game| {
+                                            let mut player =
+                                                game.players.get_player(&(name.clone()))?;
+                                            log::info!(
+                                                "{} issued server command \"/{}\".",
+                                                player.get_username(),
+                                                packet.message
+                                            );
+                                            //log::debug!("A");
+                                            let res = game
+                                                .execute_command(&mut player, &packet.message)
+                                                .ok()?;
+                                            //log::debug!("B");
+                                            if let Some(msg) = crate::commands::code_to_message(res)
+                                            {
+                                                log::info!("{}", msg);
+                                                player.send_message(Message::new(&msg));
+                                            }
+                                            None
+                                        })),
+                                    })
+                                    .await
+                                    .expect("this shouldn't happen");
                             } else {
-                                let message = Message::new(&format!("<{}> {}", name, packet.message));
+                                let message =
+                                    Message::new(&format!("<{}> {}", name, packet.message));
                                 log::info!("[Async Chat Task] {}", message.message);
-                                messages.push(message);   
+                                messages.push(message);
                             }
                         }
                         _ => {
@@ -176,7 +208,9 @@ pub mod chat {
             for message in messages {
                 for (_, client) in self.clients.iter() {
                     //log::info!("Sending");
-                    if let Err(e) = client.sender.send(ServerPacket::ChatMessage { message: message.message.to_string() }) {
+                    if let Err(e) = client.sender.send(ServerPacket::ChatMessage {
+                        message: message.message.to_string(),
+                    }) {
                         log::error!("Error handling async chat event: {:?}", e);
                     }
                 }

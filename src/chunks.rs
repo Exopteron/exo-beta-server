@@ -115,6 +115,7 @@ impl ChunkSection {
             blocklight.push(byte.b_light);
             skylight.push(byte.b_skylight);
         }
+        metadata.reverse();
         blockdata.append(&mut compress_to_nibble(metadata)?);
         blockdata.append(&mut compress_to_nibble(blocklight)?);
         blockdata.append(&mut compress_to_nibble(skylight)?);
@@ -890,14 +891,14 @@ fn make_nibble_byte(mut a: u8, mut b: u8) -> Option<u8> {
     if a > 15 || b > 15 {
         return None;
     }
-    a <<= 4;
-    a &= 0b11110000;
-    b &= 0b00001111;
+    b <<= 4;
+    b &= 0b11110000;
+    a &= 0b00001111;
     return Some(a | b);
 }
 fn decompress_nibble(input: u8) -> (u8, u8) {
-    let a = input & 0b11110000;
-    let b = input & 0b00001111;
+    let b = input & 0b11110000;
+    let a = input & 0b00001111;
     (a, b)
 }
 fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
