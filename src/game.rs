@@ -1536,7 +1536,7 @@ impl Scheduler {
 }
 use crate::async_systems::chat::*;
 use crate::async_systems::AsyncGameCommand;
-use plugins::*;
+//use plugins::*;
 #[derive(Clone, Debug)]
 pub struct CachedCommandData {
     args: Vec<CommandArgumentTypes>,
@@ -1559,7 +1559,6 @@ pub struct Game {
     pub persistent_player_data: Arc<RefCell<HashMap<String, PersistentPlayerData>>>,
     pub gamerules: gamerule::Gamerules,
     pub tps: f64,
-    pub plugin_manager: PluginManager,
     pub async_commands: Receiver<AsyncGameCommand>,
     pub async_chat_manager: Sender<AsyncChatCommand>,
     pub perm_level_map: HashMap<String, u8>,
@@ -1861,7 +1860,6 @@ impl Game {
     }
     pub fn new(
         systems: Systems,
-        plugin_manager: PluginManager,
         recv: Receiver<AsyncGameCommand>,
         async_chat_manager: Sender<AsyncChatCommand>,
     ) -> Self {
@@ -2605,7 +2603,6 @@ impl Game {
             persistent_player_data: Arc::new(RefCell::new(epic_data)),
             gamerules: gamerule::Gamerules::default(),
             tps: 0.,
-            plugin_manager,
             async_commands: recv,
             async_chat_manager: async_chat_manager,
             perm_level_map: perm_level_map,

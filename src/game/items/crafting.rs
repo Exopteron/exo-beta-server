@@ -155,7 +155,8 @@ mod tests {
         solver.register(Recipe::Shaped(ShapedRecipe { input: grid, output: ItemStack::new(5, 0, 1) }));
         let mut grid = Grid::default();
         grid[0][0] = Some(ItemStack::new(1, 0, 1));
-        panic!("{:?}", solver.solve(&mut grid));
+        //panic!("{:?}", solver.solve(&mut grid));
+        assert_eq!(ItemStack::new(5, 0, 1), solver.solve(&mut grid).unwrap())
     }
     #[test]
     fn shapeless() {
@@ -166,6 +167,6 @@ mod tests {
         solver.register(Recipe::Shapeless(shapeless));
         let mut grid = Grid::default();
         grid[0][1] = Some(ItemStack::new(4, 0, 1));
-        panic!("{:?}", solver.solve(&mut grid));
+        assert_eq!(ItemStack::new(3, 0, 1), solver.solve(&mut grid).unwrap())
     }
 }

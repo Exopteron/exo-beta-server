@@ -137,8 +137,8 @@ async fn main() -> anyhow::Result<()> {
         game.check_world_save();
         Ok(())
     });
-    let mut manager = PluginManager::new();
-    load_plugins(&mut manager);
+/*     let mut manager = PluginManager::new();
+    load_plugins(&mut manager); */
     let (async_channel_send, async_channel_recv) = flume::unbounded();
     async_systems::setup_async_systems(async_channel_send.clone()).await;
     let (async_chat_send, async_chat_recv) = flume::unbounded();
@@ -149,7 +149,6 @@ async fn main() -> anyhow::Result<()> {
     }
     let mut game = game::Game::new(
         systems,
-        manager,
         async_channel_recv,
         async_chat_send.clone(),
     );
@@ -162,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Hello, world!");
     Ok(())
 }
-fn load_plugins(manager: &mut PluginManager) {
+/* fn load_plugins(manager: &mut PluginManager) {
     let mut faxvec: Vec<std::path::PathBuf> = Vec::new();
     std::fs::create_dir_all("plugins/").expect("Could not create plugins folder!");
     for element in std::path::Path::new(r"plugins/").read_dir().unwrap() {
@@ -180,12 +179,12 @@ fn load_plugins(manager: &mut PluginManager) {
             }
         }
     }
-}
+} */
 use std::panic::{self, AssertUnwindSafe};
 use std::time::Instant;
 use sysinfo::ProcessorExt;
 
-use plugins::PluginManager;
+//use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     std::env::set_var("RUST_BACKTRACE", "1");
     use std::sync::mpsc::channel;
