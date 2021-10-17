@@ -31,6 +31,7 @@ pub struct BlockPosition {
 }
 impl Eq for BlockPosition {}
 impl BlockPosition {
+    /// Check if position is within a block.
     pub fn within_block(&self, pos: Position) -> bool {
         let min_x = self.x as f64;
         let min_y = self.y as f64;
@@ -43,11 +44,13 @@ impl BlockPosition {
             && (pos.y <= max_y && pos.y >= min_y)
             && (pos.z <= max_z && pos.z >= min_z)
     }
+    /// Convert block position to chunk coordinates.
     pub fn to_chunk_coords(&self) -> ChunkCoords {
         let x = self.x as i32 / 16;
         let z = self.z as i32 / 16;
         ChunkCoords { x, z }
     }
+    /// Get +x,-x,+y,-y,+z,-z offsets from a block position.
     pub fn all_directions(&self) -> impl Iterator<Item = BlockPosition> {
         let mut list = Vec::with_capacity(6);
         let mut clone = self.clone();
@@ -149,6 +152,7 @@ impl std::fmt::Display for Position {
 }
 impl Position {
     pub const FEET_DISTANCE: i16 = 51;
+    /// Position from x, y, z
     pub fn from_pos(x: f64, y: f64, z: f64) -> Self {
         Position {
             x,
@@ -188,10 +192,12 @@ impl Position {
             self.z += amount;
         }
     }
+    /// Distance to other position
     pub fn distance(&self, other: &Position) -> f64 {
         ((self.x - other.x).powi(2) + (self.y - other.y).powi(2) + (self.z - other.z).powi(2))
             .sqrt()
     }
+    /// Direction this position is facing
     pub fn get_direction(&self) -> DVec3 {
         //let mut vector = DVec3::new(0.0, 0.0, 0.0);
         let rot_x = self.yaw as f64;
@@ -202,6 +208,7 @@ impl Position {
         let vector_z = xz * rot_x.to_radians().cos();
         DVec3::new(vector_x, vector_y, vector_z)
     }
+    /// If block is inside this position
     pub fn contains_block(&self, block_position: BlockPosition) -> bool {
         let mut us_pos = BlockPosition {
             x: (self.x + 0.1).floor() as i32,
@@ -217,6 +224,7 @@ impl Position {
         }
         false
     }
+    /// Position to chunk coordinates
     pub fn to_chunk_coords(&self) -> ChunkCoords {
         let x = self.x as i32 / 16;
         let z = self.z as i32 / 16;
@@ -269,9 +277,11 @@ impl std::default::Default for ItemStack {
     }
 }
 impl ItemStack {
+    /// New itemstack from id, damage and count.
     pub fn new(id: i16, damage: i16, count: i8) -> Self {
         Self { id, damage, count }
     }
+    /// Reset itemstack to default.
     pub fn reset(&mut self) {
         *self = Self::default();
     }
@@ -288,6 +298,7 @@ impl std::default::Default for Inventory {
     }
 }
 impl Inventory {
+    /// Default player inventory.
     pub fn new() -> Self {
         let mut slots = HashMap::new();
         for i in 0..45 {
@@ -298,6 +309,7 @@ impl Inventory {
     pub fn get_slot(&mut self, slot: i8) -> Option<&mut ItemStack> {
         self.items.get_mut(&slot)
     }
+    /// Insert an itemstack into a player inventory.
     pub fn insert_itemstack(&mut self, stack: ItemStack) -> Option<()> {
         'main_1: for i in 36..45 {
             let slot = if let Some(s) = self.items.get_mut(&i) {
@@ -386,9 +398,11 @@ pub struct ChunkCoords {
 impl Eq for ChunkCoords {}
 //use num::num_integer::roots::Roots;
 impl ChunkCoords {
+    /// Check distance to another chunk coordinate.
     pub fn distance(&self, other: &ChunkCoords) -> f64 {
         (((self.x - other.x).pow(2) + (self.z - other.z).pow(2)) as f64).sqrt()
     }
+    /// Chunk coordinates from a position.
     pub fn from_pos(position: &Position) -> Self {
         Self {
             x: (position.x / 16.0) as i32,
@@ -410,6 +424,7 @@ pub struct Chatbox {
     pub messages: Vec<Message>,
 }
 impl Chatbox {
+    /// Add message to chatbox.
     pub fn push(&mut self, message: Message) {
         self.messages.push(message);
     }
@@ -428,6 +443,7 @@ pub struct PlayerRef {
 }
 use crate::network::metadata::Metadata;
 impl PlayerRef {
+    /// Load chunks & teleport player to position.
     pub fn teleport(&self, game: &mut Game, position: &Position) {
         self.set_position(*position);
         self.check_chunks(game);
@@ -443,20 +459,25 @@ impl PlayerRef {
         };
         self.write_packet(packet);
     }
+    /// Set a player's permission level.
     pub fn set_permission_level(&self, level: u8) {
         self.player.borrow_mut().permission_level = level;
     }
+    /// Get a player's permission level.
     pub fn get_permission_level(&self) -> u8 {
         self.player.borrow().permission_level
     }
+    /// Remove this player from the server.
     pub fn remove(&self, extra: Option<String>) {
         self.player.borrow_mut().remove(extra);
     }
+    /// Create a new player.
     pub fn new(player: RefCell<Player>) -> Self {
         Self {
             player: Arc::new(player),
         }
     }
+    /// Open a window.
     pub fn open_window(&self, window: Window, id: i8) {
         self.player
             .borrow_mut()
@@ -469,12 +490,15 @@ impl PlayerRef {
             num_slots: window.inventory.borrow().items.len() as i8 - 1,
         });
     }
+    /// Get this player's open inventories.
     pub fn get_open_inventories(&self) -> HashMap<i8, Window> {
         self.player.borrow().open_inventories.clone()
     }
+    /// Close an open inventory.
     pub fn close_window(&self, id: i8) {
         self.player.borrow_mut().open_inventories.remove(&id);
     }
+    /// Send this player a chat message.
     pub fn send_message(&self, message: Message) {
         //log::info!("[{} CHAT] {}", self.get_username(), message.message);
         if CONFIGURATION.experimental.async_chat {
@@ -489,18 +513,21 @@ impl PlayerRef {
             self.player.borrow_mut().chatbox.push(message);
         }
     }
+    /// Write a packet to this player.
     pub fn write_packet(&self, packet: ServerPacket) {
         self.player.borrow_mut().write(packet);
     }
+    /// Check if this player is crouching.
     pub fn is_crouching(&self) -> bool {
         self.player.borrow().crouching.clone()
     }
-    // GAHHHHHHHHHH I JUST FIGURED THIS OUT NOW i'll do it tommorow. (did it almost)
+    /// Get the item in the player's hand.
     pub fn get_item_in_hand(&self) -> RefMut<'_, ItemStack> {
         RefMut::map(self.player.borrow_mut(), |plr| {
             plr.get_item_in_hand_mut().unwrap()
         })
     }
+    /// Clear the item in the player's in-inventory cursor.
     pub fn clear_cursor(&self) {
         self.write_packet(ServerPacket::SetSlot {
             window_id: -1,
@@ -510,53 +537,60 @@ impl PlayerRef {
             item_uses: None,
         });
     }
+    /// Get a clone of the item in the player's hand.
     pub fn get_item_in_hand_clone(&self) -> ItemStack {
         self.player.borrow().get_item_in_hand_ref().clone()
     }
+    /// Get a clone of the player's position.
     pub fn get_position_clone(&self) -> Position {
         self.player.borrow().position.clone()
     }
+    /// Get a clone of the player's last position.
     pub fn get_last_position_clone(&self) -> Position {
         self.player.borrow().last_position.clone()
     }
+    /// Get the ID of the world the player is in.
     pub fn get_world(&self) -> i8 {
         self.player.borrow().world.clone()
     }
+    /// Get the player's username.
     pub fn get_username(&self) -> String {
         self.player.borrow().username.clone()
     }
+    /// Set if the held item was changed.
     pub fn held_item_changed(&self, state: bool) {
         self.player.borrow_mut().held_item_changed = state;
     }
+    /// Change one of the held slots of the player.
     pub fn set_held_slot(&self, idx: i16) {
         self.player.borrow_mut().held_item_changed = true;
         self.player.borrow_mut().held_slot = idx;
     }
+    /// Get checking fall
     pub fn get_checking_fall(&self) -> bool {
         self.player.borrow().checking_fall.clone()
     }
+    /// Set checking fall
     pub fn set_checking_fall(&self, value: bool) {
         self.player.borrow_mut().checking_fall = value;
     }
-
-    /*     pub fn get_rendered_players_ref(&self) -> &HashMap<(EntityID, String), RenderedPlayerInfo> {
-        &self.player.borrow().rendered_players
-    }
-    pub fn get_rendered_players_mut(&self) -> &mut HashMap<(EntityID, String), RenderedPlayerInfo> {
-        &mut self.player.borrow_mut().rendered_players
-    } */
+    /// Get the player's entity ID.
     pub fn get_id(&self) -> EntityID {
         self.player.borrow().id.clone()
     }
+    /// Disconnect the player,
     pub fn disconnect(&self, reason: String) {
         self.player.borrow_mut().disconnect(reason);
     }
+    /// Get the player's health.
     pub fn get_health(&self) -> i16 {
         self.player.borrow().health.clone()
     }
+    /// Set the player's offground height.
     pub fn set_offground_height(&self, height: f32) {
         self.player.borrow_mut().offground_height = height;
     }
+    /// Damage the player.
     pub fn damage(&self, damage_type: DamageType, amount: i16, damagee: Option<&mut Player>) {
         if self.is_dead() {
             return;
@@ -571,7 +605,6 @@ impl PlayerRef {
             eid: id,
             entity_status: 2,
         });
-        //self.write_packet(ServerPacket::UpdateHealth { health: self.health });
         if let Some(plr) = damagee {
             plr.write(ServerPacket::EntityStatus {
                 eid: self.get_id().0,
@@ -584,11 +617,6 @@ impl PlayerRef {
         }
         let mut us = self.unwrap().unwrap();
         for (_, player) in us.players_list.0.borrow().iter() {
-            /*             let mut player = if let Ok(plr) = player.try_borrow_mut() {
-                plr
-            } else {
-                continue;
-            }; */
             if player.can_borrow() {
                 player.write_packet(ServerPacket::EntityStatus {
                     eid: us.id.0,
@@ -602,14 +630,17 @@ impl PlayerRef {
         }
         us.last_dmg_type = damage_type;
     }
+    /// Set the player's health.
     pub fn set_health(&self, health: i16) {
         let mut us = self.player.borrow_mut();
         us.health = health;
         us.write(ServerPacket::UpdateHealth { health });
     }
+    /// Get the player's loaded chunks.
     pub fn get_loaded_chunks(&self) -> Vec<ChunkCoords> {
         self.player.borrow().loaded_chunks.clone()
     }
+    /// Notify clients of equipment updates from this player.
     pub fn equipment_check(&self, game: &mut Game) -> anyhow::Result<()> {
         let mut cl = self.player.borrow_mut();
         // Held items check
@@ -645,82 +676,65 @@ impl PlayerRef {
         }
         Ok(())
     }
+    /// Check if the player is dead.
     pub fn is_dead(&self) -> bool {
         self.player.borrow().dead.clone()
     }
+    /// Set if the player is dead.
     pub fn set_dead(&self, dead: bool) {
         self.player.borrow_mut().dead = dead;
     }
+    /// Get a mutable reference to the player's position.
     pub fn get_position(&self) -> Position {
+        self.player.borrow_mut().pos_changed = true;
         self.player.borrow_mut().position
     }
+    /// Set the player's position.
     pub fn set_position(&self, pos: Position) {
         self.player.borrow_mut().pos_changed = true;
         self.player.borrow_mut().position = pos;
     }
+    /// Set the player's last position.
     pub fn set_last_position(&self, position: Position) {
         self.player.borrow_mut().last_position = position;
     }
+    /// Is the player crouching?
     pub fn get_crouching(&self) -> bool {
         self.player.borrow_mut().crouching
     }
+    /// Set if the player is crouching. Does not propogate to the player.
     pub fn set_crouching(&self, crouching: bool) {
         self.player.borrow_mut().metadata_changed = true;
         self.player.borrow_mut().crouching = crouching;
     }
+    /// Get a mutable reference to the player's inventory.
     pub fn get_inventory(&self) -> RefMut<'_, Inventory> {
         self.player.borrow_mut().inv_changed = true;
         RefMut::map(self.player.borrow_mut(), |plr| &mut plr.inventory)
     }
+    /// Check if the player can be borrowed.
     pub fn can_borrow(&self) -> bool {
         self.player.try_borrow().is_ok()
     }
-    /*     pub fn get_inventory_slot_mut(&self, slot: i8) -> Option<RefMut<'_, ItemStack>> {
-        if self.player.borrow().inventory.items.get(&slot).is_none() {
-            return None;
-        }
-        Some(RefMut::map(self.player.borrow_mut(), |plr| plr.inventory.items.get_mut(&slot).expect("Slot does not exist, fixlater")))
-    }
-    pub fn get_inventory_slot(&self, slot: i8) -> Option<ItemStack> {
-        Some(self.player.borrow().inventory.items.get(&slot)?.clone())
-    }
-    pub fn set_inventory_slot(&self, slot: i8, stack: ItemStack) -> Option<()> {
-        *self.player.borrow_mut().inventory.items.get_mut(&slot)? = stack;
-        Some(())
-    } */
+    /// Get a mutable reference to the item in the cursor
     pub fn get_current_cursored_item_mut(&self) -> RefMut<'_, Option<ItemStack>> {
         RefMut::map(self.player.borrow_mut(), |plr| {
             &mut plr.current_cursored_item
         })
     }
+    /// Get the internal player object
     pub fn unwrap(&self) -> Result<RefMut<'_, Player>, std::cell::BorrowMutError> {
         self.player.try_borrow_mut()
     }
+    /// Sync inventory with the client
     pub fn sync_inventory(&self) {
         let mut player = self.unwrap().unwrap();
-        /*         if let Some(curitem) = player.current_cursored_item {
-            player.write(ServerPacket::SetSlot {
-                window_id: -1,
-                slot: -1,
-                item_id: curitem.id,
-                item_count: Some(curitem.count),
-                item_uses: Some(curitem.damage),
-            });
-        } else {
-            player.write(ServerPacket::SetSlot {
-                window_id: -1,
-                slot: -1,
-                item_id: -1,
-                item_count: None,
-                item_uses: None,
-            });
-        } */
         let inv = player.inventory.clone();
-        //log::info!("Writing inv items");
         player.write(ServerPacket::InvWindowItems { inventory: inv });
         player.last_inventory = player.inventory.clone();
         player.inv_changed = false;
     }
+    /// Check chunks to load/unload
     pub fn check_chunks(&self, game: &mut Game) {
         let mut cl = self.player.borrow_mut();
         // Chunk check
@@ -767,23 +781,6 @@ impl PlayerRef {
                                 coords.z
                             );
                         }
-                        /*                         if let Err(e) = game
-                            .world
-                            .chunks
-                            .get_mut(&coords)
-                            .unwrap()
-                            .calculate_skylight(game.time)
-                        {
-                            log::warn!("Error calculating skylight: {:?}", e);
-                        } */
-                        /*                         if let Some(chunk) = game.world.chunks.get(&coords) {
-                                                    let mut chunk = chunk.clone();
-                                                    let sender = cl.packet_send_sender.clone();
-                                                    chunk.to_packets_async(sender);
-                        /*                             tokio::spawn(async move {
-                                                        chunk.to_packets_async(sender.clone()).await;
-                                                    }); */
-                                                } */
                         let packets = game
                             .world
                             .chunk_to_packets(coords, cl.packet_send_sender.clone());
@@ -797,12 +794,7 @@ impl PlayerRef {
                         game.world.generator.gen_chunk(ChunkCoords {
                             x: coords.x,
                             z: coords.z,
-                        }), // crate::chunks::Chunk::epic_generate(coords.x, coords.z)
-                            /*                 Chunk {
-                                x: idx.0,
-                                z: idx.1,
-                                data: [None, None, None, None, None, None, None, None],
-                            }, */
+                        }),
                     );
                 }
             }
@@ -829,9 +821,11 @@ impl PlayerRef {
             cl.write(packet);
         }
     }
+    /// Get this player's metadata
     pub fn build_metadata(&self) -> Metadata {
         self.unwrap().unwrap().build_metadata()
     }
+    /// Is the player underwater?
     pub fn is_underwater(&self, game: &mut Game) -> bool {
         let pos = self.get_position();
         let mut b1 = false;
@@ -862,18 +856,23 @@ impl PlayerRef {
         }
         b1 && b2
     }
+    /// Get the player's air level.
     pub fn get_air(&self) -> u16 {
         self.player.borrow().air
     }
+    /// Set the player's air level. Does not notify client.
     pub fn set_air(&self, air: u16) {
         self.player.borrow_mut().air = air;
     }
+    /// Get the last drown tick.
     pub fn get_last_drown_tick(&self) -> u128 {
         self.player.borrow().last_drown_tick
     }
+    /// Set the last drown tick.
     pub fn set_last_drown_tick(&self, tick: u128) {
         self.player.borrow_mut().last_drown_tick = tick;
     }
+    /// Tick the player.
     pub fn tick(&self, game: &mut Game) -> anyhow::Result<()> {
         if self.player.borrow().metadata_changed {
             for player in game.players.iter() {
