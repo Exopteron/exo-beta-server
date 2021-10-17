@@ -29,7 +29,7 @@ impl TickLoop {
             let elapsed = start.elapsed();
             if elapsed > *TICK_DURATION {
                 if CONFIGURATION.logging.slow_ticks {
-                    log::warn!("[Server task] Tick took too long ({:?})", elapsed);
+                    log::warn!("Tick took too long ({:?})", elapsed);
                 }
             } else {
                 std::thread::sleep(*TICK_DURATION - elapsed);

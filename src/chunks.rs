@@ -527,7 +527,7 @@ use std::time::*;
 impl World {
     pub fn to_file(&mut self, file: &str) {
         let start = Instant::now();
-        log::info!("[World Saver] Saving world to \"{}\"", file);
+        log::info!("Saving world to \"{}\"", file);
         use std::fs;
         fs::create_dir_all(file).unwrap();
         use rayon::prelude::*;
@@ -553,11 +553,11 @@ impl World {
         root.insert_str("generator", self.generator.get_name());
         let mut file = std::fs::File::create(format!("{}/main", file)).unwrap();
         write_compound_tag(&mut file, &root).unwrap();
-        log::info!("[World Saver] Done in {}ms.", start.elapsed().as_millis());
+        log::info!("Done in {}ms.", start.elapsed().as_millis());
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let start = Instant::now();
-        log::info!("[World Loader] Loading world from {}/", file);
+        log::info!("Loading world from {}/", file);
         let mut faxvec: Vec<std::path::PathBuf> = Vec::new();
         for element in std::path::Path::new(file).read_dir()? {
             let path = element.unwrap().path();
@@ -576,7 +576,7 @@ impl World {
             let insert = Chunk::from_file(path.to_str().unwrap())
                 .ok_or(anyhow::anyhow!("cant make chunk"))
                 .unwrap();
-            //log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
+            //log::info!("Loading chunk {}, {}", insert.x, insert.z);
             tx.clone()
                 .send((
                     ChunkCoords {
@@ -593,7 +593,7 @@ impl World {
         /*         for path in faxvec {
             let insert = Chunk::from_file(path.to_str().unwrap())
                 .ok_or(anyhow::anyhow!("cant make chunk"))?;
-            log::info!("[World Loader] Loading chunk {}, {}", insert.x, insert.z);
+            log::info!("Loading chunk {}, {}", insert.x, insert.z);
             chunks.insert(
                 ChunkCoords {
                     x: insert.x,
@@ -617,7 +617,7 @@ impl World {
             )),
             _ => Box::new(FlatChunkGenerator {}),
         };
-        log::info!("[World Loader] Done in {}s.", start.elapsed().as_secs());
+        log::info!("Done in {}s.", start.elapsed().as_secs());
         Ok(Self {
             chunks,
             generator: generator,

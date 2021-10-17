@@ -22,7 +22,7 @@ pub struct Listener {
 impl Listener {
     pub async fn start_listening(new_players: Sender<NewPlayer>, async_chat: Sender<AsyncChatCommand>) -> anyhow::Result<()> {
         let addr = format!("{}:{}", CONFIGURATION.listen_address, CONFIGURATION.listen_port);
-        log::info!("[Listener] Listening on {}", addr);
+        log::info!("Listening on {}", addr);
         let listener = TcpListener::bind(&addr).await?;
         let listener = Listener {
             listener,
@@ -37,7 +37,7 @@ impl Listener {
     async fn run(mut self) {
         loop {
             if let Ok((stream, addr)) = self.listener.accept().await {
-                log::info!("[Listener] Connection from {:?}", addr);
+                log::info!("Connection from {:?}", addr);
                 self.accept(stream, addr).await;
             }
         }

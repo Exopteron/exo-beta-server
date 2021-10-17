@@ -40,11 +40,11 @@ impl ItemRegistry {
         ITEM_REGISTRY.get().expect("Item registry is not initialized!")
     } 
     pub fn new() -> Self {
-        log::info!("[ItemRegistry] Initializing item registry");
+        log::info!("Initializing item registry");
         Self { items: HashMap::new(), recipe_solver: Solver::new() }
     }
     pub fn register_item(&mut self, id: i16, registry_name: &str, item: Box<dyn Item + Send + Sync>) {
-        //log::info!("[ItemRegistry] Registering item \"{}\" ({})", registry_name, id);
+        //log::info!("Registering item \"{}\" ({})", registry_name, id);
         self.items.insert(id, Arc::new(RegistryItem { name: registry_name.to_string(), item: Arc::new(item) }));
     }
     pub fn get_solver(&mut self) -> &mut Solver {

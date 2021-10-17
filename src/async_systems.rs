@@ -25,11 +25,11 @@ impl CommandExecutor for ConsoleCommandExecutor {
 pub async fn setup_async_systems(command_sender: Sender<AsyncGameCommand>) {
     let sender_2 = command_sender.clone();
     std::thread::spawn(move || {
-        log::info!("[Console thread] Started");
+        log::info!("Started");
         loop {
             let mut line = String::new();
             if let Err(e) = std::io::stdin().read_line(&mut line) {
-                log::error!("[Console thread] Error reading line from stdin: {:?}", e);
+                log::error!("Error reading line from stdin: {:?}", e);
             }
             if let Err(e) = sender_2.send(AsyncGameCommand::ScheduleSyncTask {
                 func: Arc::new(Box::new(move |game| {
@@ -63,7 +63,7 @@ pub async fn setup_async_systems(command_sender: Sender<AsyncGameCommand>) {
                     None
                 })),
             }) {
-                log::error!("[Console thread] Error executing command: {:?}", e);
+                log::error!("Error executing command: {:?}", e);
             }
         }
     });

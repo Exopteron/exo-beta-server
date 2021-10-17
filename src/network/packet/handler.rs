@@ -271,7 +271,7 @@ pub fn handle_packet(
                 let message = message.message;
                 //let message = message.replace("&", "§");
                 let message = Message::new(&format!("<{}> {}", player.get_username(), message));
-                log::info!("[Server task] {}", message.message);
+                log::info!("{}", message.message);
                 //log::debug!("bx");
                 for (id, player_iter) in game.players.0.borrow().clone() {
                     if id == player.get_id() {

@@ -1636,7 +1636,7 @@ impl Game {
     }
     pub fn op_status_message(&mut self, username: &str, message: &str) {
         let epic_msg = format!("({}: {})", username, message);
-        log::info!("[Server task] {}", epic_msg);
+        log::info!("{}", epic_msg);
         let epic_msg = format!("§7{}", epic_msg);
         for (_, player) in self.players.iter() {
             if player.get_permission_level() >= 4 {
@@ -2434,6 +2434,26 @@ impl Game {
             }),
         ));
         command_system.register(Command::new(
+            "list",
+            "List players.",
+            1,
+            vec![],
+            Box::new(|game, executor, _| {
+                let mut msg = format!("{}/{} online players: ", game.players.0.borrow().len(), CONFIGURATION.max_players);
+                let players = game.players.0.borrow();
+                let mut players = players.iter().peekable();
+                while let Some(plr) = players.next() {
+                    if players.peek().is_some() {
+                        msg.push_str(&format!("{}, ", plr.1.get_username()));
+                    } else {
+                        msg.push_str(&format!("{}.", plr.1.get_username()));
+                    }
+                }
+                executor.send_message(Message::new(&msg));
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
             "list-items",
             "List items.",
             1,
@@ -2572,13 +2592,13 @@ impl Game {
         let mut perm_level_map = HashMap::new();
         let ops = crate::configuration::get_ops();
         if ops.len() > 0 {
-            log::info!("[Server task] Loading operators from ops.toml");
+            log::info!("Loading operators from ops.toml");
             for op in ops {
-                log::info!("[Server task] Loading operator {}", op);
+                log::info!("Loading operator {}", op);
                 perm_level_map.insert(op, 4);
             }
         } else {
-            log::info!("[Server task] No server operators in file.");
+            log::info!("No server operators in file.");
         }
         let mut cached_command_list = Vec::new();
         for command in command_system.commands.iter() {
