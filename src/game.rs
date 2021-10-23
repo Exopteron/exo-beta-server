@@ -7,6 +7,7 @@ use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
 use crate::systems::Systems;
+use crate::world::mcregion::MCRegionLoader;
 //pub mod aa_bounding_box;
 use items::*;
 pub mod entities;
@@ -128,7 +129,7 @@ pub struct Position {
 #[derive(Copy, Clone)]
 pub struct Block {
     pub position: BlockPosition,
-    pub block: crate::chunks::Block,
+    pub block: crate::world::chunks::Block,
 }
 use glam::DVec3;
 impl std::default::Default for Position {
@@ -789,13 +790,17 @@ impl PlayerRef {
                         }
                     }
                 } else {
-                    game.world.chunks.insert(
-                        coords,
-                        game.world.generator.gen_chunk(ChunkCoords {
-                            x: coords.x,
-                            z: coords.z,
-                        }),
-                    );
+                    if let Some(c) = game.world.mcr_helper.get_chunk(ChunkCoords { x: coords.x, z: coords.z }) {
+                        game.world.chunks.insert(coords, c);
+                    } else {
+                        game.world.chunks.insert(
+                            coords,
+                            game.world.generator.gen_chunk(ChunkCoords {
+                                x: coords.x,
+                                z: coords.z,
+                            }),
+                        );
+                    }
                 }
             }
         }
@@ -1549,7 +1554,7 @@ pub struct Game {
     pub tile_entities:
         Arc<RefCell<HashMap<BlockPosition, Arc<RefCell<Box<dyn tile_entity::BlockTileEntity>>>>>>,
     pub systems: Arc<RefCell<Systems>>,
-    pub world: crate::chunks::World,
+    pub world: crate::world::chunks::World,
     pub block_updates: Vec<Block>,
     pub command_system: Arc<RefCell<CommandSystem>>,
     pub loaded_chunks: LoadedChunks,
@@ -1951,12 +1956,12 @@ impl Game {
             .ok()
             .expect("Can't set item registry!");
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
-        use crate::chunks::*;
-        let mut world: crate::chunks::World;
-        if let Ok(w) = crate::chunks::World::from_file(&CONFIGURATION.level_name) {
+        use crate::world::chunks::*;
+        let mut world: crate::world::chunks::World;
+        if let Ok(w) = crate::world::chunks::World::from_file_mcr(&CONFIGURATION.level_name) {
             world = w;
         } else {
-            world = crate::chunks::World::new(match CONFIGURATION.chunk_generator.as_str() {
+            /*match CONFIGURATION.chunk_generator.as_str() {
                 "noise" => {
                     let mut seed = rand::thread_rng().next_u64();
                     if let Some(s) = CONFIGURATION.world_seed {
@@ -1989,9 +1994,18 @@ impl Game {
                     log::info!("Unknown chunk generator \"{}\", using \"flat\"", unknown);
                     Box::new(FlatChunkGenerator {}) as Box<dyn ChunkGenerator>
                 }
-            });
+            } */
+            let mut seed = rand::thread_rng().next_u64();
+            if let Some(s) = CONFIGURATION.world_seed {
+                seed = s as u64;
+            }
+            world = crate::world::chunks::World::new(
+                Box::new(MountainWorldGenerator::new(seed)),
+                MCRegionLoader::new(&CONFIGURATION.level_name),
+            );
             world.generate_spawn_chunks();
         }
+        //world = crate::world::mcregion::temp_from_dir("New World").unwrap();
         let mut command_system = CommandSystem::new();
         command_system.register(Command::new(
             "rain",
@@ -2145,8 +2159,11 @@ impl Game {
                     let player = player.1;
                     if player_name.contains(&player.get_username()) {
                         player.disconnect(reason.clone());
-                        game.op_status_message(&executor.username(), &format!("Kicking {}", player_name));
-;                        executor.send_message(Message::new(&format!(
+                        game.op_status_message(
+                            &executor.username(),
+                            &format!("Kicking {}", player_name),
+                        );
+                        executor.send_message(Message::new(&format!(
                             "Kicking player \"{}\" for \"{}\".",
                             player_name, reason
                         )));
@@ -2280,7 +2297,10 @@ impl Game {
                         return Ok(3);
                     }
                 }
-                game.op_status_message(&executor.username(), &format!("Changed weather to \"{}\"", status));
+                game.op_status_message(
+                    &executor.username(),
+                    &format!("Changed weather to \"{}\"", status),
+                );
                 Ok(0)
             }),
         ));
@@ -2438,7 +2458,11 @@ impl Game {
             1,
             vec![],
             Box::new(|game, executor, _| {
-                let mut msg = format!("{}/{} online players: ", game.players.0.borrow().len(), CONFIGURATION.max_players);
+                let mut msg = format!(
+                    "{}/{} online players: ",
+                    game.players.0.borrow().len(),
+                    CONFIGURATION.max_players
+                );
                 let players = game.players.0.borrow();
                 let mut players = players.iter().peekable();
                 while let Some(plr) = players.next() {
@@ -2449,6 +2473,19 @@ impl Game {
                     }
                 }
                 executor.send_message(Message::new(&msg));
+                Ok(0)
+            }),
+        ));
+        command_system.register(Command::new(
+            "chunks",
+            "List chunks.",
+            1,
+            vec![],
+            Box::new(|game, executor, _| {
+                executor.send_message(Message::new(&format!(
+                    "There are {} chunks loaded.",
+                    game.loaded_chunks.0.len()
+                )));
                 Ok(0)
             }),
         ));
@@ -2857,23 +2894,22 @@ impl Game {
                         .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())?;
                     self.loaded_chunks.push(spawnchunk);
                 } else {
-                    self.world.chunks.insert(
-                        spawnchunk,
-                        self.world.generator.gen_chunk(ChunkCoords {
-                            x: spawnchunk.x,
-                            z: spawnchunk.z,
-                        }),
-                    );
-                    loaded_chunks.push(spawnchunk.clone());
-                    /*                     if let Err(e) = self
-                        .world
-                        .chunks
-                        .get_mut(&spawnchunk)
-                        .unwrap()
-                        .calculate_skylight(self.time)
-                    {
-                        log::warn!("Error calculating skylight: {:?}", e);
-                    } */
+                    if let Some(c) = self.world.mcr_helper.get_chunk(ChunkCoords {
+                        x: spawnchunk.x,
+                        z: spawnchunk.z,
+                    }) {
+                        self.world.chunks.insert(spawnchunk, c);
+                    } else {
+                        // TODO STRUCTURE GEN
+                        self.world.chunks.insert(
+                            spawnchunk,
+                            self.world.generator.gen_chunk(ChunkCoords {
+                                x: spawnchunk.x,
+                                z: spawnchunk.z,
+                            }),
+                        );
+                        loaded_chunks.push(spawnchunk.clone());
+                    }
                     self.world
                         .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())?;
                     self.loaded_chunks.push(spawnchunk);

@@ -192,7 +192,7 @@ pub fn handle_packet(
                 game.world.to_file("world");
             } */
             /*             if message.message == "chunkload" {
-                game.world = crate::chunks::World::from_file("world").unwrap();
+                game.world = crate::world::chunks::World::from_file("world").unwrap();
             } */
             /*             let mut inv = player.get_inventory();
             let mut slot = inv
@@ -1602,7 +1602,7 @@ pub fn handle_packet(
                     }
                 }
                 let registry = ItemRegistry::global();
-                if let Some(block) = game.world.get_block(packet.x, packet.y as i32, packet.z) {
+                if let Some(block) = game.world.get_block(exopacket.x, exopacket.y as i32, exopacket.z) {
                     log::debug!("Block: {:?}", block);
                     if let Some(i) = registry.get_item(block.b_type as i16) {
                         if let Some(i) = i.get_item().as_block() {
@@ -1811,6 +1811,9 @@ pub fn handle_packet(
                         y: packet.y as i32,
                         z: packet.z as i32,
                     };
+                    if !player.loaded_chunks.contains(&player.mining_block.block.to_chunk_coords()) {
+                        return Ok(());
+                    }
                     player.mining_block.face = packet.face;
                     //log::debug!("Got");
                     let block = if let Some(blk) =
@@ -1932,6 +1935,9 @@ pub fn handle_packet(
                     }
                 }
                 2 => {
+                    if !player.loaded_chunks.contains(&BlockPosition { x: packet.x, y: packet.y as i32, z: packet.z }.to_chunk_coords()) {
+                        return Ok(());
+                    }
                     log::debug!("Got pos {} {} {}", packet.x, packet.y, packet.z);
                     let block = if let Some(blk) =
                         game.world

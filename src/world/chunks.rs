@@ -1,14 +1,16 @@
 use crate::configuration::CONFIGURATION;
+use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
 use crate::network::packet::ServerPacket;
 use flume::{Receiver, Sender};
 use std::collections::HashMap;
+use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Block {
     pub b_type: u8,
     pub b_metadata: u8,
-    b_light: u8,
-    b_skylight: u8,
+    pub b_light: u8,
+    pub b_skylight: u8,
 }
 impl Block {
     pub fn set_type(&mut self, block_type: u8) {
@@ -34,9 +36,15 @@ impl ChunkSection {
             section,
         }
     }
+    pub fn get_data(&mut self) -> &mut Vec<Block> {
+        &mut self.data
+    }
 }
 impl ChunkSection {
-    pub fn pos_to_index(x: i32, y: i32, z: i32) -> usize {
+    pub fn pos_to_index(mut x: i32, mut y: i32, mut z: i32) -> usize {
+        /*         x %= 16;
+        y %= 16;
+        z %= 16; */
         (y + (z * 16) + (x * 16 * 16)) as usize
     }
     pub fn get_block(&mut self, idx: usize) -> Option<&mut Block> {
@@ -519,13 +527,15 @@ use crate::game::{BlockPosition, PlayerList, Position};
 use std::collections::VecDeque;
 pub struct World {
     pub chunks: HashMap<ChunkCoords, Chunk>,
-    pub generator: Box<dyn ChunkGenerator>,
+    pub generator: Arc<Box<dyn WorldGenerator>>,
     pub spawn_position: Position,
     pub block_updates: VecDeque<(BlockPosition, Block)>,
+    pub mcr_helper: MCRegionLoader,
 }
 use std::time::*;
 impl World {
     pub fn to_file(&mut self, file: &str) {
+        return;
         let start = Instant::now();
         log::info!("Saving world to \"{}\"", file);
         use std::fs;
@@ -554,6 +564,12 @@ impl World {
         let mut file = std::fs::File::create(format!("{}/main", file)).unwrap();
         write_compound_tag(&mut file, &root).unwrap();
         log::info!("Done in {}ms.", start.elapsed().as_millis());
+    }
+    pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
+        Ok(Self::new(
+            Box::new(MountainWorldGenerator::new(0)),
+            MCRegionLoader::new(dir),
+        ))
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let start = Instant::now();
@@ -606,23 +622,24 @@ impl World {
         use nbt::CompoundTag;
         let mut file = std::fs::File::open(format!("{}/main", file)).unwrap();
         let root = read_compound_tag(&mut file).unwrap();
-        let generator: Box<dyn ChunkGenerator> = match root.get_str("generator").unwrap() {
-            "FlatChunkGenerator" => Box::new(FlatChunkGenerator {}),
+        let generator: Box<dyn WorldGenerator> = match root.get_str("generator").unwrap() {
+            /*             "FlatChunkGenerator" => Box::new(FlatChunkGenerator {}),
             "FunnyChunkGenerator" => Box::new(FunnyChunkGenerator::new(
                 root.get_i64("seed").unwrap() as u64,
                 FunnyChunkPreset::REGULAR,
-            )),
-            "MountainChunkGenerator" => Box::new(MountainChunkGenerator::new(
+            )), */
+            "MountainChunkGenerator" => Box::new(MountainWorldGenerator::new(
                 root.get_i64("seed").unwrap() as u64,
             )),
-            _ => Box::new(FlatChunkGenerator {}),
+            _ => Box::new(MountainWorldGenerator::new(0)),
         };
         log::info!("Done in {}s.", start.elapsed().as_secs());
         Ok(Self {
             chunks,
-            generator: generator,
+            generator: Arc::new(generator),
             spawn_position: Position::from_pos(3., 45., 8.),
             block_updates: VecDeque::new(),
+            mcr_helper: MCRegionLoader::new(""),
         })
     }
     pub fn epic_test(&mut self) {
@@ -651,18 +668,32 @@ impl World {
                 if !self.check_chunk_exists(coords)
                 /*  && !(x == 0 && z == 0) */
                 {
-                    self.chunks.insert(
-                        coords,
-                        self.generator.gen_chunk(ChunkCoords {
-                            x: coords.x,
-                            z: coords.z,
-                        }), // crate::chunks::Chunk::epic_generate(coords.x, coords.z)
-                            /*                 Chunk {
-                                x: idx.0,
-                                z: idx.1,
-                                data: [None, None, None, None, None, None, None, None],
-                            }, */
-                    );
+                    if let Some(c) = self.mcr_helper.get_chunk(ChunkCoords {
+                        x: coords.x,
+                        z: coords.z,
+                    }) {
+                        self.chunks.insert(coords, c);
+                    } else {
+                        self.chunks.insert(
+                            coords,
+                            self.generator.gen_chunk(ChunkCoords {
+                                x: coords.x,
+                                z: coords.z,
+                            }), // crate::world::chunks::Chunk::epic_generate(coords.x, coords.z)
+                                /*                 Chunk {
+                                    x: idx.0,
+                                    z: idx.1,
+                                    data: [None, None, None, None, None, None, None, None],
+                                }, */
+                        );
+                        self.generator.clone().gen_structures(
+                            self,
+                            ChunkCoords {
+                                x: coords.x,
+                                z: coords.z,
+                            },
+                        );
+                    }
                     count += 1;
                 }
             }
@@ -769,11 +800,21 @@ impl World {
             .get(&ChunkCoords { x: idx.0, z: idx.1 })
             .is_some();
         if !chunk {
-            ////////////////////log::info!("Generating");
-            self.chunks.insert(
-                ChunkCoords { x: idx.0, z: idx.1 },
-                self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
-            );
+            if let Some(c) = self
+                .mcr_helper
+                .get_chunk(ChunkCoords { x: idx.0, z: idx.1 })
+            {
+                self.chunks.insert(ChunkCoords { x: idx.0, z: idx.1 }, c);
+            } else {
+                ////////////////////log::info!("Generating");
+                self.chunks.insert(
+                    ChunkCoords { x: idx.0, z: idx.1 },
+                    self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
+                );
+                self.generator
+                    .clone()
+                    .gen_structures(self, ChunkCoords { x: idx.0, z: idx.1 });
+            }
         }
         drop(chunk);
         let chunk = self.chunks.get_mut(&ChunkCoords { x: idx.0, z: idx.1 })?;
@@ -798,11 +839,22 @@ impl World {
             .get(&ChunkCoords { x: idx.0, z: idx.1 })
             .is_some();
         if !chunk {
-            //////////////////log::info!("Generating");
-            self.chunks.insert(
-                ChunkCoords { x: idx.0, z: idx.1 },
-                self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
-            );
+            if let Some(c) = self
+                .mcr_helper
+                .get_chunk(ChunkCoords { x: idx.0, z: idx.1 })
+            {
+                self.chunks.insert(ChunkCoords { x: idx.0, z: idx.1 }, c);
+            } else {
+                // TODO a standardized thing for generating missing chunks, not repeating code
+                //////////////////log::info!("Generating");
+                self.chunks.insert(
+                    ChunkCoords { x: idx.0, z: idx.1 },
+                    self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
+                );
+                self.generator
+                    .clone()
+                    .gen_structures(self, ChunkCoords { x: idx.0, z: idx.1 });
+            }
         }
         drop(chunk);
         let chunk = self.chunks.get_mut(&ChunkCoords { x: idx.0, z: idx.1 })?;
@@ -840,16 +892,19 @@ impl World {
         ); */
         Some((chunk_x, chunk_z, section))
     }
-    pub fn new(generator: Box<dyn ChunkGenerator>) -> Self {
+    pub fn new(generator: Box<dyn WorldGenerator>, mcr: MCRegionLoader) -> Self {
         let mut chunks = HashMap::new();
-        let coords = ChunkCoords { x: 0, z: 0 };
-        chunks.insert(coords, generator.gen_chunk(coords));
-        Self {
+        //let coords = ChunkCoords { x: 0, z: 0 };
+        //chunks.insert(coords, generator.gen_chunk(coords));
+        let mut world = Self {
             chunks: chunks,
-            generator,
+            generator: Arc::new(generator),
             spawn_position: Position::from_pos(3., 45., 8.),
             block_updates: VecDeque::new(),
-        }
+            mcr_helper: mcr,
+        };
+        //world.generator.clone().gen_structures(&mut world, coords);
+        world
     }
     /*     pub fn epic_generate() -> Self {
         let mut chunks = HashMap::new();
@@ -898,10 +953,11 @@ fn make_nibble_byte(mut a: u8, mut b: u8) -> Option<u8> {
 }
 fn decompress_nibble(input: u8) -> (u8, u8) {
     let b = input & 0b11110000;
+    let b = b >> 4;
     let a = input & 0b00001111;
     (a, b)
 }
-fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
+pub fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
     let mut output = vec![];
     if input.len() <= 0 {
         return None;
@@ -918,12 +974,32 @@ fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
     if input.len() <= 0 {
         return None;
     }
-    for i in 0..input.len() - 1 {
+    let mut i = 0;
+    while i < input.len() - 1 {
         output.push(make_nibble_byte(input[i], input[i + 1])?);
+        i += 2;
     }
+    if input.len() % 2 == 1 {
+        output.push(*input.last().unwrap())
+    }
+    output.remove(output.len() - 1);
     return Some(output);
 }
-
+pub trait WorldGenerator {
+    fn gen_chunk(&self, coords: ChunkCoords) -> Chunk;
+    fn gen_structures(&self, world: &mut World, coords: ChunkCoords);
+    fn get_seed(&self) -> u64 {
+        0
+    }
+    fn get_name(&self) -> String;
+}
+pub trait StructureGenerator {
+    fn gen_chunk(&self, world: &mut World, coords: ChunkCoords);
+    fn get_seed(&self) -> u64 {
+        0
+    }
+    fn get_name(&self) -> String;
+}
 pub trait ChunkGenerator {
     fn gen_chunk(&self, coords: ChunkCoords) -> Chunk;
     fn get_seed(&self) -> u64 {
@@ -940,6 +1016,115 @@ use worldgen::noisemap::ScaledNoiseMap;
 use worldgen::noisemap::{NoiseMap, NoiseMapGenerator, NoiseMapGeneratorBase, Seed, Size, Step};
 use worldgen::world::tile::{Constraint, ConstraintType};
 use worldgen::world::{Tile, World as NGWorld};
+
+use super::mcregion::MCRegionLoader;
+pub struct MountainStructureGenerator {
+    seed: u64,
+}
+impl MountainStructureGenerator {
+    pub fn new(seed: u64) -> Self {
+        Self { seed }
+    }
+}
+pub struct MountainWorldGenerator {
+    chunk_gen: MountainChunkGenerator,
+    structure_gen: MountainStructureGenerator,
+}
+impl MountainWorldGenerator {
+    pub fn new(seed: u64) -> Self {
+        Self {
+            chunk_gen: MountainChunkGenerator::new(seed),
+            structure_gen: MountainStructureGenerator::new(seed),
+        }
+    }
+}
+/* pub fn sphere(center: BlockPosition, radius: i32) -> Vec<BlockPosition> {
+    let mut vec = Vec::new();
+    let mut x = center.x - radius;
+    let mut y = center.y - radius;
+    let mut z = center.z - radius;
+    while x <= center.x + radius {
+        while y <= center.y + radius {
+            while z <= center.z + radius {
+                if ((center.x - x) * (center.x - x)) + ((center.y - y) * (center.y - y)) + ((center.z - z) * (center.z - z)) <= (radius * radius) {
+                    vec.push(BlockPosition { x, y, z });
+                }
+                z += 1;
+            }
+            y += 1;
+        }
+        x += 1;
+    }
+    vec
+} */
+impl WorldGenerator for MountainWorldGenerator {
+    fn gen_chunk(&self, coords: ChunkCoords) -> Chunk {
+        self.chunk_gen.gen_chunk(coords)
+    }
+    fn gen_structures(&self, world: &mut World, coords: ChunkCoords) {
+        use siphasher::sip::SipHasher13;
+        use std::hash::Hasher;
+        let mut hash = SipHasher13::new_with_keys(self.chunk_gen.seed, self.chunk_gen.seed);
+        hash.write_i32(coords.x);
+        hash.write_i32(coords.z);
+        let hash = hash.finish();
+        let mut rng = XorShiftRng::seed_from_u64(hash);
+        let tree_x = rng.gen_range(0..16);
+        let tree_z = rng.gen_range(0..16);
+        let chunk = world.chunks.get_mut(&coords).unwrap();
+        let mut last_y = 0;
+        for y in (25..127).rev() {
+            let block = chunk.get_block(tree_x, y, tree_z).unwrap();
+            if block.b_type != 2 {
+                continue;
+            }
+            for offset in 1..rng.gen_range(3..8) {
+                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap();
+                block.set_type(17);
+                last_y = y + offset;
+            }
+        }
+        drop(chunk);
+        let blocks = BlockPosition {
+            x: tree_x + (coords.x * 16),
+            y: last_y,
+            z: tree_z + (coords.z * 16),
+        }
+        .all_directions();
+        for block in blocks {
+            if let Some(block) = world.get_block_mut(block.x, block.y, block.z) {
+                if ItemRegistry::global()
+                    .get_item(block.b_type as i16)
+                    .is_none()
+                {
+                    continue;
+                }
+                if !ItemRegistry::global()
+                    .get_item(block.b_type as i16)
+                    .unwrap()
+                    .get_item()
+                    .as_block()
+                    .unwrap()
+                    .is_solid()
+                {
+                    block.set_type(18);
+                }
+            }
+        }
+    }
+    fn get_name(&self) -> String {
+        self.chunk_gen.get_name()
+    }
+    fn get_seed(&self) -> u64 {
+        self.chunk_gen.get_seed()
+    }
+}
+impl StructureGenerator for MountainStructureGenerator {
+    fn gen_chunk(&self, world: &mut World, coords: ChunkCoords) {}
+    fn get_name(&self) -> String {
+        String::from("MountainStructureGenerator")
+    }
+}
 pub struct MountainChunkGenerator {
     noise: ScaledNoiseMap<NoiseMap<PerlinNoise>>,
     seed: u64,
@@ -1101,18 +1286,6 @@ impl ChunkGenerator for MountainChunkGenerator {
                         b_skylight: 0,
                     };
                 }
-            }
-        }
-        let tree_x = rng.gen_range(0..16);
-        let tree_z = rng.gen_range(0..16);
-        for y in (WATER_HEIGHT..127).rev() {
-            let block = chunk.get_block(tree_x, y, tree_z).unwrap();
-            if block.b_type != 2 {
-                continue;
-            }
-            for offset in 1..rng.gen_range(3..8) {
-                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap();
-                block.set_type(17);
             }
         }
         for y in 0..WATER_HEIGHT {

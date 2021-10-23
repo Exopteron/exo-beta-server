@@ -3,7 +3,7 @@ pub struct Raycaster {
 
 }
 pub enum RaycastResult {
-    Block(crate::chunks::Block),
+    Block(crate::world::chunks::Block),
     Entity(EntityID)
 }
 impl Raycaster {

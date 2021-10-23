@@ -482,6 +482,44 @@ impl block::Block for GravelBlock {
         2.5
     }
 }
+pub struct LeavesBlock {}
+impl block::Block for LeavesBlock {
+    fn stack_size(&self) -> i16 {
+        64
+    }
+    fn on_place(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) -> bool {
+        true
+    }
+    fn on_break(
+        &self,
+        game: &mut Game,
+        packet: crate::network::packet::PlayerDigging,
+        player: std::cell::RefMut<'_, Player>,
+        tool: ItemStack,
+        position: BlockPosition,
+    ) -> Option<ItemStack> {
+        if rand::thread_rng().gen_range(0..10) == 7 {
+            return Some(ItemStack::new(6, 0, 1));
+        }
+        None
+    }
+    fn on_right_click(
+        &self,
+        game: &mut Game,
+        packet: &mut crate::network::packet::PlayerBlockPlacement,
+        player: Arc<PlayerRef>,
+    ) -> bool {
+        true
+    }
+    fn hardness(&self) -> f32 {
+        2.5
+    }
+}
 pub struct CraftingTableBlock {}
 impl block::Block for CraftingTableBlock {
     fn stack_size(&self) -> i16 {
@@ -1051,6 +1089,7 @@ pub fn init_items(registry: &mut ItemRegistry) {
     registry.register_item(64, "wooden_door_block", Box::new(WoodenDoorBlock {}));
     registry.register_item(6, "sapling_block", Box::new(SaplingBlock {}));
     registry.register_item(13, "gravel_block", Box::new(GravelBlock {}));
+    registry.register_item(18, "leaves_block", Box::new(LeavesBlock {}));
     let plank = ItemStack::new(5, 0, 1);
     let mut arrvec = arrayvec::ArrayVec::new();
     arrvec.push(ItemStack::new(17, 0, 1));
