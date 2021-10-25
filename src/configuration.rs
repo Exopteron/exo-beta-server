@@ -49,13 +49,13 @@ server_motd = "there!"
 # Max players.
 max_players = 32
 
-# World file location. Currently a strange NBT format I cooked up at 2am. dw about it
+# World file location. Minecraft region file format.
 level_name = "world"
 
 # Player chunk load distance
 chunk_distance = 8
 
-# Chunk generator, can be: (flat, noise, mountain). Noise is quite slow (working on it).
+# Chunk generator, can be: (flat, noise, mountain). Noise is quite slow (working on it). CURRENTLY HAS NO EFFECT.
 chunk_generator = "noise"
 
 # Server TPS (Ticks Per Second), probably shouldn't change it. But who's stopping you?
