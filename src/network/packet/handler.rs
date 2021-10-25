@@ -13,6 +13,7 @@ pub fn handle_packet(
     mut player: Arc<PlayerRef>,
     packet: ClientPacket,
 ) -> anyhow::Result<()> {
+    player.unwrap().unwrap().last_keepalive_time = game.ticks;
     match packet {
         ClientPacket::PlayerPacket(packet) => {
             if player.is_dead() {

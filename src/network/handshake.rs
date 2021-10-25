@@ -1,3 +1,5 @@
+use rand::RngCore;
+
 use super::worker::Worker;
 use super::packet::{ClientPacket, ClientPacketTypes, ServerPacket};
 use super::ids::EntityID;
@@ -12,6 +14,7 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<NewPlayer>
     } else {
         return Err(anyhow::anyhow!("Wrong packet!"));
     };
+    // log::info!("{} attempting to log in as {}", worker.addr, handshake_packet.username);
     //log::info!("Packet: {:?}", handshake_packet);
     let packet = ServerPacket::Handshake { connection_hash: "-".to_string() };
     worker.write(packet).await?;
@@ -24,6 +27,7 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<NewPlayer>
     } else {
         return Err(anyhow::anyhow!("Wrong packet!"));
     };
+    // log::info!("Successfully authenticated {}[/{}]", lr_packet.username, worker.addr);
     if lr_packet.protocol_version != 14 {
         worker.write(ServerPacket::Disconnect { reason: "Wrong version.".to_string() }).await?;
         return Err(anyhow::anyhow!("Wrong protocol version!"));

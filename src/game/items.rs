@@ -23,7 +23,7 @@ pub struct RecipeShapeless {
 }
 impl Eq for Recipe3X3 {}
 pub struct ItemRegistry {
-    items: HashMap<i16, Arc<RegistryItem>>,
+    items: HashMap<(i16, i16), Arc<RegistryItem>>,
     recipe_solver: Solver,
 }
 pub enum ToolType {
@@ -43,9 +43,13 @@ impl ItemRegistry {
         log::info!("Initializing item registry");
         Self { items: HashMap::new(), recipe_solver: Solver::new() }
     }
+    pub fn register_item_damage(&mut self, id: i16, damage: i16, registry_name: &str, item: Box<dyn Item + Send + Sync>) {
+        //log::info!("Registering item \"{}\" ({})", registry_name, id);
+        self.items.insert((id, damage), Arc::new(RegistryItem { name: registry_name.to_string(), item: Arc::new(item) }));
+    }
     pub fn register_item(&mut self, id: i16, registry_name: &str, item: Box<dyn Item + Send + Sync>) {
         //log::info!("Registering item \"{}\" ({})", registry_name, id);
-        self.items.insert(id, Arc::new(RegistryItem { name: registry_name.to_string(), item: Arc::new(item) }));
+        self.items.insert((id, 0), Arc::new(RegistryItem { name: registry_name.to_string(), item: Arc::new(item) }));
     }
     pub fn get_solver(&mut self) -> &mut Solver {
         &mut self.recipe_solver
@@ -54,20 +58,20 @@ impl ItemRegistry {
         &self.recipe_solver
     }
     pub fn get_item(&self, id: i16) -> Option<Arc<RegistryItem>> {
-        Some(self.items.get(&id)?.clone())
+        Some(self.items.get(&(id, 0))?.clone())
     }
 /*     pub fn get_block(&self, id: i16) -> Option<Box<dyn block::Block>> { 
         Some(Box::new(self.items.get(&id)?.get_item().as_block()?.clone()))
     } */
     pub fn get_item_name(&self, id: i8) -> Option<String> {
         for item in self.items.iter() {
-            if *item.0 == id as i16 {
+            if item.0.0 == id as i16 {
                 return Some(item.1.name.clone());
             }
         }
         None
     }
-    pub fn get_items(&self) -> &HashMap<i16, Arc<RegistryItem>> {
+    pub fn get_items(&self) -> &HashMap<(i16, i16), Arc<RegistryItem>> {
         &self.items
     }
 /*     pub fn register_3x3_recipe(&mut self, recipe: [ItemStack; 9], output: ItemStack) {

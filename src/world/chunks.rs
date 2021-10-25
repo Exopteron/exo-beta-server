@@ -1,9 +1,16 @@
 use crate::configuration::CONFIGURATION;
+use crate::game::GAME_GLOBAL;
 use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
 use crate::network::packet::ServerPacket;
 use flume::{Receiver, Sender};
+use libdeflater::CompressionLvl;
+use nbt::CompoundTag;
+use nbt::decode::read_compound_tag;
+use nbt::encode::write_compound_tag;
+use std::cell::RefCell;
 use std::collections::HashMap;
+use std::io::Write;
 use std::sync::Arc;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Block {
@@ -123,11 +130,16 @@ impl ChunkSection {
             blocklight.push(byte.b_light);
             skylight.push(byte.b_skylight);
         }
-        metadata.reverse();
+        //metadata.reverse();
         blockdata.append(&mut compress_to_nibble(metadata)?);
         blockdata.append(&mut compress_to_nibble(blocklight)?);
         blockdata.append(&mut compress_to_nibble(skylight)?);
-        let data = deflate::deflate_bytes_zlib(&blockdata);
+        let start = Instant::now();
+        let mut data = Vec::with_capacity(blockdata.len());
+        let mut compressor = flate2::write::ZlibEncoder::new(&mut data, flate2::Compression::fast());
+        compressor.write_all(&blockdata).ok()?;
+        compressor.finish().ok()?;
+        //log::info!("Compression took {}ns.", start.elapsed().as_nanos());
         /*         let size_x = size_x - 1;
         let size_y = size_y - 1;
         let size_z = size_z - 1; */
@@ -262,14 +274,11 @@ impl Chunk {
         for x in 0..16 {
             for z in 0..16 {
                 let y = self.heightmap[x as usize][z as usize];
-                for y in y..127 {
+                //for y in y..127 {
                     self.get_block(x, y as i32, z)
                         .ok_or(anyhow::anyhow!("Block does not exist!"))?
                         .b_skylight = 15;
-                    self.get_block(x, y as i32, z)
-                        .ok_or(anyhow::anyhow!("Block does not exist!"))?
-                        .b_light = 15;
-                }
+                //}
             }
         }
         Ok(())
@@ -390,7 +399,7 @@ impl Chunk {
             heightmap: [[0; 16]; 16],
         };
         chunk.calculate_heightmap().ok()?;
-        //chunk.calculate_skylight(game.time).ok()?;
+        chunk.calculate_skylight(GAME_GLOBAL.get_time()).ok()?;
         Some(chunk)
     }
     /*     pub fn calculate_skylight(&mut self, time: i64) {
@@ -486,6 +495,7 @@ impl Chunk {
             }
         }
         self.calculate_heightmap()?;
+        self.calculate_skylight(GAME_GLOBAL.get_time())?;
         Ok(())
     }
     pub fn fill_layer_air(&mut self, y: i32, block: Block) -> anyhow::Result<()> {
@@ -520,6 +530,7 @@ impl Chunk {
             }
         }
         self.calculate_heightmap()?;
+        self.calculate_skylight(GAME_GLOBAL.get_time())?;
         Ok(())
     }
 }
@@ -530,13 +541,46 @@ pub struct World {
     pub generator: Arc<Box<dyn WorldGenerator>>,
     pub spawn_position: Position,
     pub block_updates: VecDeque<(BlockPosition, Block)>,
-    pub mcr_helper: MCRegionLoader,
+    pub mcr_helper: Option<MCRegionLoader>,
 }
 use std::time::*;
 impl World {
-    pub fn to_file(&mut self, file: &str) {
-        return;
-        let start = Instant::now();
+    pub fn init_chunk(&mut self, coords: &ChunkCoords) {
+        let chunk = self.check_chunk_exists(coords);
+        if !chunk {
+            let coords = ChunkCoords { x: coords.x, z: coords.z };
+            if let Some(c) = self
+                .mcr_helper.as_mut().unwrap().get_chunk(coords)
+            {
+                self.chunks.insert(coords, c);
+            } else {
+                ////////////////////log::info!("Generating");
+                self.chunks.insert(
+                    coords,
+                    self.generator.gen_chunk(coords),
+                );
+                self.generator
+                    .clone()
+                    .gen_structures(self, coords);
+            }
+        }
+        let _ = self.chunks.get_mut(coords).unwrap().calculate_skylight(GAME_GLOBAL.get_time());
+    }
+    pub fn to_file(&mut self, file: &str) -> anyhow::Result<()> {
+        let mut mcr_helper = std::mem::replace(&mut self.mcr_helper, None);
+        if let Some(mcr_helper) = mcr_helper.as_mut() {
+            mcr_helper.save_all(self)?;
+        }
+        self.mcr_helper = mcr_helper;
+        let mut file = std::fs::File::create(&format!("{}/level.dat", self.mcr_helper.as_ref().unwrap().world_dir))?;
+        let mut root_tag = CompoundTag::new();
+        let mut tag = CompoundTag::new();
+        tag.insert_i32("SpawnX", self.spawn_position.x as i32);
+        tag.insert_i32("SpawnY", self.spawn_position.x as i32);
+        tag.insert_i32("SpawnZ", self.spawn_position.x as i32);
+        write_compound_tag(&mut file, &root_tag)?;
+        return Ok(());
+/*         let start = Instant::now();
         log::info!("Saving world to \"{}\"", file);
         use std::fs;
         fs::create_dir_all(file).unwrap();
@@ -563,13 +607,22 @@ impl World {
         root.insert_str("generator", self.generator.get_name());
         let mut file = std::fs::File::create(format!("{}/main", file)).unwrap();
         write_compound_tag(&mut file, &root).unwrap();
-        log::info!("Done in {}ms.", start.elapsed().as_millis());
+        log::info!("Done in {}ms.", start.elapsed().as_millis()); */
     }
     pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
-        Ok(Self::new(
-            Box::new(MountainWorldGenerator::new(0)),
-            MCRegionLoader::new(dir),
-        ))
+        let mut file = std::fs::File::open(&format!("{}/level.dat", dir))?;
+        let tag = read_compound_tag(&mut file)?;
+        let tag = tag.get_compound_tag("Data").or(Err(anyhow::anyhow!("Tag read error")))?.clone();
+        let spawn_x = tag.get_i32("SpawnX").or(Err(anyhow::anyhow!("Tag read error")))?;
+        let spawn_y = tag.get_i32("SpawnY").or(Err(anyhow::anyhow!("Tag read error")))?;
+        let spawn_z = tag.get_i32("SpawnZ").or(Err(anyhow::anyhow!("Tag read error")))?;
+        let mut world = Self::new(
+            Box::new(MountainWorldGenerator::new(tag.get_i64("RandomSeed").or(Err(anyhow::anyhow!("Tag read error")))? as u64)),
+            MCRegionLoader::new(dir)?,
+        );
+        world.spawn_position = Position::from_pos(spawn_x as f64, spawn_y as f64, spawn_z as f64);
+        drop(tag);
+        Ok(world)
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let start = Instant::now();
@@ -639,7 +692,7 @@ impl World {
             generator: Arc::new(generator),
             spawn_position: Position::from_pos(3., 45., 8.),
             block_updates: VecDeque::new(),
-            mcr_helper: MCRegionLoader::new(""),
+            mcr_helper: Some(MCRegionLoader::new("")?),
         })
     }
     pub fn epic_test(&mut self) {
@@ -665,35 +718,10 @@ impl World {
                 //let mut coords = ChunkCoords::from_pos(&Position::from_pos(0, 0, 0));
                 //coords.x += x;
                 //coords.z += z;
-                if !self.check_chunk_exists(coords)
+                if !self.check_chunk_exists(&coords)
                 /*  && !(x == 0 && z == 0) */
                 {
-                    if let Some(c) = self.mcr_helper.get_chunk(ChunkCoords {
-                        x: coords.x,
-                        z: coords.z,
-                    }) {
-                        self.chunks.insert(coords, c);
-                    } else {
-                        self.chunks.insert(
-                            coords,
-                            self.generator.gen_chunk(ChunkCoords {
-                                x: coords.x,
-                                z: coords.z,
-                            }), // crate::world::chunks::Chunk::epic_generate(coords.x, coords.z)
-                                /*                 Chunk {
-                                    x: idx.0,
-                                    z: idx.1,
-                                    data: [None, None, None, None, None, None, None, None],
-                                }, */
-                        );
-                        self.generator.clone().gen_structures(
-                            self,
-                            ChunkCoords {
-                                x: coords.x,
-                                z: coords.z,
-                            },
-                        );
-                    }
+                    self.init_chunk(&ChunkCoords { x: coords.x, z: coords.z });
                     count += 1;
                 }
             }
@@ -703,8 +731,8 @@ impl World {
             Instant::now().duration_since(start_time).as_secs()
         );
     }
-    pub fn check_chunk_exists(&self, coords: ChunkCoords) -> bool {
-        self.chunks.get(&coords).is_some()
+    pub fn check_chunk_exists(&self, coords: &ChunkCoords) -> bool {
+        self.chunks.get(coords).is_some()
     }
     pub fn chunk_to_packets(
         &self,
@@ -783,6 +811,10 @@ impl World {
                                     .get_mut(&update.to_chunk_coords())
                                     .expect("Impossible")
                                     .calculate_heightmap();
+                                    self.chunks
+                                    .get_mut(&update.to_chunk_coords())
+                                    .expect("Impossible")
+                                    .calculate_skylight(GAME_GLOBAL.get_time());
                             }
                         }
                     }
@@ -800,7 +832,11 @@ impl World {
             .get(&ChunkCoords { x: idx.0, z: idx.1 })
             .is_some();
         if !chunk {
-            if let Some(c) = self
+            self.init_chunk(&ChunkCoords {
+                x: idx.0,
+                z: idx.1,
+            });
+/*             if let Some(c) = self
                 .mcr_helper
                 .get_chunk(ChunkCoords { x: idx.0, z: idx.1 })
             {
@@ -814,7 +850,7 @@ impl World {
                 self.generator
                     .clone()
                     .gen_structures(self, ChunkCoords { x: idx.0, z: idx.1 });
-            }
+            } */
         }
         drop(chunk);
         let chunk = self.chunks.get_mut(&ChunkCoords { x: idx.0, z: idx.1 })?;
@@ -840,8 +876,8 @@ impl World {
             .is_some();
         if !chunk {
             if let Some(c) = self
-                .mcr_helper
-                .get_chunk(ChunkCoords { x: idx.0, z: idx.1 })
+                .mcr_helper.as_mut()
+                .unwrap().get_chunk(ChunkCoords { x: idx.0, z: idx.1 })
             {
                 self.chunks.insert(ChunkCoords { x: idx.0, z: idx.1 }, c);
             } else {
@@ -901,7 +937,7 @@ impl World {
             generator: Arc::new(generator),
             spawn_position: Position::from_pos(3., 45., 8.),
             block_updates: VecDeque::new(),
-            mcr_helper: mcr,
+            mcr_helper: Some(mcr),
         };
         //world.generator.clone().gen_structures(&mut world, coords);
         world
@@ -969,7 +1005,7 @@ pub fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
     }
     return Some(output);
 }
-fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
+pub fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
     let mut output = vec![];
     if input.len() <= 0 {
         return None;
@@ -982,7 +1018,7 @@ fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
     if input.len() % 2 == 1 {
         output.push(*input.last().unwrap())
     }
-    output.remove(output.len() - 1);
+    //output.remove(output.len() - 1);
     return Some(output);
 }
 pub trait WorldGenerator {

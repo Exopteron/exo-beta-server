@@ -58,26 +58,17 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     }
     Ok(())
 }
-/* pub fn update_local_health(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let players = game.players.0.borrow();
-    for player in players.iter() {
-        let mut cl = player.1;
-        if cl.health != cl.last_health {
-            let health = cl.health;
-            cl.write_packet(ServerPacket::UpdateHealth { health: health as i16 });
-            cl.last_health = cl.health;
-        }
-    }
-    Ok(())
-} */
+use crate::game::GAME_GLOBAL;
 pub fn time_update(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    game.time += 1;
-    game.time %= 24000;
+    GAME_GLOBAL.set_time(GAME_GLOBAL.get_time() + 1);
+    //game.time += 1;
+    GAME_GLOBAL.set_time(GAME_GLOBAL.get_time() % 24000);
+    //game.time %= 24000;
     let players = game.players.0.borrow();
     for player in players.iter() {
 /*         let mut cl = player.1.borrow_mut(); */
         // cl.
-        player.1.write_packet(ServerPacket::TimeUpdate { time: game.time });
+        player.1.write_packet(ServerPacket::TimeUpdate { time: GAME_GLOBAL.get_time() });
     }
     Ok(())
 }
@@ -85,7 +76,7 @@ pub fn tick_entities(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
     let interval = Duration::from_millis(750);
     let entities = game.entities.borrow().clone();
     for entity in entities.iter() {
-        if game.loaded_chunks.0.contains(&entity.1.borrow_mut().get_position().to_chunk_coords()) {
+        if game.loaded_chunks.contains(&entity.1.borrow_mut().get_position().to_chunk_coords()) {
             entity.1.borrow_mut().tick(game);
         }
     }
@@ -99,21 +90,6 @@ pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
     }
     Ok(())
 }
-/* pub fn check_void(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let interval = Duration::from_millis(750);
-    let players = game.players.0.borrow();
-    for player in players.iter() {
-        let mut cl = player.1; // .borrow_mut();
-        if cl.position.y <= 0.0 && !cl.dead {
-            if cl.last_void_dmg + interval < Instant::now() {
-                cl.damage(DamageType::Void, 3, None);
-/*                 cl.health -= 3; */
-                cl.last_void_dmg = Instant::now();
-            }
-        }
-    }
-    Ok(())
-} */
 pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for _ in 0..game.block_updates.len() {
         let update = game.block_updates.pop().unwrap();
@@ -130,101 +106,11 @@ pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
     }
     Ok(())
 }
-/* pub fn check_dead(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let players = game.players.0.borrow().clone();
-    for player in players.iter() {
-        let mut cl = player.1.borrow_mut();
-        if cl.health <= 0 && !cl.dead {
-            let mut msg = Message::new(&format!("{} died.", cl.username));
-            match &cl.last_dmg_type {
-                DamageType::None => {
-
-                }
-                DamageType::Void => {
-                    msg = Message::new(&format!("{} fell into the abyss.", cl.username));
-                }
-                DamageType::Player { damager } => {
-                    msg = Message::new(&format!("{} was beaten to death by {}.", cl.username, damager));
-                }
-            }
-            let id = cl.id.0;
-            game.broadcast_to_loaded(&cl, ServerPacket::EntityStatus { eid: id, entity_status: 3 })?;
-            game.broadcast_message(msg.clone())?;
-            cl.chatbox.push(msg);
-            println!("Yo!");
-            cl.write(ServerPacket::UpdateHealth { health: 0 });
-            cl.dead = true;
-        }
-    }
-    Ok(())
-} */
  pub fn sync_inv_force(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
     player.write(ServerPacket::InvWindowItems { inventory: player.inventory.clone() });
     player.last_inventory = player.inventory.clone();
     Ok(())
 }
-/* pub fn check_chunks(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
-    //let len = player.loaded_chunks.len();
-    let pos = player.position.clone();
-    let mut packets = vec![];
-    player.loaded_chunks.retain(|chunk| {
-        if chunk.distance(&ChunkCoords::from_pos(&pos)) > 3 {
-            packets.push(ServerPacket::PreChunk { x: chunk.x, z: chunk.z, mode: false });
-            return false;
-        }
-        true
-    });
-    for packet in packets {
-        player.write(packet);
-    }
-    for x in -3..3 {
-        for z in -3..3 {
-            //let coords = ChunkCoords { x: x, z: z };
-            let mut coords = ChunkCoords::from_pos(&pos);
-            coords.x += x;
-            coords.z += z;
-            if game.world.check_chunk_exists(coords)/*  && !(x == 0 && z == 0) */ {
-                if !player.loaded_chunks.contains(&coords) {
-                    player.loaded_chunks.push(coords);
-                    let packets = game.world.to_packets_chunk(coords, &mut player.packet_send_sender, &mut player.has_loaded_before);
-                    if packets.is_none() {
-                        continue;
-                    }
-                }
-            }
-        }
-    }
-    let mut packets = vec![];
-    player.rendered_players.retain(|id, _| {
-        packets.push(ServerPacket::DestroyEntity { eid: id.0.0 });
-        false
-    });
-    Ok(())
-} */
-/* pub fn check_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
-    let len = player.inventory.items.len();
-    for i in 0..len {
-        let item = player.inventory.items.get_mut(&(i as i8)).unwrap();
-        if item.count == 0 {
-            item.id = 0;
-            item.damage = 0;
-        }
-    }
-    Ok(())
-} */
-/* pub fn sync_inv(game: &mut Game, server: &mut Server, player: &mut Player) -> anyhow::Result<()> {
-    if player.inventory != player.last_inventory {
-        player.write(ServerPacket::InvWindowItems { inventory: player.inventory.clone() });
-        player.last_inventory = player.inventory.clone();
-    }
-    Ok(())
-} */
-/*
-            cl.health = 20;
-            cl.position.x = 0.0;
-            cl.position.y = 120.0;
-            cl.position.z = 0.0;
-*/
 pub fn sync_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for player in game.players.0.borrow().iter() {
         let mut player = player.1;
@@ -239,7 +125,11 @@ pub fn sync_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()
 pub fn check_loaded_chunks(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let players = game.players.0.borrow().clone();
     //log::info!("Loaded chunks: {:?}", game.loaded_chunks.0);
-    game.loaded_chunks.0.retain(|chunk| {
+    game.loaded_chunks.0.retain(|chunk, lifetime| {
+        if *lifetime < 1200 {
+            *lifetime += 1;
+            return true;
+        }
         for player in players.iter() {
             let player = player.1;
             if player.get_loaded_chunks().contains(chunk) {
@@ -247,6 +137,9 @@ pub fn check_loaded_chunks(game: &mut Game, server: &mut Server) -> anyhow::Resu
             }
             //let position = player.get_position_clone();
             //player.write(ServerPacket::PlayerTeleport { player_id: -1, position })?;
+        }
+        if CONFIGURATION.logging.chunk_unload {
+            log::info!("Unloading chunk {}, {}", chunk.x, chunk.z);
         }
         false
     });
@@ -412,44 +305,6 @@ pub fn entity_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
     }
     Ok(())
 }
-pub fn spawn_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let len = game.players.0.borrow().len().clone();
-    for i in 0..len {
-        let list = game.players.0.borrow();
-/*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
-        let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
-            plr.clone()
-        } else {
-            continue;
-        };
-        let mut player = list2;
-        drop(list);
-        for (id, player_obj) in game.players.0.borrow_mut().iter() {
-            if id == &player.get_id() {
-                continue;
-            }
-            let mut player_obj = player_obj;
-            if player_obj.unwrap().unwrap().rendered_players.get(&(player.get_id(), player.get_username())).is_none() && player_obj.get_loaded_chunks().contains(&ChunkCoords::from_pos(&player.get_position_clone())) {
-                player_obj.unwrap().unwrap().rendered_players.insert((player.get_id(), player.get_username()), crate::game::RenderedPlayerInfo {position: player.get_position_clone(), held_item: player.get_item_in_hand_clone() });
-                let pos = player.get_position_clone();
-                player_obj.write_packet(ServerPacket::NamedEntitySpawn { eid: player.get_id().0, name: player.get_username(), x: (pos.x * 32.0).round() as i32, y: (pos.y * 32.0).round() as i32, z: (pos.z * 32.0).round() as i32, rotation: 0, pitch: 0, current_item: 0 });
-            }
-        }
-    }
-    Ok(())
-}
-/* pub fn chat_msgs(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let players = game.players.0.borrow();
-    for player in players.iter() {
-        let mut cl = player.1.borrow_mut();
-        cl.chatbox.clone().messages.retain(|message| {
-            cl.write(ServerPacket::ChatMessage { message: message.message.clone() });
-            false
-        });
-        cl.chatbox = crate::game::Chatbox::default();
-    }
-    Ok(())
-} */
 pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let plrs = game.players.0.borrow().clone();
     for list2 in plrs {

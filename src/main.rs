@@ -9,6 +9,7 @@ pub mod objects;
 pub mod server;
 pub mod systems;
 pub mod world;
+pub mod api;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 use systems::Systems;

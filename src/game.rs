@@ -18,12 +18,34 @@ pub mod raycast;
 use entities::*;
 use events::*;
 use flume::{Receiver, Sender};
+use once_cell::sync::Lazy;
 use std::any::Any;
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 use std::sync::Arc;
+use std::sync::Mutex;
+pub struct GameGlobals {
+    time: i64,
+}
+pub struct GameGlobalRef {
+    globals: Mutex<Option<GameGlobals>>,
+}
+impl GameGlobalRef {
+    pub fn set(&self, globals: GameGlobals) {
+        *self.globals.lock().unwrap() = Some(globals);
+    }
+    pub fn get_time(&self) -> i64 {
+        self.globals.lock().unwrap().as_ref().unwrap().time
+    }
+    pub fn set_time(&self, time: i64) {
+        self.globals.lock().unwrap().as_mut().unwrap().time = time;
+    }
+}
+pub static GAME_GLOBAL: Lazy<GameGlobalRef> = Lazy::new(|| {
+    GameGlobalRef { globals: Mutex::new(None) }
+});
 #[derive(Copy, Clone, PartialEq, Debug, Hash)]
 pub struct BlockPosition {
     pub x: i32,
@@ -768,7 +790,7 @@ impl PlayerRef {
                 let mut coords = ChunkCoords::from_pos(&pos);
                 coords.x += x;
                 coords.z += z;
-                if game.world.check_chunk_exists(coords)
+                if game.world.check_chunk_exists(&coords)
                 /*  && !(x == 0 && z == 0) */
                 {
                     if !cl.loaded_chunks.contains(&coords) {
@@ -790,7 +812,7 @@ impl PlayerRef {
                         }
                     }
                 } else {
-                    if let Some(c) = game.world.mcr_helper.get_chunk(ChunkCoords { x: coords.x, z: coords.z }) {
+/*                     if let Some(c) = game.world.mcr_helper.get_chunk(ChunkCoords { x: coords.x, z: coords.z }) {
                         game.world.chunks.insert(coords, c);
                     } else {
                         game.world.chunks.insert(
@@ -800,7 +822,8 @@ impl PlayerRef {
                                 z: coords.z,
                             }),
                         );
-                    }
+                    } */
+                    game.world.init_chunk(&ChunkCoords { x: coords.x, z: coords.z });
                 }
             }
         }
@@ -879,6 +902,15 @@ impl PlayerRef {
     }
     /// Tick the player.
     pub fn tick(&self, game: &mut Game) -> anyhow::Result<()> {
+        if self.player.borrow().recv_packets_recv.is_disconnected() {
+            self.remove(Some(String::from("Disconnected")));
+            return Ok(());
+        }
+        if self.player.borrow().last_keepalive_time + 1200 < game.ticks {
+            self.remove(Some(String::from("Timed out")));
+            //self.disconnect("Timed out".to_string());
+            return Ok(());
+        }
         if self.player.borrow().metadata_changed {
             for player in game.players.iter() {
                 let player = player.1;
@@ -1279,6 +1311,7 @@ pub struct Player {
     pub air: u16,
     pub last_drown_tick: u128,
     pub async_chat: Sender<AsyncChatCommand>,
+    pub last_keepalive_time: u128,
     players_list: PlayerList,
 }
 impl Player {
@@ -1340,7 +1373,7 @@ impl Player {
         IDS.lock().unwrap().push(self.id.0);
         if let Some(extra) = extra {
             log::info!(
-                "{}/{} lost connection: {}",
+                "{}[/{}] lost connection: {}",
                 self.username,
                 self.socket_addr,
                 extra
@@ -1489,15 +1522,18 @@ impl PlayerList {
         list.into_iter()
     }
 }
-pub struct LoadedChunks(pub Vec<ChunkCoords>);
+pub struct LoadedChunks(pub HashMap<ChunkCoords, u128>);
 impl LoadedChunks {
     pub fn push(&mut self, coords: ChunkCoords) {
-        if !self.0.contains(&coords) {
-            self.0.push(coords);
+        if !self.0.contains_key(&coords) {
+            self.0.insert(coords, 0);
         }
     }
-    pub fn iter(&self) -> impl Iterator<Item = &ChunkCoords> {
+    pub fn iter(&self) -> impl Iterator<Item = (&ChunkCoords, &u128)> {
         self.0.iter()
+    }
+    pub fn contains(&self, coords: &ChunkCoords) -> bool {
+        self.0.contains_key(coords)
     }
 }
 #[derive(PartialEq, Clone)]
@@ -1558,7 +1594,6 @@ pub struct Game {
     pub block_updates: Vec<Block>,
     pub command_system: Arc<RefCell<CommandSystem>>,
     pub loaded_chunks: LoadedChunks,
-    pub time: i64,
     pub ticks: u128,
     pub persistent_player_data: Arc<RefCell<HashMap<String, PersistentPlayerData>>>,
     pub gamerules: gamerule::Gamerules,
@@ -1577,12 +1612,14 @@ use rand::Rng;
 impl Game {
     pub fn check_world_save(&mut self) {
         if self.world_saving {
-            if self.time % CONFIGURATION.autosave_interval == 0 {
+            if GAME_GLOBAL.get_time() % CONFIGURATION.autosave_interval == 0 {
                 self.op_status_message("CONSOLE", "Auto-saving the world..");
                 if let Err(e) = self.save_playerdata() {
                     log::info!("Error saving playerdata: {:?}", e);
                 }
-                self.world.to_file(&CONFIGURATION.level_name);
+                if let Err(e) = self.world.to_file(&CONFIGURATION.level_name) {
+                    log::info!("Error saving the world: {:?}", e);
+                }
                 self.op_status_message("CONSOLE", "Auto-save complete.");
             }
         }
@@ -1701,7 +1738,7 @@ impl Game {
     pub fn tile_entity_ticks(&mut self) {
         let tiles = self.tile_entities.borrow().clone();
         for (pos, entity) in tiles.iter() {
-            if self.loaded_chunks.0.contains(&pos.to_chunk_coords()) {
+            if self.loaded_chunks.contains(&pos.to_chunk_coords()) {
                 entity.borrow_mut().tick(self, *pos);
             }
         }
@@ -1719,7 +1756,7 @@ impl Game {
             let chunk = self
                 .world
                 .chunks
-                .get_mut(chunk)
+                .get_mut(chunk.0)
                 .expect("should be impossible!");
             let mut blocks = Vec::new();
             for section in 0..8 {
@@ -1867,6 +1904,8 @@ impl Game {
         recv: Receiver<AsyncGameCommand>,
         async_chat_manager: Sender<AsyncChatCommand>,
     ) -> Self {
+        let mut game_globals = GameGlobals { time: 0 };
+        GAME_GLOBAL.set(game_globals);
         let mut registry = ItemRegistry::new();
         let mut event_handler = EventHandler::new();
         event_handler.register_handler(Box::new(|event, game| {
@@ -1959,6 +1998,7 @@ impl Game {
         use crate::world::chunks::*;
         let mut world: crate::world::chunks::World;
         if let Ok(w) = crate::world::chunks::World::from_file_mcr(&CONFIGURATION.level_name) {
+            log::info!("LOading world!");
             world = w;
         } else {
             /*match CONFIGURATION.chunk_generator.as_str() {
@@ -2001,7 +2041,7 @@ impl Game {
             }
             world = crate::world::chunks::World::new(
                 Box::new(MountainWorldGenerator::new(seed)),
-                MCRegionLoader::new(&CONFIGURATION.level_name),
+                MCRegionLoader::new(&CONFIGURATION.level_name).unwrap(),
             );
             world.generate_spawn_chunks();
         }
@@ -2032,7 +2072,8 @@ impl Game {
                 if !(0..24001).contains(&time) {
                     return Ok(3);
                 }
-                game.time = time as i64;
+                GAME_GLOBAL.set_time(time as i64);
+                //game.time = time as i64;
                 executor.send_message(Message::new(&format!(
                     "Setting the time to {}.",
                     args[0].display(),
@@ -2500,7 +2541,7 @@ impl Game {
                 for item in registry.get_items() {
                     executor.send_message(Message::new(&format!(
                         "({}) {}",
-                        item.0,
+                        item.0.0,
                         item.1.get_name()
                     )));
                 }
@@ -2566,8 +2607,13 @@ impl Game {
                     executor
                         .send_message(Message::new(&format!("Error saving playerdata: {:?}", e)));
                 }
-                game.world.to_file(&CONFIGURATION.level_name);
-                game.op_status_message(&executor.username(), "Save complete.");
+                if let Err(e) = game.world.to_file(&CONFIGURATION.level_name) {
+                    log::info!("Error saving the world: {:?}", e);
+                    game.op_status_message(&executor.username(), "Save failed. Check console for details.");
+                } else {
+                    game.op_status_message(&executor.username(), "Save complete.");
+                }
+                //game.world.to_file(&CONFIGURATION.level_name);
                 Ok(0)
             }),
         ));
@@ -2581,7 +2627,7 @@ impl Game {
             1,
             std::sync::Arc::new(Box::new(|game| {
                 if game.is_storming {
-                    for chunk in game.loaded_chunks.0.clone().iter() {
+                    for (chunk, _) in game.loaded_chunks.0.clone().iter() {
                         if rand::thread_rng().gen() {
                             let x = rand::thread_rng().gen_range(0..16);
                             let z = rand::thread_rng().gen_range(0..16);
@@ -2651,11 +2697,10 @@ impl Game {
             world,
             block_updates: Vec::new(),
             command_system: Arc::new(RefCell::new(command_system)),
-            time: 0,
             ticks: 0,
             tile_entities: Arc::new(RefCell::new(HashMap::new())),
             entities: Arc::new(RefCell::new(HashMap::new())),
-            loaded_chunks: LoadedChunks(Vec::new()),
+            loaded_chunks: LoadedChunks(HashMap::new()),
             persistent_player_data: Arc::new(RefCell::new(epic_data)),
             gamerules: gamerule::Gamerules::default(),
             tps: 0.,
@@ -2888,13 +2933,17 @@ impl Game {
                     x: (pos.x as i32) + x,
                     z: (pos.z as i32) + z,
                 };
-                if self.world.check_chunk_exists(spawnchunk) {
+                if self.world.check_chunk_exists(&spawnchunk) {
                     loaded_chunks.push(spawnchunk.clone());
                     self.world
                         .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())?;
                     self.loaded_chunks.push(spawnchunk);
                 } else {
-                    if let Some(c) = self.world.mcr_helper.get_chunk(ChunkCoords {
+                    self.world.init_chunk(&ChunkCoords {
+                        x: spawnchunk.x,
+                        z: spawnchunk.z,
+                    });
+/*                     if let Some(c) = self.world.mcr_helper.get_chunk(ChunkCoords {
                         x: spawnchunk.x,
                         z: spawnchunk.z,
                     }) {
@@ -2909,7 +2958,7 @@ impl Game {
                             }),
                         );
                         loaded_chunks.push(spawnchunk.clone());
-                    }
+                    } */
                     self.world
                         .chunk_to_packets(spawnchunk, client.packet_send_sender.clone())?;
                     self.loaded_chunks.push(spawnchunk);
@@ -2992,6 +3041,7 @@ impl Game {
                 last_drown_tick: 0,
                 metadata_changed: true,
                 async_chat: self.async_chat_manager.clone(),
+                last_keepalive_time: self.ticks,
             }))),
         );
         let us = players.get(&id).unwrap().clone();

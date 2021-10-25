@@ -109,7 +109,6 @@ impl PacketReader {
             }
             //log::info!("HELLO LOOK HERE");
             if let Err(_) = self.send.send_async(packet).await {
-                log::info!("IT BROKE");
                 return Ok(());
             }
         }
@@ -126,6 +125,9 @@ impl <T: tokio::io::AsyncRead>InternalReader<T> {
         //log::info!("Called!");
         let id = Self::read_byte_raw(reader).await?;
         match id {
+            0x00 => {
+                return Ok(ClientPacket::KeepAlive);
+            }
             0x01 => {
                 //log::info!("Login request!");
                 return Ok(ClientPacket::LoginRequest( LoginRequest { protocol_version: Self::read_int(reader).await?, username: Self::read_string16(reader).await?, map_seed: Self::read_long(reader).await?, dimension: Self::read_byte(reader).await?}));

@@ -168,7 +168,18 @@ impl block::Block for CobblestoneBlock {
         tool: ItemStack,
         position: BlockPosition,
     ) -> Option<ItemStack> {
-        Some(ItemStack::new(4, 0, 1))
+        let registry = ItemRegistry::global();
+        if let Some(item) = registry.get_item(tool.id) {
+            if let Some(item) = item.get_item().get_tool_type() {
+                match item {
+                    ToolType::PICKAXE => {
+                        return Some(ItemStack::new(4, 0, 1));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        None
     }
     fn hardness(&self) -> f32 {
         2.
