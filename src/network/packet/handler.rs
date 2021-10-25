@@ -1428,13 +1428,8 @@ pub fn handle_packet(
                 let plrs = game.players.0.borrow();
                 let plr = plrs.get(&EntityID(packet.target)).clone();
                 if let Some(plr) = plr {
-                    let gamerule = game.gamerules.rules.get("pvp-enabled").unwrap();
-                    if let crate::game::gamerule::GameruleValue::Boolean(value) = gamerule {
-                        if !value {
-                            return Ok(());
-                        }
-                    } else {
-                        panic!("PVP Gamerule is not a boolean!");
+                    if !game.gamerules.get_boolean("pvp-enabled") {
+                        return Ok(());
                     }
                     if plr.get_position().distance(&player.position) < 6.0 {
                         let registry = ItemRegistry::global();

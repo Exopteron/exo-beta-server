@@ -954,56 +954,52 @@ impl PlayerRef {
         // Fall damage check
         if cl.position.on_ground {
             if cl.offground_height > (cl.position.y as f32) {
-                let gamerule = game.gamerules.rules.get("fall-damage").unwrap();
-                if let crate::game::gamerule::GameruleValue::Boolean(value) = gamerule {
-                    if *value {
-                        //log::info!("Offground: {}, pos: {}", cl.offground_height, cl.position.y);
-                        let height = cl.offground_height - (cl.position.y as f32);
-                        let mut do_dmg = true;
-                        //log::info!("Pos for {}: {:?}", cl.username, cl.position);
-                        if let Some(block) = game.world.get_block(
-                            cl.position.x as i32,
-                            (cl.position.y as i32) + 1,
-                            cl.position.z as i32,
-                        ) {
-                            if let Some(reg_block) =
-                                ItemRegistry::global().get_item(block.b_type as i16)
-                            {
-                                if let Some(reg_block) = reg_block.get_item().as_block() {
-                                    if reg_block.is_fluid() {
-                                        do_dmg = false;
-                                    }
+                let value = game.gamerules.get_boolean("fall-damage");
+                if value {
+                    //log::info!("Offground: {}, pos: {}", cl.offground_height, cl.position.y);
+                    let height = cl.offground_height - (cl.position.y as f32);
+                    let mut do_dmg = true;
+                    //log::info!("Pos for {}: {:?}", cl.username, cl.position);
+                    if let Some(block) = game.world.get_block(
+                        cl.position.x as i32,
+                        (cl.position.y as i32) + 1,
+                        cl.position.z as i32,
+                    ) {
+                        if let Some(reg_block) =
+                            ItemRegistry::global().get_item(block.b_type as i16)
+                        {
+                            if let Some(reg_block) = reg_block.get_item().as_block() {
+                                if reg_block.is_fluid() {
+                                    do_dmg = false;
                                 }
-                            }
-                        }
-                        if let Some(block) = game.world.get_block(
-                            cl.position.x as i32,
-                            (cl.position.y as i32) + 0,
-                            cl.position.z as i32,
-                        ) {
-                            if let Some(reg_block) =
-                                ItemRegistry::global().get_item(block.b_type as i16)
-                            {
-                                if let Some(reg_block) = reg_block.get_item().as_block() {
-                                    if reg_block.is_fluid() {
-                                        do_dmg = false;
-                                    }
-                                }
-                            }
-                        }
-                        if do_dmg {
-                            if height > 0.0 {
-                                let fall_dmg = (height - 3.0).max(0.0);
-                                //log::info!("Damage: {}", fall_dmg.round());
-                                cl.damage(DamageType::Fall, fall_dmg.round() as i16, None);
-                                //log::info!("Fell from a height of {}", height);
                             }
                         }
                     }
-                    cl.offground_height = 0.0;
-                } else {
-                    panic!("Fall damage gamerule is not a boolean!");
+                    if let Some(block) = game.world.get_block(
+                        cl.position.x as i32,
+                        (cl.position.y as i32) + 0,
+                        cl.position.z as i32,
+                    ) {
+                        if let Some(reg_block) =
+                            ItemRegistry::global().get_item(block.b_type as i16)
+                        {
+                            if let Some(reg_block) = reg_block.get_item().as_block() {
+                                if reg_block.is_fluid() {
+                                    do_dmg = false;
+                                }
+                            }
+                        }
+                    }
+                    if do_dmg {
+                        if height > 0.0 {
+                            let fall_dmg = (height - 3.0).max(0.0);
+                            //log::info!("Damage: {}", fall_dmg.round());
+                            cl.damage(DamageType::Fall, fall_dmg.round() as i16, None);
+                            //log::info!("Fell from a height of {}", height);
+                        }
+                    }
                 }
+                cl.offground_height = 0.0;
             }
         }
         // Void dmg check
@@ -1744,13 +1740,7 @@ impl Game {
         }
     }
     pub fn random_ticks(&mut self) {
-        let random_tick_speed: i32;
-        let gamerule = self.gamerules.rules.get("random-tick-speed").unwrap();
-        if let crate::game::gamerule::GameruleValue::Int(value) = gamerule {
-            random_tick_speed = *value;
-        } else {
-            panic!("Random tick speed gamerule is not an int!");
-        }
+        let random_tick_speed: i32 = self.gamerules.get_int("random-tick-speed");
         for chunk in self.loaded_chunks.0.clone().iter() {
             let mut rng = rand::thread_rng();
             let chunk = self
