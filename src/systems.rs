@@ -42,7 +42,7 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
         //log::info!("Balls");
         for id in remove {
             log::debug!("nyut");
-            let username = if let Some(plr) = game.players.0.borrow().get(&id) {
+            let username = if let Some(plr) = game.players.0.lock().unwrap().get(&id) {
                 plr.unwrap().unwrap().save_to_mem();
                 plr.get_username() // borrow().username.clone()
             } else {
@@ -50,7 +50,7 @@ pub fn ping(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
                 continue;
             };
             log::info!("§e{} left the game.", username);
-            game.players.0.borrow_mut().remove(&id);
+            game.players.0.lock().unwrap().remove(&id);
             clients.remove(&id);
             IDS.lock().unwrap().push(id.0);
         }
@@ -64,7 +64,7 @@ pub fn time_update(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     //game.time += 1;
     GAME_GLOBAL.set_time(GAME_GLOBAL.get_time() % 24000);
     //game.time %= 24000;
-    let players = game.players.0.borrow();
+    let players = game.players.0.lock().unwrap();
     for player in players.iter() {
 /*         let mut cl = player.1.borrow_mut(); */
         // cl.
@@ -84,7 +84,7 @@ pub fn tick_entities(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
 }
 pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     let interval = Duration::from_millis(750);
-    let players = game.players.0.borrow().clone();
+    let players = game.players.0.lock().unwrap().clone();
     for player in players.iter() {
         player.1.tick(game)?;
     }
@@ -93,10 +93,10 @@ pub fn tick_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
 pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
     for _ in 0..game.block_updates.len() {
         let update = game.block_updates.pop().unwrap();
-        if let Some(chunk) = game.world.chunks.get_mut(&update.position.to_chunk_coords()) {
+        if let Some(chunk) = game.world.get_world().chunks.get_mut(&update.position.to_chunk_coords()) {
             //chunk.calculate_heightmap()?;
         }
-        let clients = game.players.0.borrow();
+        let clients = game.players.0.lock().unwrap();
         for client in clients.iter() {
             if client.1.get_loaded_chunks().contains(&update.position.to_chunk_coords()) {
             //let mut cl = client.1.borrow_mut();
@@ -112,7 +112,7 @@ pub fn block_updates(game: &mut Game, server: &mut Server) -> anyhow::Result<()>
     Ok(())
 }
 pub fn sync_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    for player in game.players.0.borrow().iter() {
+    for player in game.players.0.lock().unwrap().iter() {
         let mut player = player.1;
         let position = player.get_position_clone();
         if position != player.get_last_position_clone() {
@@ -123,7 +123,7 @@ pub fn sync_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()
     Ok(())
 }
 pub fn check_loaded_chunks(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let players = game.players.0.borrow().clone();
+    let players = game.players.0.lock().unwrap().clone();
     //log::info!("Loaded chunks: {:?}", game.loaded_chunks.0);
     game.loaded_chunks.0.retain(|chunk, lifetime| {
         if *lifetime < 1200 {
@@ -147,12 +147,12 @@ pub fn check_loaded_chunks(game: &mut Game, server: &mut Server) -> anyhow::Resu
 }
 pub fn update_crouch(game: &mut Game, server: &mut Server, player_upd: Arc<PlayerRef>) -> anyhow::Result<()> {
     log::debug!("update_crouch called!");
-    let len = game.players.0.borrow().len().clone();
+    let len = game.players.0.lock().unwrap().len().clone();
     for i in 0..len {
         if i as i32 == player_upd.get_id().0 {
             continue;
         }
-        let list = game.players.0.borrow();
+        let list = game.players.0.lock().unwrap();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
@@ -199,7 +199,7 @@ pub fn rem_old_clients(game: &mut Game, server: &mut Server) -> anyhow::Result<(
         let mut list = server.clients.borrow_mut();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         if let Some(_) = list.get(&crate::network::ids::EntityID(i as i32)) {
-            if game.players.0.borrow().get(&crate::network::ids::EntityID(i as i32)).is_none() {
+            if game.players.0.lock().unwrap().get(&crate::network::ids::EntityID(i as i32)).is_none() {
                 list.remove(&crate::network::ids::EntityID(i as i32));
             }
         } else {
@@ -209,9 +209,9 @@ pub fn rem_old_clients(game: &mut Game, server: &mut Server) -> anyhow::Result<(
     Ok(())
 }
 pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let len = game.players.0.borrow().len().clone();
+    let len = game.players.0.lock().unwrap().len().clone();
     for i in 0..len {
-        let list = game.players.0.borrow();
+        let list = game.players.0.lock().unwrap();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
@@ -225,7 +225,7 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
         let mut packets = Vec::new();
         let name = player.get_username();
         for id in player.unwrap().unwrap().rendered_players.iter_mut() {
-            let pos = if let Some(plr) = game.players.0.borrow().get(&id.0.0) {
+            let pos = if let Some(plr) = game.players.0.lock().unwrap().get(&id.0.0) {
                 plr.get_position_clone()
             } else {
                 log::info!("Skipping player");
@@ -261,9 +261,9 @@ pub fn update_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
     Ok(())
 }
 pub fn entity_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let list = game.players.0.borrow().clone();
+    let list = game.players.0.lock().unwrap().clone();
     for list2 in list.iter() {
-/*         let list = game.players.0.borrow();
+/*         let list = game.players.0.lock().unwrap();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
@@ -306,9 +306,9 @@ pub fn entity_positions(game: &mut Game, server: &mut Server) -> anyhow::Result<
     Ok(())
 }
 pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> {
-    let plrs = game.players.0.borrow().clone();
+    let plrs = game.players.0.lock().unwrap().clone();
     for list2 in plrs {
-/*         let list = game.players.0.borrow();
+/*         let list = game.players.0.lock().unwrap();
 /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
         let list2 = if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
             plr.clone()
@@ -323,7 +323,7 @@ pub fn cull_players(game: &mut Game, server: &mut Server) -> anyhow::Result<()> 
         player.unwrap().unwrap().rendered_players.retain(|idname, _| {
             let (id, name) = idname;
           //  log::info!("For {}, {}", our_name, name);
-            if game.players.0.borrow().get(id).is_none() || &game.players.0.borrow().get(id).unwrap().get_username() != name { // .borrow().username
+            if game.players.0.lock().unwrap().get(id).is_none() || &game.players.0.lock().unwrap().get(id).unwrap().get_username() != name { // .borrow().username
             //    log::info!("For {}, derendering {}", our_name, name);
                 to_derender.push(id.clone());
                 return false;

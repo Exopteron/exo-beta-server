@@ -7,15 +7,8 @@ pub fn place_validator(game: &mut Game, packet: &crate::network::packet::PlayerB
         return false;
     }
     // BLOCKS thing
-    let block = if let Some(blk) = game
-        .world
-        .get_block(packet.x, packet.y as i32, packet.z)
-    {
-        blk
-    } else {
-        return false;
-    };
-    for user in game.players.0.borrow().iter() {
+    let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
+    for user in game.players.0.lock().unwrap().iter() {
         /*                     let mut pos = user.1.try_borrow();
         if pos.is_err() {
             continue;

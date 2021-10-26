@@ -110,7 +110,7 @@ async fn main() -> anyhow::Result<()> {
     });
     systems.add_system("world_block_updates", |game| {
         let players = game.players.clone();
-        game.world.send_block_updates(players);
+        //game.world.send_block_updates(players);
         Ok(())
     });
     systems.add_system("handle_events", |game| {
@@ -210,7 +210,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             tick_counter += 1;
         })) {
             game.save_playerdata().unwrap();
-            game.world.to_file(&CONFIGURATION.level_name);
+            game.world.get_world().to_file(&CONFIGURATION.level_name);
             println!("========================================");
             println!("\nPlease report this!\n");
             println!("========================================");
@@ -225,7 +225,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             println!("System OS version:       {:?}", sys.os_version());
             println!("CPU: {}", sys.global_processor_info().brand());
             println!("----- Game information:");
-            println!("online players: {}", game.players.0.borrow().len());
+            println!("online players: {}", game.players.0.lock().unwrap().len());
             println!("{} loaded chunks", game.loaded_chunks.0.len());
             println!("----- configuration info:\n{:?}", *CONFIGURATION);
             std::process::exit(1);

@@ -33,16 +33,15 @@ impl block::Block for SaplingBlock {
     }
     fn random_tick(&self, game: &mut Game, position: BlockPosition) {
         if rand::thread_rng().gen_range(0..4) == 3 {
-            game.world
-                .get_block_mut(position.x, position.y, position.z)
-                .expect("Not possible!")
-                .set_type(17);
+            game.world.get_block(&position).set_type(17);
             for i in 1..rand::thread_rng().gen_range(2..7) {
-                let world_block = game
-                    .world
-                    .get_block_mut(position.x, position.y + i, position.z)
-                    .expect("Not possible!");
-                if let Some(block) = ItemRegistry::global().get_item(world_block.b_type as i16) {
+                let world_block = game.world.get_block(&BlockPosition::new(
+                    position.x,
+                    position.y + i,
+                    position.z,
+                ));
+                if let Some(block) = ItemRegistry::global().get_item(world_block.get_type() as i16)
+                {
                     if let Some(block) = block.get_item().as_block() {
                         if !block.is_solid() {
                             world_block.set_type(17);
@@ -99,16 +98,18 @@ impl block::Block for GrassBlock {
         } */
         for i in 0..3 {
             for pos in position.all_directions() {
-                if let Some(block) = game.world.get_block(pos.x, pos.y + 1, pos.z) {
-                    if block.b_type != 0 {
-                        continue;
-                    }
+                let block = game
+                    .world
+                    .get_block(&BlockPosition::new(pos.x, pos.y + 1, pos.z));
+                if block.get_type() != 0 {
+                    continue;
                 }
-                if let Some(block) = game.world.get_block_mut(pos.x, pos.y, pos.z) {
-                    if block.b_type == 3 {
-                        if rand::thread_rng().gen_range(0..5) == 2 {
-                            block.b_type = 2;
-                        }
+                let block = game
+                    .world
+                    .get_block(&BlockPosition::new(pos.x, pos.y, pos.z));
+                if block.get_type() == 3 {
+                    if rand::thread_rng().gen_range(0..5) == 2 {
+                        block.set_type(2);
                     }
                 }
             }
@@ -323,17 +324,15 @@ impl block::Block for WoodenDoorBlock {
             }
         }
         // TODO automatically send block updates
-        if let Some(block_mut) = game
-            .world
-            .get_block_mut(packet.x, packet.y as i32, packet.z)
-        {
-            if let Some(block) = ItemRegistry::global().get_item(block_mut.b_type as i16) {
-                if let Some(block) = block.get_item().as_block() {
-                    if !block.is_solid() {
-                        block_mut.b_type = 64;
-                        block_mut.b_metadata = 1;
-                        return true;
-                    }
+        let block_mut =
+            game.world
+                .get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
+        if let Some(block) = ItemRegistry::global().get_item(block_mut.get_type() as i16) {
+            if let Some(block) = block.get_item().as_block() {
+                if !block.is_solid() {
+                    block_mut.set_type(64);
+                    block_mut.set_meta(1);
+                    return true;
                 }
             }
         }
@@ -347,22 +346,12 @@ impl block::Block for WoodenDoorBlock {
         tool: ItemStack,
         position: BlockPosition,
     ) -> Option<ItemStack> {
-        if let Some(block) = game
-            .world
-            .get_block_mut(position.x, position.y + 1, position.z)
-        {
-            if block.b_type == 64 {
-                block.b_type = 0;
-                block.b_metadata = 0;
-                game.block_updates.push(crate::game::Block {
-                    position: crate::game::BlockPosition {
-                        x: packet.x,
-                        y: (packet.y + 0) as i32,
-                        z: packet.z,
-                    },
-                    block: block.clone(),
-                });
-            }
+        let block =
+            game.world
+                .get_block(&BlockPosition::new(position.x, position.y + 1, position.z));
+        if block.get_type() == 64 {
+            block.set_type(0);
+            block.set_meta(0);
         }
         Some(ItemStack::new(64, 0, 1))
     }
@@ -424,26 +413,26 @@ impl block::Block for GravelBlock {
                 return false;
             }
         }
-        if let Some(block) = game
-            .world
-            .get_block(packet2.x, packet2.y as i32 - 1, packet2.z)
-        {
-            if let Some(block) = ItemRegistry::global().get_item(block.b_type as i16) {
-                if let Some(block) = block.get_item().as_block() {
-                    if !block.is_solid() {
-                        game.spawn_entity(Box::new(
-                            crate::game::entities::gravel_entity::GravelEntity::new(
-                                Position::from_pos(
-                                    packet2.x as f64 + 0.5,
-                                    packet2.y as f64 + 0.5,
-                                    packet2.z as f64 + 0.5,
-                                ),
-                                game.ticks,
+        let block = game.world.get_block(&BlockPosition::new(
+            packet2.x,
+            packet2.y as i32 - 1,
+            packet2.z,
+        ));
+        if let Some(block) = ItemRegistry::global().get_item(block.get_type() as i16) {
+            if let Some(block) = block.get_item().as_block() {
+                if !block.is_solid() {
+                    game.spawn_entity(Box::new(
+                        crate::game::entities::gravel_entity::GravelEntity::new(
+                            Position::from_pos(
+                                packet2.x as f64 + 0.5,
+                                packet2.y as f64 + 0.5,
+                                packet2.z as f64 + 0.5,
                             ),
-                        ));
-                        player.get_item_in_hand().count -= 1;
-                        return false;
-                    }
+                            game.ticks,
+                        ),
+                    ));
+                    player.get_item_in_hand().count -= 1;
+                    return false;
                 }
             }
         }
@@ -451,22 +440,23 @@ impl block::Block for GravelBlock {
     }
     fn nearby_block_update(&self, game: &mut Game, from: BlockPosition, to: BlockPosition) {
         log::info!("Got nearby");
-        if let Some(block) = game.world.get_block(to.x, to.y as i32 - 1, to.z) {
-            if let Some(block) = ItemRegistry::global().get_item(block.b_type as i16) {
-                if let Some(block) = block.get_item().as_block() {
-                    if !block.is_solid() {
-                        game.spawn_entity(Box::new(
-                            crate::game::entities::gravel_entity::GravelEntity::new(
-                                Position::from_pos(
-                                    to.x as f64 + 0.5,
-                                    to.y as f64 + 0.5,
-                                    to.z as f64 + 0.5,
-                                ),
-                                game.ticks,
+        let block = game
+            .world
+            .get_block(&BlockPosition::new(to.x, to.y as i32 - 1, to.z));
+        if let Some(block) = ItemRegistry::global().get_item(block.get_type() as i16) {
+            if let Some(block) = block.get_item().as_block() {
+                if !block.is_solid() {
+                    game.spawn_entity(Box::new(
+                        crate::game::entities::gravel_entity::GravelEntity::new(
+                            Position::from_pos(
+                                to.x as f64 + 0.5,
+                                to.y as f64 + 0.5,
+                                to.z as f64 + 0.5,
                             ),
-                        ));
-                        return;
-                    }
+                            game.ticks,
+                        ),
+                    ));
+                    return;
                 }
             }
         }
@@ -627,20 +617,20 @@ impl block::Block for TorchBlock {
         packet.damage = Some(match packet.direction {
             1 => {
                 let mut num = 0;
-                if let Some(block) = game
-                .world
-                .get_block(packet2.x, packet2.y as i32 - 1, packet2.z)
-            {
-                if let Some(block) = ItemRegistry::global().get_item(block.b_type as i16) {
+                let block = game.world.get_block(&BlockPosition::new(
+                    packet2.x,
+                    packet2.y as i32 - 1,
+                    packet2.z,
+                ));
+                if let Some(block) = ItemRegistry::global().get_item(block.get_type() as i16) {
                     if let Some(block) = block.get_item().as_block() {
                         if !block.is_solid() {
                             num = 5;
                         }
                     }
                 }
-            }
                 num
-            },
+            }
             2 => 4,
             3 => 3,
             4 => 2,

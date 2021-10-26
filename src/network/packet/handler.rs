@@ -64,18 +64,17 @@ pub fn handle_packet(
             }
             let mut bad_move = false;
             for y in 0..1 {
-                if let Some(block) = game.world.get_block(
+                let block = game.world.get_block(&BlockPosition::new(
                     packet.x.floor() as i32,
                     packet.y.floor() as i32,
                     packet.z.floor() as i32,
-                ) {
-                    if let Some(registry_block) =
-                        ItemRegistry::global().get_item(block.b_type as i16)
-                    {
-                        if let Some(registry_block) = registry_block.get_item().as_block() {
-                            if registry_block.is_solid() {
-                                bad_move = true;
-                            }
+                ));
+                if let Some(registry_block) =
+                    ItemRegistry::global().get_item(block.get_type() as i16)
+                {
+                    if let Some(registry_block) = registry_block.get_item().as_block() {
+                        if registry_block.is_solid() {
+                            bad_move = true;
                         }
                     }
                 }
@@ -119,18 +118,17 @@ pub fn handle_packet(
             }
             let mut bad_move = false;
             for y in 0..1 {
-                if let Some(block) = game.world.get_block(
+                let block = game.world.get_block(&BlockPosition::new(
                     packet.x.floor() as i32,
                     packet.y.floor() as i32,
                     packet.z.floor() as i32,
-                ) {
-                    if let Some(registry_block) =
-                        ItemRegistry::global().get_item(block.b_type as i16)
-                    {
-                        if let Some(registry_block) = registry_block.get_item().as_block() {
-                            if registry_block.is_solid() {
-                                bad_move = true;
-                            }
+                ));
+                if let Some(registry_block) =
+                    ItemRegistry::global().get_item(block.get_type() as i16)
+                {
+                    if let Some(registry_block) = registry_block.get_item().as_block() {
+                        if registry_block.is_solid() {
+                            bad_move = true;
                         }
                     }
                 }
@@ -248,25 +246,25 @@ pub fn handle_packet(
                     log::info!("{}", msg);
                     player.send_message(Message::new(&msg));
                 }
-/*                 //log::debug!("B");
-                match res {
-                    0 => {}
-                    1 => {
-                        player.send_message(Message::new(&format!("§7Bad syntax.")));
-                    }
-                    4 => {
-                        player.send_message(Message::new(&format!("§7Unknown command.")));
-                    }
-                    5 => {
-                        log::info!("§4Insufficient permission.");
-                        player.send_message(Message::new(&format!("§4Insufficient permission.")));
-                    }
-                    3 => {}
-                    res => {
-                        player
-                            .send_message(Message::new(&format!("§7Command returned code {}.", res)));
-                    }
-                } */
+            /*                 //log::debug!("B");
+            match res {
+                0 => {}
+                1 => {
+                    player.send_message(Message::new(&format!("§7Bad syntax.")));
+                }
+                4 => {
+                    player.send_message(Message::new(&format!("§7Unknown command.")));
+                }
+                5 => {
+                    log::info!("§4Insufficient permission.");
+                    player.send_message(Message::new(&format!("§4Insufficient permission.")));
+                }
+                3 => {}
+                res => {
+                    player
+                        .send_message(Message::new(&format!("§7Command returned code {}.", res)));
+                }
+            } */
             } else {
                 //log::debug!("sx");
                 let message = message.message;
@@ -274,7 +272,7 @@ pub fn handle_packet(
                 let message = Message::new(&format!("<{}> {}", player.get_username(), message));
                 log::info!("{}", message.message);
                 //log::debug!("bx");
-                for (id, player_iter) in game.players.0.borrow().clone() {
+                for (id, player_iter) in game.players.0.lock().unwrap().clone() {
                     if id == player.get_id() {
                         player.send_message(message.clone());
                     } else {
@@ -311,7 +309,7 @@ pub fn handle_packet(
             if packet.animate == 1 {
                 let id = player.get_id().clone();
                 let name = player.get_username();
-                let list = game.players.0.borrow().clone();
+                let list = game.players.0.lock().unwrap().clone();
                 for list2 in list {
                     if !list2.1.can_borrow() {
                         continue;
@@ -331,7 +329,7 @@ pub fn handle_packet(
                     if i as i32 == player.get_id().0 {
                         continue;
                     }
-                    let list = game.players.0.borrow();
+                    let list = game.players.0.lock().unwrap();
                     /*         let list2 = list[&crate::network::ids::EntityID(i as i8)].clone(); */
                     let list2 =
                         if let Some(plr) = list.get(&crate::network::ids::EntityID(i as i32)) {
@@ -1425,7 +1423,7 @@ pub fn handle_packet(
                 }
                 player.since_last_attack = std::time::Instant::now();
                 //game.broadcast_packet(ServerPacket::SoundEffect { effect_id: 1001, x: player.position.x as i32, y: player.position.y as i8, z: player.position.z as i32, sound_data: 0 })?;
-                let plrs = game.players.0.borrow();
+                let plrs = game.players.0.lock().unwrap();
                 let plr = plrs.get(&EntityID(packet.target)).clone();
                 if let Some(plr) = plr {
                     if !game.gamerules.get_boolean("pvp-enabled") {
@@ -1598,13 +1596,12 @@ pub fn handle_packet(
                     }
                 }
                 let registry = ItemRegistry::global();
-                if let Some(block) = game.world.get_block(exopacket.x, exopacket.y as i32, exopacket.z) {
-                    log::debug!("Block: {:?}", block);
-                    if let Some(i) = registry.get_item(block.b_type as i16) {
-                        if let Some(i) = i.get_item().as_block() {
-                            if i.on_right_click(game, &mut exopacket, player.clone()) == false {
-                                return Ok(());
-                            }
+                let block = game.world.get_block(&BlockPosition::new(exopacket.x, exopacket.y as i32, exopacket.z));
+                //log::debug!("Block: {:?}", block);
+                if let Some(i) = registry.get_item(block.get_type() as i16) {
+                    if let Some(i) = i.get_item().as_block() {
+                        if i.on_right_click(game, &mut exopacket, player.clone()) == false {
+                            return Ok(());
                         }
                     }
                 }
@@ -1620,43 +1617,42 @@ pub fn handle_packet(
                 }
             } else {
                 let registry = ItemRegistry::global();
-                if let Some(block) = game.world.get_block(packet.x, packet.y as i32, packet.z) {
-                    log::debug!("Block: {:?}", block);
-                    if let Some(i) = registry.get_item(block.b_type as i16) {
-                        if let Some(i) = i.get_item().as_block() {
-                            let mut exopacket = packet.clone();
-                            match exopacket.direction {
-                                0 => {
-                                    exopacket.y -= 1;
-                                }
-                                1 => {
-                                    exopacket.y = match exopacket.y.checked_add(1) {
-                                        Some(num) => num,
-                                        None => {
-                                            return Ok(());
-                                        }
+                let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
+                //log::debug!("Block: {:?}", block);
+                if let Some(i) = registry.get_item(block.get_type() as i16) {
+                    if let Some(i) = i.get_item().as_block() {
+                        let mut exopacket = packet.clone();
+                        match exopacket.direction {
+                            0 => {
+                                exopacket.y -= 1;
+                            }
+                            1 => {
+                                exopacket.y = match exopacket.y.checked_add(1) {
+                                    Some(num) => num,
+                                    None => {
+                                        return Ok(());
                                     }
                                 }
-                                2 => {
-                                    exopacket.z -= 1;
-                                }
-                                3 => {
-                                    exopacket.z += 1;
-                                }
-                                4 => {
-                                    exopacket.x -= 1;
-                                }
-                                5 => {
-                                    exopacket.x += 1;
-                                }
-                                x => {
-                                    log::debug!("Fal {}", x);
-                                    //return false;
-                                }
                             }
-                            if i.on_right_click(game, &mut packet, player.clone()) == false {
-                                return Ok(());
+                            2 => {
+                                exopacket.z -= 1;
                             }
+                            3 => {
+                                exopacket.z += 1;
+                            }
+                            4 => {
+                                exopacket.x -= 1;
+                            }
+                            5 => {
+                                exopacket.x += 1;
+                            }
+                            x => {
+                                log::debug!("Fal {}", x);
+                                //return false;
+                            }
+                        }
+                        if i.on_right_click(game, &mut packet, player.clone()) == false {
+                            return Ok(());
                         }
                     }
                 }
@@ -1718,17 +1714,10 @@ pub fn handle_packet(
                         return Ok(());
                     }
                 }
-                let block = if let Some(blk) =
-                    game.world
-                        .get_block_mut(packet.x, (packet.y + 0) as i32, packet.z)
-                {
-                    blk
-                } else {
-                    return Ok(());
-                };
+                let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
                 let mut pos = player.position.clone();
                 let held = player.get_item_in_hand_mut().unwrap();
-                for user in game.players.0.borrow().iter() {
+                for user in game.players.0.lock().unwrap().iter() {
                     /*                     let mut pos = user.1.try_borrow();
                     if pos.is_err() {
                         continue;
@@ -1745,7 +1734,7 @@ pub fn handle_packet(
                             y: packet.y + 1,
                             z: packet.z,
                             block_type: block.get_type() as i8,
-                            block_metadata: block.b_metadata as i8,
+                            block_metadata: block.get_meta() as i8,
                         });
                         return Ok(());
                     }
@@ -1761,7 +1750,7 @@ pub fn handle_packet(
                         y: packet.y + 1,
                         z: packet.z,
                         block_type: block.get_type() as i8,
-                        block_metadata: block.b_metadata as i8,
+                        block_metadata: block.get_meta() as i8,
                     });
                     return Ok(());
                 }
@@ -1776,14 +1765,6 @@ pub fn handle_packet(
                     //player.write(ServerPacket::BlockChange { x: packet.x, y: packet.y, z: packet.z, block_type: item.id as i8, block_metadata: 0x00 });
                     log::debug!("Setting block.");
                     block.set_type(item.id as u8);
-                    game.block_updates.push(crate::game::Block {
-                        position: crate::game::BlockPosition {
-                            x: packet.x,
-                            y: (packet.y + 1) as i32,
-                            z: packet.z,
-                        },
-                        block: block.clone(),
-                    });
                     success = true;
                 } else {
                     player.write(ServerPacket::BlockChange {
@@ -1791,7 +1772,7 @@ pub fn handle_packet(
                         y: packet.y + 1,
                         z: packet.z,
                         block_type: block.get_type() as i8,
-                        block_metadata: block.b_metadata as i8,
+                        block_metadata: block.get_meta() as i8,
                     })
                 }
                 if !success {}
@@ -1807,20 +1788,16 @@ pub fn handle_packet(
                         y: packet.y as i32,
                         z: packet.z as i32,
                     };
-                    if !player.loaded_chunks.contains(&player.mining_block.block.to_chunk_coords()) {
+                    if !player
+                        .loaded_chunks
+                        .contains(&player.mining_block.block.to_chunk_coords())
+                    {
                         return Ok(());
                     }
                     player.mining_block.face = packet.face;
                     //log::debug!("Got");
-                    let block = if let Some(blk) =
-                        game.world
-                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
-                    {
-                        blk
-                    } else {
-                        return Ok(());
-                    };
-                    let orig_type = block.b_type.clone();
+                    let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
+                    let orig_type = block.get_type();
                     //log::debug!("Or ig type {}", orig_type);
                     let registry = ItemRegistry::global();
                     if let Some(item) = registry.get_item(orig_type as i16) {
@@ -1831,7 +1808,7 @@ pub fn handle_packet(
                                     y: packet.y + 0,
                                     z: packet.z,
                                     block_type: block.get_type() as i8,
-                                    block_metadata: block.b_metadata as i8,
+                                    block_metadata: block.get_meta() as i8,
                                 });
                                 return Ok(());
                             }
@@ -1842,13 +1819,10 @@ pub fn handle_packet(
                             };
                             drop(block);
                             for position in uspos.all_directions() {
-                                if let Some(block) =
-                                    game.world.get_block(position.x, position.y, position.z)
-                                {
-                                    if let Some(block) = registry.get_item(block.b_type as i16) {
-                                        if let Some(block) = block.get_item().as_block() {
-                                            block.nearby_block_update(game, uspos, position);
-                                        }
+                                let block = game.world.get_block(&position);
+                                if let Some(block) = registry.get_item(block.get_type() as i16) {
+                                    if let Some(block) = block.get_item().as_block() {
+                                        block.nearby_block_update(game, uspos, position);
                                     }
                                 }
                             }
@@ -1858,14 +1832,7 @@ pub fn handle_packet(
                     } else {
                         return Ok(());
                     }
-                    let block = if let Some(blk) =
-                        game.world
-                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
-                    {
-                        blk
-                    } else {
-                        return Ok(());
-                    };
+                    let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
                     /*
                     if orig_type != 50 {
                         //log::debug!("Denied");
@@ -1879,14 +1846,6 @@ pub fn handle_packet(
                         return Ok(());
                     } */
                     block.set_type(0);
-                    game.block_updates.push(crate::game::Block {
-                        position: crate::game::BlockPosition {
-                            x: packet.x,
-                            y: (packet.y + 0) as i32,
-                            z: packet.z,
-                        },
-                        block: block.clone(),
-                    });
                     log::debug!("orig_type: {}", orig_type);
                     game.broadcast_to_loaded(
                         &player,
@@ -1931,19 +1890,19 @@ pub fn handle_packet(
                     }
                 }
                 2 => {
-                    if !player.loaded_chunks.contains(&BlockPosition { x: packet.x, y: packet.y as i32, z: packet.z }.to_chunk_coords()) {
+                    if !player.loaded_chunks.contains(
+                        &BlockPosition {
+                            x: packet.x,
+                            y: packet.y as i32,
+                            z: packet.z,
+                        }
+                        .to_chunk_coords(),
+                    ) {
                         return Ok(());
                     }
                     log::debug!("Got pos {} {} {}", packet.x, packet.y, packet.z);
-                    let block = if let Some(blk) =
-                        game.world
-                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
-                    {
-                        blk
-                    } else {
-                        return Ok(());
-                    };
-                    let orig_type = block.b_type.clone();
+                    let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
+                    let orig_type = block.get_type();
                     //log::debug!("Or ig type {}", orig_type);
                     let registry = ItemRegistry::global();
                     if let Some(item) = registry.get_item(orig_type as i16) {
@@ -1967,7 +1926,7 @@ pub fn handle_packet(
                             y: packet.y + 0,
                             z: packet.z,
                             block_type: block.get_type() as i8,
-                            block_metadata: block.b_metadata as i8,
+                            block_metadata: block.get_meta() as i8,
                         });
                         return Ok(());
                     }
@@ -1980,13 +1939,10 @@ pub fn handle_packet(
                             };
                             drop(block);
                             for position in uspos.all_directions() {
-                                if let Some(block) =
-                                    game.world.get_block(position.x, position.y, position.z)
-                                {
-                                    if let Some(block) = registry.get_item(block.b_type as i16) {
-                                        if let Some(block) = block.get_item().as_block() {
-                                            block.nearby_block_update(game, uspos, position);
-                                        }
+                                let block = game.world.get_block(&position);
+                                if let Some(block) = registry.get_item(block.get_type() as i16) {
+                                    if let Some(block) = block.get_item().as_block() {
+                                        block.nearby_block_update(game, uspos, position);
                                     }
                                 }
                             }
@@ -1996,14 +1952,7 @@ pub fn handle_packet(
                     } else {
                         return Ok(());
                     }
-                    let block = if let Some(blk) =
-                        game.world
-                            .get_block_mut(packet.x, (packet.y - 0) as i32, packet.z)
-                    {
-                        blk
-                    } else {
-                        return Ok(());
-                    };
+                    let block = game.world.get_block(&BlockPosition::new(packet.x, packet.y as i32, packet.z));
                     block.set_type(0);
                     log::debug!("orig_type: {}", orig_type);
                     game.broadcast_to_loaded(

@@ -71,10 +71,9 @@ impl Entity for ItemEntity {
             game.entities.borrow_mut().remove(&self.entity_id);
         }
         let clone = self.position.y - 0.1;
-        if let Some(blk) = game.world.get_block(self.position.x as i32, clone as i32, self.position.z as i32) {
-            if blk.get_type() == 0 {
-                self.position.y -= 0.1;
-            }
+        let block = game.world.get_block(&BlockPosition::new(self.position.x as i32, clone as i32, self.position.z as i32));
+        if block.get_type() == 0 {
+            self.position.y -= 0.1;
         }
         use crate::game::entities::*;
         if game.ticks - self.ticks_spawned > 5 {
@@ -98,7 +97,7 @@ impl Entity for ItemEntity {
                     }
                 }
             }
-            let players = game.players.0.borrow().clone();
+            let players = game.players.0.lock().unwrap().clone();
             for player in players {
                 if self.position.distance(&player.1.get_position()) < 1.5 && !player.1.is_dead() {
                     self.to_remove = true;

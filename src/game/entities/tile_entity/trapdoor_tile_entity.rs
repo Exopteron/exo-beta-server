@@ -31,9 +31,9 @@ impl BlockTileEntity for TrapdoorTileEntity {
             }
         }
         if internal.is_open {
-            game.world.get_block_mut(internal.position.x, internal.position.y, internal.position.z).expect("IMPOSSIBLE!").b_metadata = 1;
+            game.world.get_block(&internal.position).set_meta(1);
         } else {
-            game.world.get_block_mut(internal.position.x, internal.position.y, internal.position.z).expect("IMPOSSIBLE!").b_metadata = 0;
+            game.world.get_block(&internal.position).set_meta(0);
         }
         true
     }

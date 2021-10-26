@@ -49,16 +49,15 @@ impl Entity for GravelEntity {
     }
     fn tick(&mut self, game: &mut Game) {
         let clone = self.position.y.floor() - 0.3;
-        if let Some(blk) = game.world.get_block_mut(self.position.x.floor() as i32, clone as i32, self.position.z.floor() as i32) {
+        let blk = game.world.get_block(&BlockPosition::new(self.position.x.floor() as i32, clone as i32, self.position.z.floor() as i32));
+        if blk.get_type() != 0 {
             if let Some(reg_blk) = ItemRegistry::global().get_item(blk.get_type() as i16) {
                 if let Some(reg_blk) = reg_blk.get_item().as_block() {
                     if !reg_blk.is_solid() {
                         self.position.y -= 0.3;
                     } else {
                         game.entities.borrow_mut().remove(&self.entity_id);
-                        if let Some(block) = game.world.get_block_mut(self.position.x.floor() as i32, self.position.y.floor() as i32, self.position.z.floor() as i32) {
-                            block.set_type(13);
-                        }
+                        game.world.get_block(&BlockPosition::new(self.position.x.floor() as i32, self.position.y.floor() as i32, self.position.z.floor() as i32)).set_type(13);
                     }
                 }
             } else {

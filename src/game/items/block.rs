@@ -124,15 +124,14 @@ where
                             return Ok(());
                         }
                     }
-                    if let Some(block) = game.world.get_block(packet2.x, packet2.y as i32, packet2.z) {
-                        player.write_packet(ServerPacket::BlockChange {
-                            x: packet2.x,
-                            y: packet2.y,
-                            z: packet2.z,
-                            block_type: block.b_type as i8,
-                            block_metadata: block.b_metadata as i8,
-                        });
-                    }
+                    let block = game.world.get_block(&BlockPosition::new(packet2.x, packet2.y as i32, packet2.z));
+                    player.write_packet(ServerPacket::BlockChange {
+                        x: packet2.x,
+                        y: packet2.y,
+                        z: packet2.z,
+                        block_type: block.get_type() as i8,
+                        block_metadata: block.get_meta() as i8,
+                    });
                 }
             }
         }

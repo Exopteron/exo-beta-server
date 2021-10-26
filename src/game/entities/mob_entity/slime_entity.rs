@@ -84,7 +84,7 @@ impl MobEntity for SlimeEntity {
             }
         } else {
             let mut closest_position: Option<Position> = None;
-            for player in game.players.0.borrow().clone().iter() {
+            for player in game.players.0.lock().unwrap().clone().iter() {
                 let player = player.1;
                 if closest_position.is_none() {
                     closest_position = Some(player.get_position());
@@ -115,13 +115,12 @@ impl MobEntity for SlimeEntity {
                 game.entities.borrow_mut().remove(&self.entity_id);
             }
             let clone = self.position.y - 0.1;
-            if let Some(blk) = game.world.get_block(self.position.x as i32, clone as i32, self.position.z as i32) {
-                if blk.get_type() == 0 {
-                    self.position.y -= 0.1;
-                }
+            let block = game.world.get_block(&BlockPosition::new(self.position.x as i32, clone as i32, self.position.z as i32));
+            if block.get_type() == 0 {
+                self.position.y -= 0.1;
             }
             if self.health < 0 {
-                for player in game.players.0.borrow().clone().iter() {
+                for player in game.players.0.lock().unwrap().clone().iter() {
                     player.1.write_packet(ServerPacket::EntityStatus {
                         eid: self.entity_id.0,
                         entity_status: 3,
