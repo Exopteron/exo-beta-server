@@ -281,16 +281,14 @@ impl ChunkSection {
 }
 #[derive(Clone)]
 pub struct Chunk {
-    pub x: i32,
-    pub z: i32,
+    pub pos: ChunkCoords,
     pub data: [Option<ChunkSection>; 8],
     pub heightmap: [[i8; 16]; 16],
 }
 impl Chunk {
     pub fn plain(x: i32, z: i32) -> Self {
         let mut v = Self {
-            x,
-            z,
+            pos: ChunkCoords { x, z },
             data: [None, None, None, None, None, None, None, None],
             heightmap: [[0; 16]; 16],
         };
@@ -369,8 +367,8 @@ impl Chunk {
                 }
                 tag.insert_i8_vec("metadata", newvec);
                 tag.insert_i8_vec("blox", blockdatadata);
-                tag.insert_i32("chunkx", self.x);
-                tag.insert_i32("chunkz", self.z);
+                tag.insert_i32("chunkx", self.pos.x);
+                tag.insert_i32("chunkz", self.pos.z);
                 tag.insert_i8("section", section.section);
                 tags.push(tag);
             }
@@ -423,8 +421,7 @@ impl Chunk {
             chunksections.push(section);
         }
         let mut chunk = Chunk {
-            x: x,
-            z: z,
+            pos: ChunkCoords { x, z },
             data: [
                 Some(chunksections[0].clone()),
                 Some(chunksections[1].clone()),
@@ -467,7 +464,7 @@ impl Chunk {
         }
         let section = self.data.get_mut(idx.2 as usize)?;
         if section.is_none() {
-            *section = Some(ChunkSection::new(self.x, self.z, idx.2 as i8));
+            *section = Some(ChunkSection::new(self.pos.x, self.pos.z, idx.2 as i8));
         }
         let section = section.as_mut().unwrap();
         section.get_block(ChunkSection::pos_to_index(
@@ -487,8 +484,7 @@ impl Chunk {
             });
         }
         let chunk = Chunk {
-            x: x,
-            z: z,
+            pos: ChunkCoords { x, z },
             data: [
                 Some(ChunkSection {
                     data: blocks,
@@ -519,7 +515,7 @@ impl Chunk {
             .get_mut(section as usize)
             .ok_or(anyhow::anyhow!("Can't get section!"))?;
         if section.is_none() {
-            *section = Some(ChunkSection::new(self.x, self.z, sec_num as i8));
+            *section = Some(ChunkSection::new(self.pos.x, self.pos.z, sec_num as i8));
         }
         let section = section.as_mut().unwrap();
         for x in 0..16 {
@@ -548,7 +544,7 @@ impl Chunk {
             .get_mut(section as usize)
             .ok_or(anyhow::anyhow!("Can't get section!"))?;
         if section.is_none() {
-            *section = Some(ChunkSection::new(self.x, self.z, sec_num as i8));
+            *section = Some(ChunkSection::new(self.pos.x, self.pos.z, sec_num as i8));
         }
         let section = section.as_mut().unwrap();
         for x in 0..16 {
@@ -592,7 +588,7 @@ impl World {
                 z: coords.z,
             };
             if let Some(mcr_helper) = &mut self.mcr_helper {
-                if let Some(c) = mcr_helper.get_chunk(coords) {
+                if let Some(c) = mcr_helper.get_chunk(&coords) {
                     self.chunks.insert(coords, c);
                 }
             } else {
@@ -703,10 +699,7 @@ impl World {
             //log::info!("Loading chunk {}, {}", insert.x, insert.z);
             tx.clone()
                 .send((
-                    ChunkCoords {
-                        x: insert.x,
-                        z: insert.z,
-                    },
+                    insert.pos,
                     insert,
                 ))
                 .unwrap();
@@ -806,8 +799,8 @@ impl World {
                 log::debug!("Sending section");
                 if !initialized.contains(&coords) {
                     player.send(ServerPacket::PreChunk {
-                        x: chunk.x,
-                        z: chunk.z,
+                        x: chunk.pos.x,
+                        z: chunk.pos.z,
                         mode: true,
                     })?;
                     initialized.push(coords);
@@ -829,8 +822,8 @@ impl World {
                     log::debug!("Sending section");
                     if !initialized.contains(coords) {
                         player.send(ServerPacket::PreChunk {
-                            x: chunk.x,
-                            z: chunk.z,
+                            x: chunk.pos.x,
+                            z: chunk.pos.z,
                             mode: true,
                         })?;
                         initialized.push(*coords);
@@ -951,7 +944,7 @@ impl World {
                 .mcr_helper
                 .as_mut()
                 .unwrap()
-                .get_chunk(ChunkCoords { x: idx.0, z: idx.1 })
+                .get_chunk(&ChunkCoords { x: idx.0, z: idx.1 })
             {
                 self.chunks.insert(ChunkCoords { x: idx.0, z: idx.1 }, c);
             } else {
@@ -1337,8 +1330,10 @@ impl ChunkGenerator for MountainChunkGenerator {
         //log::info!("coords: {:?}", coords);
         let mut blocks = Vec::new();
         let mut chunk = Chunk {
-            x: coords.x,
-            z: coords.z,
+            pos: ChunkCoords {
+                x: coords.x,
+                z: coords.z,
+            },
             data: [
                 Some(ChunkSection {
                     data: blocks,
@@ -1464,8 +1459,7 @@ impl ChunkGenerator for FunnyChunkGenerator {
         //log::info!("coords: {:?}", coords);
         let mut blocks = Vec::new();
         let mut chunk = Chunk {
-            x: coords.x,
-            z: coords.z,
+            pos: coords,
             data: [
                 Some(ChunkSection {
                     data: blocks,
@@ -1575,8 +1569,7 @@ impl ChunkGenerator for FlatChunkGenerator {
             });
         } */
         let mut chunk = Chunk {
-            x: coords.x,
-            z: coords.z,
+            pos: coords,
             data: [
                 Some(ChunkSection {
                     data: blocks.clone(),

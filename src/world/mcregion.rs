@@ -14,7 +14,6 @@ use anvil_region::*;
 pub struct MCRegionLoader {
     pub world_dir: String,
     cheating: FolderRegionProvider,
-    region_cache: HashMap<(i32, i32), Arc<Region>>,
 }
 static PATH: OnceCell<String> = OnceCell::new();
 impl MCRegionLoader {
@@ -24,7 +23,6 @@ impl MCRegionLoader {
         //PATH.set(format!("{}/region", path.to_string())).unwrap();
         Ok(Self {
             world_dir: path.to_string(),
-            region_cache: HashMap::new(),
             cheating: FolderRegionProvider::new(&format!("{}/region", path.to_string())),
         })
     }
@@ -41,71 +39,17 @@ impl MCRegionLoader {
                 .or(Err(anyhow::anyhow!("Bad write")))?;
         }
         return Ok(());
-        /*         std::fs::create_dir_all(&format!("{}/region", self.world_dir))?;
-                let mut i = 0;
-                for (coords, chunk) in world.chunks.iter_mut() {
-                    let region_x = ((coords.x as f32) / 32.0).floor() as i32;
-                    let region_z = ((coords.z as f32) / 32.0).floor() as i32;
-                    let path = format!("{}/region/r.{}.{}.mcr", self.world_dir, region_x, region_z);
-                    let mut file = OpenOptions::new().write(true).create(true).read(true).open(&path).unwrap();
-                    //let mut file = File::create(&path)?;
-                    let mut seeknum = 8192;
-                    //file.seek(SeekFrom::End(8192))?;
-                    let mut final_pos: u64 = file.seek(SeekFrom::End(0))? + 8192;
-        /*             loop {
-                        file.seek(SeekFrom::Start(seeknum))?;
-                        let mut num = [0; 4];
-                        let _ = file.read_exact(&mut num);
-                        let num = u32::from_be_bytes(num);
-                        if num != 0 {
-                            //log::info!("Not free {}", num);
-                            seeknum += (num as u64) + 4;
-                        } else {
-                            final_pos = seeknum as u64;
-                            break;
-                        }
-                    } */
-                    let mut xmod = coords.x % 32;
-                    let mut zmod = coords.z % 32;
-                    if xmod < 0 {
-                        xmod += 32;
-                    }
-                    if zmod < 0 {
-                        zmod += 32;
-                    }
-                    let mut offset = 4 * ((coords.x & 31) + (coords.z & 31) * 32);
-                    //let offset = 4 * (xmod + zmod * 32);
-                    if offset > 0 {
-                        //offset += 1;
-                    }
-                    let mut chunk = Self::chunk_to_nbt(chunk)?;
-                    let mut len = 0;
-                    log::info!("Offset: {:?} of chunk {:?}", offset, coords);
-                    log::info!("Final pos: {:?}", final_pos);
-                    file.seek(SeekFrom::Start(offset as u64))?;
-                    let mut num = ((final_pos / 4096) as u32).to_be_bytes().to_vec();
-                    num.remove(0);
-                    log::info!("Num: {:?} {} {}", num, final_pos, final_pos / 4096);
-                    file.write_all(&num)?;
-                    len += file.write(&[(chunk.len() as f32 / 4096.).ceil() as u8])?;
-                    // file.seek(SeekFrom::Start((offset as u64) + 4096))?;
-                    // file.write_all(
-                    //     &(SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs() as u32).to_be_bytes(),
-                    // )?;
-                    file.seek(SeekFrom::Start(final_pos))?;
-                    log::info!("Chunk len: {:?}", &((chunk.len() + 1) as u32).to_be_bytes());
-                    file.write_all(&((chunk.len() + 1) as u32).to_be_bytes())?;
-                    file.write_all(&[2])?;
-                    while chunk.len() % 4096 != 0 {
-                        chunk.push(0);
-                    }
-                    file.write_all(&chunk)?;
-                    i += 1;
-                    if i > 11 {
-                        std::process::exit(0);
-                    }
-                } */
-        //std::process::exit(0);
+    }
+    pub fn set_chunk(&mut self, chunk: &mut Chunk) -> anyhow::Result<()> {
+        let mut region = self
+            .cheating
+            .get_region(RegionPosition::from_chunk_position(chunk.pos.x, chunk.pos.z))?;
+        region
+            .write_chunk(
+                RegionChunkPosition::from_chunk_position(chunk.pos.x, chunk.pos.z),
+                Self::chunk_to_nbt(chunk)?,
+            )
+            .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
     }
     pub fn chunk_to_nbt(chunk: &mut Chunk) -> anyhow::Result<CompoundTag> {
@@ -127,56 +71,21 @@ impl MCRegionLoader {
         let metadata = vec_u8_into_i8(metadata);
         level_tag.insert_i8_vec("Data", metadata);
         level_tag.insert_i8_vec("Blocks", block_data);
-        level_tag.insert_i32("xPos", chunk.x);
-        level_tag.insert_i32("zPos", chunk.z);
+        level_tag.insert_i32("xPos", chunk.pos.x);
+        level_tag.insert_i32("zPos", chunk.pos.z);
         root_tag.insert_compound_tag("Level", level_tag);
         //let mut output = Vec::new();
         //write_zlib_compound_tag(&mut output, &root_tag)?;
         Ok(root_tag)
         //Err(anyhow::anyhow!(""))
     }
-    pub fn get_chunk(&mut self, coords: ChunkCoords) -> Option<Chunk> {
+    pub fn get_chunk(&mut self, coords: &ChunkCoords) -> Option<Chunk> {
         let region_pos = RegionPosition::from_chunk_position(coords.x, coords.z);
         let region_chunk_pos = RegionChunkPosition::from_chunk_position(coords.x, coords.z);
         let mut region = self.cheating.get_region(region_pos).ok()?;
         let chunk_tag = region.read_chunk(region_chunk_pos).ok()?;
         let level_tag = chunk_tag.get_compound_tag("Level").ok()?;
         return Region::chunk_from_tag(level_tag).ok();
-        //return None;
-        //log::info!("Running!");
-        let region_x = ((coords.x as f32) / 32.0).floor() as i32;
-        let region_z = ((coords.z as f32) / 32.0).floor() as i32;
-        /*         log::info!(
-            "{:?} in region {}, {} looking for {} {}",
-            coords,
-            region_x,
-            region_z,
-            coords.x,
-            coords.z
-        ); */
-        let region: Arc<Region>;
-        if let Some(r) = self.region_cache.get(&(region_x, region_z)) {
-            region = r.clone();
-        } else {
-            // TODO don't do this. just read from the offset.
-            region = Arc::new(
-                Region::from_file(&format!(
-                    "{}/region/r.{}.{}.mcr",
-                    self.world_dir, region_x, region_z
-                ))
-                .ok()?,
-            );
-            self.region_cache
-                .insert((region_x, region_z), region.clone());
-        }
-        for chunk in region.chunks.iter() {
-            //log::info!("Running {} {}", chunk.x, chunk.z);
-            if (chunk.x == coords.x) && (chunk.z == coords.z) {
-                //log::info!("Found: {}, {}", chunk.x, chunk.z);
-                return Some(chunk.clone());
-            }
-        }
-        None
     }
 }
 #[derive(Clone)]
@@ -305,8 +214,10 @@ impl Region {
             }
         }
         let mut chunk = Chunk {
-            x: x_pos,
-            z: z_pos,
+            pos: ChunkCoords {
+                x: x_pos,
+                z: z_pos,
+            },
             data: [
                 Some(chunksections[0].clone()),
                 Some(chunksections[1].clone()),
@@ -454,8 +365,10 @@ impl Region {
                 }
             }
             let mut chunk = Chunk {
-                x: x_pos,
-                z: z_pos,
+                pos: ChunkCoords {
+                    x: x_pos,
+                    z: z_pos,
+                },
                 data: [
                     Some(chunksections[0].clone()),
                     Some(chunksections[1].clone()),
