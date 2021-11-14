@@ -7,12 +7,7 @@ A lot of code was inspired by feather-rs. I'm reasonably sure this is fine under
 
 This is not fully functional. More features are being added all the time!
 ## Current features:
-* World generation/saving/loading in a custom format (Region format support soon!)
-* Crafting
-* Health/damage/PVP
-* Items
-* Weather
-* Tools 
+* region file format that's it.
 
 ## Goals:
 * Make a fully functional b1.7.3 server (maybe skip redstone)
