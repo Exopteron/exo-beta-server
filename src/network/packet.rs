@@ -467,7 +467,7 @@ pub enum ServerPacket {
     PreChunk { x: i32, z: i32, mode: bool },
     MapChunk { x: i32, y: i16, z: i32, size_x: u8, size_y: u8, size_z: u8, compressed_size: i32, compressed_data: Vec<u8> },
     SpawnPosition { x: i32, y: i32, z: i32 },
-    PlayerPositionAndLook { x: f64, stance: f64, y: f64, z: f64, yaw: f32, pitch: f32, on_ground: bool },
+    PlayerPositionAndLook { x: f64, y: f64, stance: f64, z: f64, yaw: f32, pitch: f32, on_ground: bool },
     KeepAlive,
     NamedEntitySpawn { eid: i32, name: String, x: i32, y: i32, z: i32, rotation: i8, pitch: i8, current_item: i16 },
     EntityTeleport { eid: i32, x: i32, y: i32, z: i32, yaw: i8, pitch: i8 },
@@ -805,8 +805,8 @@ impl ServerPacket {
             ServerPacket::PlayerPositionAndLook { x, stance, y, z, yaw, pitch, on_ground } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_double(*x);
-                builder.insert_double(*stance);
                 builder.insert_double(*y);
+                builder.insert_double(*stance);
                 builder.insert_double(*z);
                 builder.insert_float(*yaw);
                 builder.insert_float(*pitch);

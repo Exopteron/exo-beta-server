@@ -1,9 +1,9 @@
-use std::{collections::HashMap, mem::replace, sync::Arc};
+use std::{collections::HashMap, mem::{replace, take}, sync::Arc};
 
 use hecs::Entity;
 use nbt::decode::read_compound_tag;
 
-use crate::{ecs::{Ecs, entities::player::Player}, game::{BlockPosition, ChunkCoords}};
+use crate::{ecs::{Ecs, entities::player::{ChunkLoadQueue, NetworkManager, Player}}, game::{BlockPosition, ChunkCoords, Position}, network::packet::ServerPacket};
 
 pub mod chunks;
 pub mod mcregion;
@@ -16,18 +16,49 @@ pub struct World {
     pub generator: Arc<Box<dyn WorldGenerator>>,
 }
 impl World {
+    pub fn unload_unused_chunks(&mut self, ecs: &mut Ecs) {
+        let mut all_loaded = Vec::new();
+        for (_, (_, c)) in ecs.query::<(&Player, &ChunkLoadQueue)>().iter() {
+            for c in c.chunks.iter() {
+                if !all_loaded.contains(c) {
+                    all_loaded.push(c.clone());
+                }
+            }
+        }
+        let mut to_unload = Vec::new();
+        for chunk in self.chunks.iter() {
+            if !all_loaded.contains(&chunk.0) {
+                to_unload.push(chunk.0.clone());
+            } 
+        }
+        for c in to_unload {
+            self.unload_chunk(&c);
+        }
+    }
     pub fn process_chunk_loads(&mut self, ecs: &mut Ecs) {
-        let chunks = replace(&mut self.load_manager.chunks, HashMap::new());
+        self.unload_unused_chunks(ecs);
+        let chunks = take(&mut self.load_manager.chunks);
+        //log::info!("Len: {}", chunks.len());
         for (chunk, data) in chunks.into_iter() {
             if !data.load {
                 self.chunks.remove(&chunk);
-                for p in ecs.query::<&Player>().iter() {
-                    // TODO notify the player of a chunk unloading
+                for (_, (_, n, q)) in ecs.query::<(&Player, &mut NetworkManager, &mut ChunkLoadQueue)>().iter() {
+                    if q.contains(&chunk) {
+                        n.write(ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z});
+                    }
+                    q.remove(&chunk);
                 }
             } else {
                 self.internal_load_chunk(&chunk);
-                for p in ecs.query::<&Player>().iter() {
-                    // TODO notify the player of a chunk loading
+                for (_, (_, n, q)) in ecs.query::<(&Player, &mut NetworkManager, &mut ChunkLoadQueue)>().iter() {
+                    if q.contains(&chunk) {
+                        if let Some(c) = self.chunks.get(&chunk) {
+                            n.write(ServerPacket::PreChunk {mode: true, x: chunk.x, z: chunk.z});
+                            c.to_packets(n);
+                        } else {
+                            log::error!("Expected chunk at ({}, {})", chunk.x, chunk.z);
+                        }
+                    }
                 }
             }
         }
@@ -41,26 +72,24 @@ impl World {
             self.chunks.insert(c.pos, c);
         }
     }
+    pub fn load_chunk(&mut self, coords: &ChunkCoords) {
+        log::info!("Loading chunk ({}, {})", coords.x, coords.z);
+        self.load_manager.load_chunk(coords);
+    }
     pub fn unload_chunk(&mut self, coords: &ChunkCoords) {
-        self.chunks.remove(coords);
+        log::info!("Unloading chunk ({}, {})", coords.x, coords.z);
+        self.load_manager.unload_chunk(coords);
     }
     pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
         let mut file = std::fs::File::open(&format!("{}/level.dat", dir))?;
-        let tag = read_compound_tag(&mut file)?;
-        let tag = tag
-            .get_compound_tag("Data")
-            .or(Err(anyhow::anyhow!("Tag read error")))?
-            .clone();
         let world = Self {
             generator: Arc::new(Box::new(MountainWorldGenerator::new(
-                tag.get_i64("RandomSeed")
-                    .or(Err(anyhow::anyhow!("Tag read error")))? as u64,
+                0,
             ))),
             region_provider: MCRegionLoader::new(dir)?,
             load_manager: ChunkLoadManager::default(),
             chunks: HashMap::new(),
         };
-        drop(tag);
         Ok(world)
     }
     pub fn pos_to_index(x: i32, y: i32, z: i32) -> Option<(i32, i32, i32)> {

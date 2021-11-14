@@ -34,6 +34,12 @@ async fn main() -> anyhow::Result<()> {
         game.poll_new_players(&mut server)?;
         Ok(())
     });
+    systems.add_system("chunk_loading", |game| {
+        for (_, world) in game.worlds.iter_mut() {
+            world.process_chunk_loads(&mut game.ecs);
+        }
+        Ok(())
+    });
     let mut game = game::Game::new(
         systems,
     );

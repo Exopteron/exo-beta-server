@@ -2,6 +2,7 @@ use crate::commands::*;
 use crate::configuration::CONFIGURATION;
 use crate::ecs::Ecs;
 use crate::ecs::EntityRef;
+use crate::ecs::entities::player::CurrentWorldInfo;
 use crate::ecs::entities::player::NetworkManager;
 use crate::ecs::entities::player::Player;
 use crate::ecs::entities::player::PlayerBuilder;
@@ -13,10 +14,12 @@ use crate::network::ids::IDS;
 use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
 use crate::server::Server;
+use crate::world::World;
 use crate::world::mcregion::MCRegionLoader;
 //pub mod aa_bounding_box;
 //use items::*;
 use flume::{Receiver, Sender};
+use hecs::Entity;
 use once_cell::sync::Lazy;
 use std::any::Any;
 use std::cell::RefCell;
@@ -414,9 +417,9 @@ pub struct CachedCommandData {
 }
 pub struct Game {
     pub objects: Arc<Objects>,
+    pub worlds: HashMap<i32, World>,
     pub ecs: Ecs,
     pub systems: Arc<RefCell<Systems>>,
-    pub world: crate::world::chunks::World,
     pub loaded_chunks: LoadedChunks,
     pub ticks: u128,
 }
@@ -429,7 +432,7 @@ impl Game {
         use rand::RngCore;
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
         use crate::world::chunks::*;
-        let mut world: crate::world::chunks::World;
+/*         let mut world: crate::world::chunks::World;
         if let Ok(w) = crate::world::chunks::World::from_file_mcr(&CONFIGURATION.level_name) {
             log::info!("LOading world!");
             world = w;
@@ -477,7 +480,7 @@ impl Game {
                 MCRegionLoader::new(&CONFIGURATION.level_name).unwrap(),
             );
             world.generate_spawn_chunks();
-        }
+        } */
         //world = crate::world::mcregion::temp_from_dir("New World").unwrap();
         let mut objects = Arc::new(Objects::new());
         let mut perm_level_map = HashMap::new();
@@ -491,10 +494,12 @@ impl Game {
         } else {
             log::info!("No server operators in file.");
         }
+        let mut worlds = HashMap::new();
+        worlds.insert(0i32, crate::world::World::from_file_mcr("EpicWorld").unwrap());
         let game = Self {
             objects: objects,
             systems: Arc::new(RefCell::new(systems)),
-            world: world,
+            worlds,
             ecs: Ecs::new(),
             ticks: 0,
             loaded_chunks: LoadedChunks(HashMap::new()),
@@ -557,6 +562,12 @@ impl Game {
         }
         Ok(())
     }
+    pub fn teleport_player_notify(&mut self, entity: Entity, pos: &Position) -> anyhow::Result<()> {
+        let entity = self.ecs.entity(entity)?;
+        *entity.get_mut::<Position>()? = *pos;
+        entity.get_mut::<NetworkManager>()?.write(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: 67.240000009536743, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: false });
+        Ok(())
+    }
     fn accept_player(&mut self, server: &mut Server, id: EntityID) -> anyhow::Result<()> {
         log::info!("Player {:?}", id);
         let clients = server.clients.borrow_mut();
@@ -565,13 +576,15 @@ impl Game {
         let packet = ServerPacket::ServerLoginRequest {
             entity_id: id.0,
             unknown: "".to_string(),
-            map_seed: self.world.generator.get_seed() as i64,
+            map_seed: self.worlds.get(&0).ok_or(anyhow::anyhow!("no world"))?.generator.get_seed() as i64,
             dimension: 0,
         };
         client.write(packet)?;
-        let pos = Position::from_pos(0., 64., 0.);
+        let pos = Position::from_pos(0., 255., 0.);
+        log::info!("Pos {:?}", pos);
         client.write(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: 67.240000009536743, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: false })?;
-        PlayerBuilder::build(&mut self.ecs, NetworkManager::new(client.recv_packets_recv.clone(), client.packet_send_sender.clone()), Username(client.username.clone()), pos, id);
+        client.write(ServerPacket::SpawnPosition { x: pos.x.round() as i32, y: pos.x.round() as i32, z: pos.x.round() as i32 })?;
+        PlayerBuilder::build(&mut self.ecs, NetworkManager::new(client.recv_packets_recv.clone(), client.packet_send_sender.clone()), Username(client.username.clone()), pos, id, CurrentWorldInfo::new(0));
         Ok(())
     }
 }
