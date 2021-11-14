@@ -1,8 +1,6 @@
 use tokio::net::TcpStream;
 use std::net::SocketAddr;
 use flume::{Sender, Receiver};
-use crate::async_systems::chat::AsyncChatClient;
-use crate::async_systems::chat::AsyncChatCommand;
 use crate::configuration::CONFIGURATION;
 use crate::server::NewPlayer;
 use super::handshake;
@@ -14,19 +12,18 @@ pub struct Worker {
     writer: PacketWriter,
     pub addr: SocketAddr,
     new_players: Sender<NewPlayer>,
-    async_chat: Sender<AsyncChatCommand>,
     pub packet_send_sender: Sender<ServerPacket>,
     pub recv_packets_recv: Receiver<ClientPacket>,
 }
 impl Worker {
-    pub fn new(stream: TcpStream, addr: SocketAddr, new_players: Sender<NewPlayer>, async_chat: Sender<AsyncChatCommand>) -> Self {
+    pub fn new(stream: TcpStream, addr: SocketAddr, new_players: Sender<NewPlayer>) -> Self {
         let (reader, writer) = stream.into_split();
 
         let (recv_packets_send, recv_packets_recv) = flume::unbounded();
         let (packet_send_sender, packet_send_recv) = flume::unbounded();
         let reader = PacketReader::new(reader, recv_packets_send.clone());
         let writer = PacketWriter::new(writer, packet_send_recv.clone());
-        Self { reader, writer, addr, new_players, packet_send_sender: packet_send_sender.clone(), recv_packets_recv: recv_packets_recv.clone(), async_chat }
+        Self { reader, writer, addr, new_players, packet_send_sender: packet_send_sender.clone(), recv_packets_recv: recv_packets_recv.clone() }
     }
     pub fn begin(self) {
         tokio::task::spawn(async move {
@@ -53,11 +50,7 @@ impl Worker {
             writer,
             ..
         } = self;
-        let (sender, recv) = flume::unbounded();
-        if CONFIGURATION.experimental.async_chat {
-            self.async_chat.send_async(AsyncChatCommand::RegisterUser { user: AsyncChatClient { sender: self.packet_send_sender.clone(), receiver: recv.clone() }, name: username.clone() }).await.expect("Not possible");
-        }
-        let reader = tokio::task::spawn(async move { reader.run(sender).await });
+        let reader = tokio::task::spawn(async move { reader.run().await });
         let writer = tokio::task::spawn(async move { writer.run().await });
         tokio::task::spawn(async move {
             let result = tokio::select!{

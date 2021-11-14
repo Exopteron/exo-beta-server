@@ -1,5 +1,3 @@
-//pub mod error;
-pub mod async_systems;
 pub mod configuration;
 pub mod feather_tick_loop;
 pub mod game;
@@ -7,12 +5,11 @@ pub mod logging;
 pub mod network;
 pub mod objects;
 pub mod server;
-pub mod systems;
 pub mod world;
 pub mod api;
+pub mod ecs;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
-use systems::Systems;
 pub mod commands;
 use anyhow::anyhow;
 use std::io::Read;
@@ -24,6 +21,7 @@ async fn main() -> anyhow::Result<()> {
     log::info!("Starting server version {} for Minecraft b1.7.3", VERSION);
     let _ = &configuration::CONFIGURATION.server_name;
     let mut systems = Systems::new();
+    ecs::systems::default_systems(&mut systems);
     systems.add_system("packet_accept", |game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>().unwrap();
@@ -36,123 +34,10 @@ async fn main() -> anyhow::Result<()> {
         game.poll_new_players(&mut server)?;
         Ok(())
     });
-    systems.add_system("tick_game_ticks", |game| {
-        game.ticks += 1;
-        Ok(())
-    });
-    systems.add_system("sync_positions", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::sync_positions(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("tick_entities", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::tick_entities(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("tick_players", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::tick_players(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("rem_old_clients", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::rem_old_clients(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("entity_positions", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::entity_positions(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("ping", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::ping(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("cull_players", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::cull_players(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("time_update", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::time_update(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("block_updates", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::block_updates(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("check_loaded_chunks", |game| {
-        let obj = game.objects.clone();
-        let mut server = obj.get_mut::<server::Server>()?;
-        systems::check_loaded_chunks(game, &mut server)?;
-        Ok(())
-    });
-    systems.add_system("random_ticks", |game| {
-        game.random_ticks();
-        Ok(())
-    });
-    systems.add_system("tile_entity_ticks", |game| {
-        game.tile_entity_ticks();
-        Ok(())
-    });
-    systems.add_system("world_block_updates", |game| {
-        let players = game.players.clone();
-        //game.world.send_block_updates(players);
-        Ok(())
-    });
-    systems.add_system("handle_events", |game| {
-        let obj = game.objects.clone();
-        obj.get_mut::<game::events::EventHandler>()?
-            .handle_events(game);
-        Ok(())
-    });
-    systems.add_system("handle_async_scheduled_tasks", |game| {
-        game.handle_async_commands();
-        Ok(())
-    });
-    systems.add_system("check_rain", |game| {
-        game.check_rain();
-        Ok(())
-    });
-    systems.add_system("handle_scheduler", |game| {
-        let obj = game.objects.clone();
-        obj.get_mut::<game::Scheduler>()?
-            .run_tasks(game);
-        Ok(())
-    });
-    systems.add_system("check_world_save", |game| {
-        game.check_world_save();
-        Ok(())
-    });
-/*     let mut manager = PluginManager::new();
-    load_plugins(&mut manager); */
-    let (async_channel_send, async_channel_recv) = flume::unbounded();
-    async_systems::setup_async_systems(async_channel_send.clone()).await;
-    let (async_chat_send, async_chat_recv) = flume::unbounded();
-    if CONFIGURATION.experimental.async_chat {
-        let chat_manager =
-            async_systems::chat::AsyncChatManager::new(async_channel_send.clone(), async_chat_recv);
-        chat_manager.run().await;
-    }
     let mut game = game::Game::new(
         systems,
-        async_channel_recv,
-        async_chat_send.clone(),
     );
-    let server = server::Server::bind(async_chat_send).await?;
+    let server = server::Server::bind().await?;
     server.register(&mut game);
     let obj = game.objects.clone();
     log::info!("Done! ({}ms) For command help, run \"help\".", start.elapsed().as_millis());
@@ -184,6 +69,8 @@ use std::panic::{self, AssertUnwindSafe};
 use std::time::Instant;
 use sysinfo::ProcessorExt;
 
+use crate::ecs::systems::Systems;
+
 //use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     std::env::set_var("RUST_BACKTRACE", "1");
@@ -197,11 +84,11 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     TickLoop::new(move || {
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
-            game.stop_server();
+            std::process::exit(0);
         }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
             if last_tps_check + Duration::from_secs(5) < Instant::now() {
-                game.tps = tick_counter as f64 / 5.;
+                //game.tps = tick_counter as f64 / 5.;
                 tick_counter = 0;
                 last_tps_check = std::time::Instant::now();
             }
@@ -209,8 +96,8 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             systems.borrow_mut().run(&mut game);
             tick_counter += 1;
         })) {
-            game.save_playerdata().unwrap();
-            game.world.get_world().to_file(&CONFIGURATION.level_name);
+            //game.save_playerdata().unwrap();
+            //game.world.get_world().to_file(&CONFIGURATION.level_name);
             println!("========================================");
             println!("\nPlease report this!\n");
             println!("========================================");
@@ -225,7 +112,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             println!("System OS version:       {:?}", sys.os_version());
             println!("CPU: {}", sys.global_processor_info().brand());
             println!("----- Game information:");
-            println!("online players: {}", game.players.0.lock().unwrap().len());
+            //println!("online players: {}", game.players.0.lock().unwrap().len());
             println!("{} loaded chunks", game.loaded_chunks.0.len());
             println!("----- configuration info:\n{:?}", *CONFIGURATION);
             std::process::exit(1);

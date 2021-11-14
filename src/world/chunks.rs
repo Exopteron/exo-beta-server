@@ -1,7 +1,6 @@
 use crate::configuration::CONFIGURATION;
-use crate::game::items::ItemRegistry;
+//use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
-use crate::game::GAME_GLOBAL;
 use crate::network::packet::ServerPacket;
 use flume::{Receiver, Sender};
 use libdeflater::CompressionLvl;
@@ -15,42 +14,6 @@ use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 use crate::game::RefContainer;
-#[derive(Clone)]
-pub struct BlockRef {
-    world: Arc<RefCell<World>>,
-    pos: BlockPosition
-}
-impl BlockRef {
-    fn into(pos: BlockPosition, world: Arc<RefCell<World>>) -> BlockRef {
-        BlockRef { world, pos: pos }
-    }
-}
-impl BlockRef {
-    pub fn set_type(&self, val: u8) {
-        self.world.borrow_mut().get_block_mut(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&mut Block::default()).b_type = val;
-    }
-    pub fn set_meta(&self, val: u8) {
-        self.world.borrow_mut().get_block_mut(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&mut Block::default()).b_metadata = val;
-    }
-    pub fn set_light(&self, val: u8) {
-        self.world.borrow_mut().get_block_mut(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&mut Block::default()).b_light = val;
-    }
-    pub fn set_skylight(&self, val: u8) {
-        self.world.borrow_mut().get_block_mut(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&mut Block::default()).b_skylight = val;
-    }
-    pub fn get_type(&self) -> u8 {
-        self.world.borrow_mut().get_block_internal(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&Block::default()).b_type
-    }
-    pub fn get_meta(&self) -> u8 {
-        self.world.borrow_mut().get_block_internal(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&Block::default()).b_metadata
-    }
-    pub fn get_light(&self) -> u8 {
-        self.world.borrow_mut().get_block_internal(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&Block::default()).b_light
-    }
-    pub fn get_skylight(&self) -> u8 {
-        self.world.borrow_mut().get_block_internal(self.pos.x, self.pos.y, self.pos.z).unwrap_or(&Block::default()).b_skylight
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Block {
     pub b_type: u8,
@@ -69,6 +32,27 @@ impl Block {
     }
     pub fn get_type(&self) -> u8 {
         self.b_type
+    }
+
+    pub fn set_meta(&mut self, v: u8) {
+        self.b_metadata = v;
+    }
+    pub fn get_meta(&self) -> u8 {
+        self.b_metadata
+    }
+
+    pub fn set_light(&mut self, v: u8) {
+        self.b_light = v;
+    }
+    pub fn get_light(&self) -> u8 {
+        self.b_light
+    }
+
+    pub fn set_skylight(&mut self, v: u8) {
+        self.b_skylight = v;
+    }
+    pub fn get_skylight(&self) -> u8 {
+        self.b_skylight
     }
 }
 #[derive(Clone)]
@@ -303,6 +287,16 @@ pub struct Chunk {
     pub heightmap: [[i8; 16]; 16],
 }
 impl Chunk {
+    pub fn plain(x: i32, z: i32) -> Self {
+        let mut v = Self {
+            x,
+            z,
+            data: [None, None, None, None, None, None, None, None],
+            heightmap: [[0; 16]; 16],
+        };
+        v.calculate_heightmap();
+        v
+    }
     pub fn to_packets_async(&mut self, player: Sender<ServerPacket>) {
         use rayon::prelude::*;
         self.data.par_iter().for_each(|section| {
@@ -444,7 +438,7 @@ impl Chunk {
             heightmap: [[0; 16]; 16],
         };
         chunk.calculate_heightmap().ok()?;
-        chunk.calculate_skylight(GAME_GLOBAL.get_time()).ok()?;
+        //chunk.calculate_skylight(GAME_GLOBAL.get_time()).ok()?;
         Some(chunk)
     }
     /*     pub fn calculate_skylight(&mut self, time: i64) {
@@ -540,7 +534,7 @@ impl Chunk {
             }
         }
         self.calculate_heightmap()?;
-        self.calculate_skylight(GAME_GLOBAL.get_time())?;
+        //self.calculate_skylight(GAME_GLOBAL.get_time())?;
         Ok(())
     }
     pub fn fill_layer_air(&mut self, y: i32, block: Block) -> anyhow::Result<()> {
@@ -575,27 +569,12 @@ impl Chunk {
             }
         }
         self.calculate_heightmap()?;
-        self.calculate_skylight(GAME_GLOBAL.get_time())?;
+        //self.calculate_skylight(GAME_GLOBAL.get_time())?;
         Ok(())
     }
 }
-use crate::game::{BlockPosition, PlayerList, Position};
+use crate::game::{BlockPosition, Position};
 use std::collections::VecDeque;
-#[derive(Clone)]
-pub struct WorldRef {
-    pub world: Arc<RefCell<World>>,
-}
-impl WorldRef {
-    pub fn get_block(&self, pos: &BlockPosition) -> BlockRef {
-        BlockRef { world: self.world.clone(), pos: pos.clone() }
-    }
-    pub fn get_world(&self) -> RefMut<'_, World> {
-        self.world.borrow_mut()
-    }
-    pub fn to_file(&self, file: &str) -> anyhow::Result<()> {
-        self.world.borrow_mut().to_file(file)
-    }
-}
 pub struct World {
     pub chunks: HashMap<ChunkCoords, Chunk>,
     pub generator: Arc<Box<dyn WorldGenerator>>,
@@ -612,19 +591,20 @@ impl World {
                 x: coords.x,
                 z: coords.z,
             };
-            if let Some(c) = self.mcr_helper.as_mut().unwrap().get_chunk(coords) {
-                self.chunks.insert(coords, c);
+            if let Some(mcr_helper) = &mut self.mcr_helper {
+                if let Some(c) = mcr_helper.get_chunk(coords) {
+                    self.chunks.insert(coords, c);
+                }
             } else {
-                ////////////////////log::info!("Generating");
-                self.chunks.insert(coords, self.generator.gen_chunk(coords));
-                self.generator.clone().gen_structures(self, coords);
+                log::info!("Generating {:?}", coords);
+                self.chunks.insert(coords, Chunk::plain(coords.x, coords.z));
             }
         }
-        let _ = self
+/*         let _ = self
             .chunks
             .get_mut(coords)
             .unwrap()
-            .calculate_skylight(GAME_GLOBAL.get_time());
+            .calculate_skylight(GAME_GLOBAL.get_time()); */
     }
     pub fn to_file(&mut self, file: &str) -> anyhow::Result<()> {
         let mut mcr_helper = std::mem::replace(&mut self.mcr_helper, None);
@@ -819,7 +799,8 @@ impl World {
     ) -> anyhow::Result<()> {
         use rayon::prelude::*;
         let mut initialized = Vec::new();
-        let chunk = self.chunks.get(&coords).ok_or(anyhow::anyhow!("Balls"))?;
+        log::info!("Getting {:?}", coords);
+        let chunk = self.chunks.get(&coords).ok_or(anyhow::anyhow!("Tried to send a chunk that doesn't exist!"))?;
         for section in &chunk.data {
             if section.is_some() {
                 log::debug!("Sending section");
@@ -903,6 +884,37 @@ impl World {
             }
         }
     } */
+    pub fn set_block(&mut self, pos: &BlockPosition, b: &Block) -> Option<()> {
+        let idx = Self::pos_to_index(pos.x, pos.y, pos.z)?;
+        self.init_chunk(&pos.to_chunk_coords());
+        let chunk = self.chunks.get_mut(&pos.to_chunk_coords()).unwrap();
+        let section = chunk.data.get_mut(idx.2 as usize)?;
+        if section.is_none() {
+            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
+        }
+        let section = section.as_mut().unwrap();
+        *section.get_block(ChunkSection::pos_to_index(
+            pos.x.rem_euclid(16),
+            pos.y.rem_euclid(16),
+            pos.z.rem_euclid(16),
+        ))? = b.clone();
+        Some(())
+    }
+    pub fn get_block(&mut self, pos: &BlockPosition) -> Block {
+        let idx = Self::pos_to_index(pos.x, pos.y, pos.z).unwrap();
+        self.init_chunk(&pos.to_chunk_coords());
+        let chunk = self.chunks.get_mut(&pos.to_chunk_coords()).unwrap();
+        let section = chunk.data.get_mut(idx.2 as usize).unwrap();
+        if section.is_none() {
+            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
+        }
+        let section = section.as_mut().unwrap();
+        section.get_block(ChunkSection::pos_to_index(
+            pos.x.rem_euclid(16),
+            pos.y.rem_euclid(16),
+            pos.z.rem_euclid(16),
+        )).unwrap_or(&mut Block::default()).clone()
+    }
     fn get_block_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Block> {
         let idx = Self::pos_to_index(x, y, z)?;
         let chunk = self
@@ -1040,6 +1052,20 @@ impl World {
         Self { chunks }
     } */
 }
+impl std::default::Default for World {
+    fn default() -> Self {
+        let generator = MountainWorldGenerator::new(0);
+        let mut chunks = HashMap::new();
+        let mut world = Self {
+            chunks: chunks,
+            generator: Arc::new(Box::new(generator)),
+            spawn_position: Position::from_pos(3., 45., 8.),
+            block_updates: VecDeque::new(),
+            mcr_helper: None,
+        };
+        world
+    }
+}
 fn make_nibble_byte(mut a: u8, mut b: u8) -> Option<u8> {
     if a > 15 || b > 15 {
         return None;
@@ -1115,6 +1141,7 @@ use worldgen::noisemap::{NoiseMap, NoiseMapGenerator, NoiseMapGeneratorBase, See
 use worldgen::world::tile::{Constraint, ConstraintType};
 use worldgen::world::{Tile, World as NGWorld};
 
+//use super::classic::FlatWorldGenerator;
 use super::mcregion::MCRegionLoader;
 pub struct MountainStructureGenerator {
     seed: u64,
@@ -1160,7 +1187,7 @@ impl WorldGenerator for MountainWorldGenerator {
         self.chunk_gen.gen_chunk(coords)
     }
     fn gen_structures(&self, world: &mut World, coords: ChunkCoords) {
-        use siphasher::sip::SipHasher13;
+/*         use siphasher::sip::SipHasher13;
         use std::hash::Hasher;
         let mut hash = SipHasher13::new_with_keys(self.chunk_gen.seed, self.chunk_gen.seed);
         hash.write_i32(coords.x);
@@ -1208,7 +1235,7 @@ impl WorldGenerator for MountainWorldGenerator {
                     block.set_type(18);
                 }
             }
-        }
+        } */
     }
     fn get_name(&self) -> String {
         self.chunk_gen.get_name()

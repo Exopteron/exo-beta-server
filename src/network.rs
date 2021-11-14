@@ -6,7 +6,6 @@ pub mod metadata;
 pub mod message;
 use tokio::net::{TcpListener, TcpStream};
 use std::net::SocketAddr;
-use crate::async_systems::chat::AsyncChatCommand;
 use crate::server::NewPlayer;
 use crate::configuration::CONFIGURATION;
 // use crate::error::Result;
@@ -17,17 +16,15 @@ use worker::Worker;
 pub struct Listener {
     listener: TcpListener,
     new_players: Sender<NewPlayer>,
-    async_chat: Sender<AsyncChatCommand>,
 }
 impl Listener {
-    pub async fn start_listening(new_players: Sender<NewPlayer>, async_chat: Sender<AsyncChatCommand>) -> anyhow::Result<()> {
+    pub async fn start_listening(new_players: Sender<NewPlayer>) -> anyhow::Result<()> {
         let addr = format!("{}:{}", CONFIGURATION.listen_address, CONFIGURATION.listen_port);
         log::info!("Listening on {}", addr);
         let listener = TcpListener::bind(&addr).await?;
         let listener = Listener {
             listener,
             new_players,
-            async_chat,
         };
         tokio::task::spawn(async move {
             listener.run().await;
@@ -43,7 +40,7 @@ impl Listener {
         }
     }
     async fn accept(&mut self, stream: TcpStream, addr: SocketAddr) {
-        let worker = Worker::new(stream, addr, self.new_players.clone(), self.async_chat.clone());
+        let worker = Worker::new(stream, addr, self.new_players.clone());
         worker.begin();
     }
 }

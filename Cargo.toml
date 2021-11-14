@@ -1,6 +1,6 @@
 [package]
 name = "exo_beta_server"
-version = "0.1.0-alpha"
+version = "0.2.0-alpha"
 authors = ["Exopteron <exopteron@protonmail.com>"]
 edition = "2018"
 
@@ -40,6 +40,7 @@ libdeflater = "0.7.3"
 reqwest = "0.11"
 hex = "0.4.3"
 anvil-region = { version = "0.8.0", path = "src/anvil-region" }
+hecs = "0.6.5"
 
 [profile.dev.package.worldgen]
 opt-level = 3

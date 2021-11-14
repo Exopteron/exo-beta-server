@@ -1,5 +1,4 @@
 use flume::{Sender, Receiver};
-use crate::async_systems::chat::AsyncChatCommand;
 use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::network::Listener;
 use std::collections::HashMap;
@@ -62,15 +61,14 @@ impl Client {
 }
 pub struct Server {
     new_players: Receiver<NewPlayer>,
-    async_chat: Sender<AsyncChatCommand>,
     pub clients: Arc<RefCell<HashMap<EntityID, Arc<RefCell<Client>>>>>,
     pub last_ping_time: Instant,
 }
 impl Server {
-    pub async fn bind(async_chat: Sender<AsyncChatCommand>) -> anyhow::Result<Self> {
+    pub async fn bind() -> anyhow::Result<Self> {
         let (new_players_send, new_players) = flume::bounded(4);
-        Listener::start_listening(new_players_send, async_chat.clone()).await?;
-        Ok( Self { new_players, clients: Arc::new(RefCell::new(HashMap::new())), last_ping_time: Instant::now(), async_chat: async_chat.clone() } )
+        Listener::start_listening(new_players_send).await?;
+        Ok( Self { new_players, clients: Arc::new(RefCell::new(HashMap::new())), last_ping_time: Instant::now() } )
     }
     pub fn register(self, game: &mut Game) {
         game.insert_object(self);

@@ -1,6 +1,5 @@
-use crate::async_systems::chat::AsyncChatCommand;
 use crate::configuration::CONFIGURATION;
-use crate::game::{Position, BlockPosition, FixedPointShort, Inventory};
+use crate::game::{Position, BlockPosition, FixedPointShort};
 use tokio::io::AsyncReadExt;
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use std::pin::Pin;
@@ -94,15 +93,11 @@ impl PacketReader {
     pub fn new(stream: OwnedReadHalf, send: Sender<ClientPacket>) -> Self {
         Self { stream: PacketReaderFancy::new(Box::pin(stream)), send }
     }
-    pub async fn run(mut self, async_chat: Sender<ClientPacket>) -> anyhow::Result<()> {
+    pub async fn run(mut self) -> anyhow::Result<()> {
         //log::info!("lOOP STRTED");
         loop {
             //log::info!("HI THERE");
             let packet = self.stream.read_generic().await?;
-            if matches!(packet.packet_type(), ClientPacketTypes::ChatMessage) && CONFIGURATION.experimental.async_chat {
-                async_chat.send_async(packet).await?;
-                continue;
-            }
             if matches!(packet.packet_type(), ClientPacketTypes::UnknownPacket) {
                 log::info!("unk knon");
                 continue;
@@ -483,7 +478,7 @@ pub enum ServerPacket {
     DestroyEntity { eid: i32 },
     Disconnect { reason: String },
     TimeUpdate { time: i64 },
-    InvWindowItems { inventory: Inventory },
+    InvWindowItems { inventory: Option<()> },
     EntityStatus { eid: i32, entity_status: i8 },
     SoundEffect { effect_id: i32, x: i32, y: i8, z: i32, sound_data: i32 },
     Transaction { window_id: i8, action_number: i16, accepted: bool },
@@ -685,7 +680,7 @@ impl ServerPacket {
             ServerPacket::InvWindowItems { inventory } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_byte(0);
-                builder.insert_short(inventory.items.len() as i16);
+/*                 builder.insert_short(inventory.items.len() as i16);
                 for i in 0..inventory.items.len() {
                     let item = inventory.items.get(&(i as i8)).unwrap();
                     if item.id == 0 {
@@ -695,7 +690,7 @@ impl ServerPacket {
                         builder.insert_byte(item.count);
                         builder.insert_short(item.damage);
                     }
-                }
+                } */
                 builder.build(0x68)
             }
             ServerPacket::TimeUpdate { time } => {

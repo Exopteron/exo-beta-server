@@ -1,5 +1,6 @@
 use std::sync::atomic::{AtomicI8, Ordering};
 use std::sync::{Arc, Mutex};
+use hecs::{Entity, Query};
 use once_cell::sync::Lazy;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EntityID(pub i32);
