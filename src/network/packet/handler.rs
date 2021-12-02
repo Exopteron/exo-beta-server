@@ -24,7 +24,8 @@ pub fn handle_packet(
                 log::info!("Doing epic.");
                 game.teleport_player_notify(player, &Position::from_pos(0., 256., 0.))?;
             }
-            game.ecs.entity(player)?.get_mut::<NetworkManager>()?.write(ServerPacket::ChatMessage { message: format!("You said: {}", p.message) });
+            game.packet_to_entity(player, ServerPacket::ChatMessage { message: format!("You said: {}", p.message) });
+            //game.ecs.entity(player)?.get_mut::<NetworkManager>()?.write(ServerPacket::ChatMessage { message: format!("You said: {}", p.message) });
         }
         ClientPacket::PlayerPositionAndLookPacket(p) => {
             let plr = game.ecs.entity(player)?;
@@ -78,32 +79,33 @@ pub fn handle_packet(
 }
 
 fn check_nearby_chunks(game: &mut Game, player: Entity) {
-    if let Ok(player) = game.ecs.entity(player) {
-        let p = player.get::<Position>().unwrap();
+    let mut to_notify_unload = Vec::new();
+    if let Ok(playerref) = game.ecs.entity(player) {
+        let p = playerref.get::<Position>().unwrap();
         let pos = p.to_chunk_coords();
         let mut loaded = Vec::new();
         for x in -CONFIGURATION.chunk_distance..CONFIGURATION.chunk_distance {
             for z in -CONFIGURATION.chunk_distance..CONFIGURATION.chunk_distance {
                 let c = ChunkCoords { x: pos.x + x, z: pos.z + z };
                 loaded.push(c.clone());
-                if !player.get::<ChunkLoadQueue>().unwrap().contains(&c) {
-                    game.worlds.get_mut(&player.get::<CurrentWorldInfo>().unwrap().world_id).unwrap().load_chunk(&c);
-                    player.get_mut::<ChunkLoadQueue>().unwrap().add(&c);  
+                if !playerref.get::<ChunkLoadQueue>().unwrap().contains(&c) {
+                    game.worlds.get_mut(&playerref.get::<CurrentWorldInfo>().unwrap().world_id).unwrap().load_chunk(&c);
+                    playerref.get_mut::<ChunkLoadQueue>().unwrap().add(&c);  
                 } 
             }
         }
-        let mut to_notify_unload = Vec::new();
-        player.get_mut::<ChunkLoadQueue>().unwrap().retain(|c| {
+        playerref.get_mut::<ChunkLoadQueue>().unwrap().retain(|c| {
             let x = loaded.contains(c);
             if !x {
                 to_notify_unload.push(c.clone());
             }
             x
         });
-        for c in to_notify_unload {
-            player.get_mut::<NetworkManager>().unwrap().write(ServerPacket::PreChunk { x: c.x, z: c.z, mode: false });
-        }
     } else {
         log::info!("Error on checking nearby chunks");
+    }
+    for c in to_notify_unload {
+        game.packet_to_entity(player, ServerPacket::PreChunk { x: c.x, z: c.z, mode: false });
+        // playerref.get_mut::<NetworkManager>().unwrap().write();
     }
 }

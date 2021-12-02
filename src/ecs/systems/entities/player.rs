@@ -1,16 +1,31 @@
-use crate::ecs::{entities::player::{NetworkManager, Player, Username}, systems::Systems};
+use crate::ecs::{
+    entities::player::{NetworkManager, Player, Username},
+    systems::Systems,
+};
 
 pub fn init_systems(s: &mut Systems) {
     s.add_system("check_disconnected", |game| {
         let mut to_despawn = Vec::new();
-        for (p, (_, net)) in game.ecs.query::<(&Player, &NetworkManager)>().iter() {
-            if net.recv_packets_recv.is_disconnected() {
-                to_despawn.push(p);
+        let mut to_check = Vec::new();
+        for (p, _) in game.ecs.query::<&Player>().iter() {
+            to_check.push(p);
+        }
+        for e in to_check {
+            if game
+                .get_client(e)?
+                .borrow()
+                .recv_packets_recv
+                .is_disconnected()
+            {
+                to_despawn.push(e);
             }
         }
         for e in to_despawn {
-            log::info!("Disconnecting plr {}", game.ecs.entity(e)?.get::<Username>()?.0);
-            game.ecs.world.despawn(e)?;
+            log::info!(
+                "Disconnecting plr {}",
+                game.ecs.entity(e)?.get::<Username>()?.0
+            );
+            game.despawn(e);
         }
         Ok(())
     });

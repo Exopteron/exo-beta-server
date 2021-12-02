@@ -2,9 +2,11 @@ use crate::configuration::CONFIGURATION;
 use crate::ecs::entities::player::NetworkManager;
 //use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
+use crate::game::Game;
 use crate::game::RefContainer;
 use crate::network::packet::ServerPacket;
 use flume::{Receiver, Sender};
+use hecs::Entity;
 use libdeflater::CompressionLvl;
 use nbt::decode::read_compound_tag;
 use nbt::encode::write_compound_tag;
@@ -77,6 +79,14 @@ impl ChunkSection {
             section,
         }
     }
+    pub fn with_data(x: i32, z: i32, section: i8, data: Vec<Block>) -> Self {
+        Self {
+            data,
+            x,
+            z,
+            section,
+        }
+    }
     pub fn get_data(&mut self) -> &mut Vec<Block> {
         &mut self.data
     }
@@ -109,7 +119,7 @@ impl ChunkSection {
         }
         None
     }
-    pub fn to_packets_section_new(&self, n: &mut NetworkManager) -> Option<()> {
+    pub fn to_packets_section_new(&self, g: &mut Game, entity: Entity) -> Option<()> {
         //let mut packets = vec![];
         let chunk = self;
         //let chunk = chunk?;
@@ -190,7 +200,8 @@ impl ChunkSection {
             compressed_data: data,
         };
         log::debug!("Packet {:?}", packet);
-        n.write(packet);
+        g.packet_to_entity(entity, packet);
+        //n.write(packet);
         //log::debug!("G");
         Some(())
     }
@@ -375,6 +386,7 @@ pub struct Chunk {
     pub pos: ChunkCoords,
     pub data: [Option<ChunkSection>; 8],
     pub heightmap: [[i8; 16]; 16],
+    pub biomes: [[i8; 16]; 16],
 }
 impl Chunk {
     pub fn plain(x: i32, z: i32) -> Self {
@@ -382,14 +394,15 @@ impl Chunk {
             pos: ChunkCoords { x, z },
             data: [None, None, None, None, None, None, None, None],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         v.calculate_heightmap();
         v
     }
-    pub fn to_packets(&self, n: &mut NetworkManager) {
+    pub fn to_packets(&self, g: &mut Game, entity: Entity) {
         for section in self.data.iter() {
             if let Some(s) = section {
-                s.to_packets_section_new(n);
+                s.to_packets_section_new(g, entity);
             }
         }
     }
@@ -531,6 +544,7 @@ impl Chunk {
                 Some(chunksections[7].clone()),
             ],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         chunk.calculate_heightmap().ok()?;
         //chunk.calculate_skylight(GAME_GLOBAL.get_time()).ok()?;
@@ -599,6 +613,7 @@ impl Chunk {
                 None,
             ],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         chunk
     }
@@ -1449,6 +1464,7 @@ impl ChunkGenerator for MountainChunkGenerator {
                 None,
             ],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         chunk.calculate_heightmap().unwrap();
         let noise = self
@@ -1575,6 +1591,7 @@ impl ChunkGenerator for FunnyChunkGenerator {
                 None,
             ],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         let noise = self
             .noise
@@ -1685,6 +1702,7 @@ impl ChunkGenerator for FlatChunkGenerator {
                 None,
             ],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         chunk
             .fill_layer(

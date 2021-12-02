@@ -43,7 +43,10 @@ impl MCRegionLoader {
     pub fn set_chunk(&mut self, chunk: &mut Chunk) -> anyhow::Result<()> {
         let mut region = self
             .cheating
-            .get_region(RegionPosition::from_chunk_position(chunk.pos.x, chunk.pos.z))?;
+            .get_region(RegionPosition::from_chunk_position(
+                chunk.pos.x,
+                chunk.pos.z,
+            ))?;
         region
             .write_chunk(
                 RegionChunkPosition::from_chunk_position(chunk.pos.x, chunk.pos.z),
@@ -165,70 +168,75 @@ pub fn temp_from_regions(regions: Vec<Region>) -> World {
 } */
 impl Region {
     pub fn chunk_from_tag(tag: &CompoundTag) -> anyhow::Result<Chunk> {
-        let val = tag
-            .get_i8_vec("Blocks")
+        let sections = tag
+            .get_compound_tag_vec("Sections")
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
-        let block_ids = vec_i8_into_u8(val.clone());
-        let val = tag
-            .get_i8_vec("Data")
-            .or(Err(anyhow::anyhow!("Does not exist!")))?;
-        //log::info!("Got to here!");
-        let block_metadata = vec_i8_into_u8(val.clone());
-        use super::chunks::*;
-        let metadata = super::chunks::decompress_vec(block_metadata).unwrap();
-        let mut blocks = Vec::new();
-        let mut i = 0;
-        for block in block_ids {
-            blocks.push(Block {
-                b_type: block,
-                b_metadata: metadata[i],
-                b_light: 0,
-                b_skylight: 0,
-            });
-            i += 1;
-        }
         let x_pos = tag
             .get_i32("xPos")
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
         let z_pos = tag
             .get_i32("zPos")
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
-        //log::info!("Compression type: {}", comp_type);
-        //log::info!("Pos: {} {}", x_pos, z_pos);
-        let mut chunksections = Vec::new();
-        for i in 0..8 {
-            chunksections.push(ChunkSection::new(x_pos, z_pos, i));
+        let mut chunk_sections = Vec::new();
+        for section in sections {
+            let val = section
+                .get_i8_vec("Blocks")
+                .or(Err(anyhow::anyhow!("Does not exist!")))?;
+            let block_ids = vec_i8_into_u8(val.clone());
+            let val = section
+                .get_i8_vec("Data")
+                .or(Err(anyhow::anyhow!("Does not exist!")))?;
+            //log::info!("Got to here!");
+            let block_metadata = vec_i8_into_u8(val.clone());
+            use super::chunks::*;
+            let metadata = super::chunks::decompress_vec(block_metadata).unwrap();
+            let mut i = 0;
+            let mut blocks = Vec::new();
+            for block in block_ids {
+                blocks.push(Block {
+                    b_type: block,
+                    b_metadata: metadata[i],
+                    b_light: 0,
+                    b_skylight: 0,
+                });
+                i += 1;
+            }
+            let y_pos = section
+                .get_i8("Y")
+                .or(Err(anyhow::anyhow!("Does not exist!")))?;
+            chunk_sections.push(ChunkSection::with_data(x_pos, z_pos, y_pos, blocks));
         }
-        for section in 0..8 {
+        for i in chunk_sections.len()..8 {
+            chunk_sections.push(ChunkSection::new(x_pos, z_pos, i as i8));
+        }
+/*         for section in 0..16 {
             for x in 0..16 {
                 for z in 0..16 {
                     for y in 0..16 {
                         let y = y + (section * 16);
                         //log::info!("Doing section {}, {} {} {}", section, x, y, z);
-                        let section = chunksections.get_mut(section).unwrap();
+                        let section = chunk_sections.get_mut(section).unwrap();
                         section
                             .get_data()
                             .push(blocks[Self::pos_to_idx(x, y as i32, z)]);
                     }
                 }
             }
-        }
+        } */
         let mut chunk = Chunk {
-            pos: ChunkCoords {
-                x: x_pos,
-                z: z_pos,
-            },
+            pos: ChunkCoords { x: x_pos, z: z_pos },
             data: [
-                Some(chunksections[0].clone()),
-                Some(chunksections[1].clone()),
-                Some(chunksections[2].clone()),
-                Some(chunksections[3].clone()),
-                Some(chunksections[4].clone()),
-                Some(chunksections[5].clone()),
-                Some(chunksections[6].clone()),
-                Some(chunksections[7].clone()),
+                Some(chunk_sections[0].clone()),
+                Some(chunk_sections[1].clone()),
+                Some(chunk_sections[2].clone()),
+                Some(chunk_sections[3].clone()),
+                Some(chunk_sections[4].clone()),
+                Some(chunk_sections[5].clone()),
+                Some(chunk_sections[6].clone()),
+                Some(chunk_sections[7].clone()),
             ],
             heightmap: [[0; 16]; 16],
+            biomes: [[0; 16]; 16],
         };
         chunk.calculate_heightmap()?;
         return Ok(chunk);
@@ -365,10 +373,7 @@ impl Region {
                 }
             }
             let mut chunk = Chunk {
-                pos: ChunkCoords {
-                    x: x_pos,
-                    z: z_pos,
-                },
+                pos: ChunkCoords { x: x_pos, z: z_pos },
                 data: [
                     Some(chunksections[0].clone()),
                     Some(chunksections[1].clone()),
@@ -380,6 +385,7 @@ impl Region {
                     Some(chunksections[7].clone()),
                 ],
                 heightmap: [[0; 16]; 16],
+                biomes: [[0; 16]; 16],
             };
             chunk.calculate_heightmap()?;
             chunks.push(chunk);
@@ -388,7 +394,7 @@ impl Region {
         //Err(anyhow::anyhow!("Balls"))
     }
     fn pos_to_idx(x: i32, y: i32, z: i32) -> usize {
-        (y + (z * 128) + (x * 128 * 16)) as usize
+        (y + (z * 256) + (x * 256 * 16)) as usize
     }
 }
 

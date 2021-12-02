@@ -4,7 +4,7 @@ pub mod entities;
 pub mod systems;
 use std::io::BufRead;
 pub struct Ecs {
-    world: World,
+    pub world: World,
 }
 pub struct EntityRef<'a>(hecs::EntityRef<'a>);
 

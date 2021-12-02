@@ -18,7 +18,7 @@ const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
     let start = Instant::now();
-    log::info!("Starting server version {} for Minecraft b1.7.3", VERSION);
+    log::info!("Starting server version {} for Minecraft 1.2.5", VERSION);
     let _ = &configuration::CONFIGURATION.server_name;
     let mut systems = Systems::new();
     ecs::systems::default_systems(&mut systems);
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     });
     systems.add_system("chunk_loading", |game| {
         for (_, world) in game.worlds.iter_mut() {
-            world.process_chunk_loads(&mut game.ecs);
+            world.process_chunk_loads(&mut game);
         }
         Ok(())
     });

@@ -28,7 +28,7 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<NewPlayer>
         return Err(anyhow::anyhow!("Wrong packet!"));
     };
     // log::info!("Successfully authenticated {}[/{}]", lr_packet.username, worker.addr);
-    if lr_packet.protocol_version != 14 {
+    if lr_packet.protocol_version != 29 {
         worker.write(ServerPacket::Disconnect { reason: "Wrong version.".to_string() }).await?;
         return Err(anyhow::anyhow!("Wrong protocol version!"));
     }

@@ -77,6 +77,7 @@ impl PacketWriter {
     }
     pub async fn run(mut self) -> anyhow::Result<()> {
         while let Ok(packet) = self.recv.recv_async().await {
+            log::info!("Writing {:?}", packet);
             self.stream.write_all(&packet.as_bytes()?).await?;
         }
         Ok(())
@@ -125,11 +126,20 @@ impl <T: tokio::io::AsyncRead>InternalReader<T> {
             }
             0x01 => {
                 //log::info!("Login request!");
-                return Ok(ClientPacket::LoginRequest( LoginRequest { protocol_version: Self::read_int(reader).await?, username: Self::read_string16(reader).await?, map_seed: Self::read_long(reader).await?, dimension: Self::read_byte(reader).await?}));
+                let p = ClientPacket::LoginRequest( LoginRequest { protocol_version: Self::read_int(reader).await?, username: Self::read_string16(reader).await?});
+                Self::read_string16(reader).await?;
+                Self::read_int(reader).await?;
+                Self::read_int(reader).await?;
+                Self::read_byte(reader).await?;
+                Self::read_byte_raw(reader).await?;
+                Self::read_byte_raw(reader).await?;
+                return Ok(p);
             }
             0x02 => {
                 //log::info!("Handshake!");
-                return Ok(ClientPacket::Handshake( Handshake { username: Self::read_string16(reader).await? }));
+                let str = Self::read_string16(reader).await?;
+                let strs = str.split(";").collect::<Vec<&str>>();
+                return Ok(ClientPacket::Handshake( Handshake { username: strs[0].to_string(), host: strs[1].to_string() }));
             }
             0x03 => {
                 //log::info!("Chat!");
@@ -273,11 +283,11 @@ impl <T: tokio::io::AsyncRead>InternalReader<T> {
 }
 #[derive(Debug)]
 pub struct LoginRequest {
-    pub protocol_version: i32, pub username: String, pub map_seed: i64, pub dimension: i8,
+    pub protocol_version: i32, pub username: String
 }
 #[derive(Debug)]
 pub struct Handshake {
-    pub username: String,
+    pub username: String, pub host: String,
 }
 pub struct SetBlock {
     position: BlockPosition, mode: u8, block_type: u8
@@ -462,7 +472,7 @@ impl ClientPacket {
 #[derive(Clone, Debug)]
 pub enum ServerPacket {
     ChatMessage { message: String },
-    ServerLoginRequest { entity_id: i32, unknown: String, map_seed: i64, dimension: i8 },
+    ServerLoginRequest { entity_id: i32, level_type: String, server_mode: i32, dimension: i32, difficulty: i8, max_players: u8, },
     Handshake { connection_hash: String },
     PreChunk { x: i32, z: i32, mode: bool },
     MapChunk { x: i32, y: i16, z: i32, size_x: u8, size_y: u8, size_z: u8, compressed_size: i32, compressed_data: Vec<u8> },
@@ -559,7 +569,7 @@ impl ServerPacket {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_byte(*window_id);
                 builder.insert_byte(*inventory_type);
-                builder.insert_string(&window_title);
+                builder.insert_string16(&window_title);
                 builder.insert_byte(*num_slots);
                 builder.build(0x64)
             }
@@ -763,12 +773,16 @@ impl ServerPacket {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.build(0x00)
             }
-            ServerPacket::ServerLoginRequest { entity_id, unknown, map_seed, dimension } => {
+            ServerPacket::ServerLoginRequest { entity_id, dimension, level_type, server_mode, difficulty, max_players } => {
                 let mut builder = ClassicPacketBuilder::new();
                 builder.insert_int(*entity_id);
-                builder.insert_string16(&unknown);
-                builder.insert_long(*map_seed);
-                builder.insert_byte(*dimension);
+                builder.insert_string16("");
+                builder.insert_string16(level_type);
+                builder.insert_int(*server_mode);
+                builder.insert_int(*dimension);
+                builder.insert_byte(*difficulty);
+                builder.insert_byte_raw(0);
+                builder.insert_byte_raw(*max_players);
                 builder.build(0x01)
             }
             ServerPacket::Handshake { connection_hash } => {

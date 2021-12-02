@@ -18,7 +18,7 @@ impl NetworkManager {
     pub fn write(&mut self, p: ServerPacket) {
         if let Err(e) = self.packet_send_sender.send(p) {
             // TODO better handle
-            log::error!("Error sending packet to user: {}", e);
+            //log::error!("Error sending packet to user: {}", e);
         }
     }
 }
@@ -59,7 +59,7 @@ pub struct PlayerBuilder {
 
 }
 impl PlayerBuilder {
-    pub fn build(ecs: &mut Ecs, netmanager: NetworkManager, username: Username, position: Position, id: EntityID, world_info: CurrentWorldInfo) -> Entity {
-        ecs.spawn((Player, netmanager, position, username, id, ChunkLoadQueue::default(), world_info))
+    pub fn build(ecs: &mut Ecs, username: Username, position: Position, id: EntityID, world_info: CurrentWorldInfo) -> Entity {
+        ecs.spawn((Player, position, username, id, ChunkLoadQueue::default(), world_info))
     }
 }

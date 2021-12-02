@@ -3,7 +3,7 @@ use std::{collections::HashMap, mem::{replace, take}, sync::Arc};
 use hecs::Entity;
 use nbt::decode::read_compound_tag;
 
-use crate::{ecs::{Ecs, entities::player::{ChunkLoadQueue, NetworkManager, Player}}, game::{BlockPosition, ChunkCoords, Position}, network::packet::ServerPacket};
+use crate::{ecs::{Ecs, entities::player::{ChunkLoadQueue, NetworkManager, Player}}, game::{BlockPosition, ChunkCoords, Game, Position}, network::packet::ServerPacket};
 
 pub mod chunks;
 pub mod mcregion;
@@ -35,31 +35,35 @@ impl World {
             self.unload_chunk(&c);
         }
     }
-    pub fn process_chunk_loads(&mut self, ecs: &mut Ecs) {
-        self.unload_unused_chunks(ecs);
+    pub fn process_chunk_loads(&mut self, game: &mut Game) {
+        self.unload_unused_chunks(&mut game.ecs);
         let chunks = take(&mut self.load_manager.chunks);
         //log::info!("Len: {}", chunks.len());
+        let mut packets = Vec::new();
         for (chunk, data) in chunks.into_iter() {
             if !data.load {
                 self.chunks.remove(&chunk);
-                for (_, (_, n, q)) in ecs.query::<(&Player, &mut NetworkManager, &mut ChunkLoadQueue)>().iter() {
+                for (en, (_, q)) in game.ecs.query::<(&Player, &mut ChunkLoadQueue)>().iter() {
                     if q.contains(&chunk) {
-                        n.write(ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z});
+                        packets.push((en, ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z}));
+                        game.packet_to_entity(en, ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z});
+                        //n.write(ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z});
                     }
                     q.remove(&chunk);
                 }
             } else {
                 self.internal_load_chunk(&chunk);
-                for (_, (_, n, q)) in ecs.query::<(&Player, &mut NetworkManager, &mut ChunkLoadQueue)>().iter() {
+                game.ecs.query::<(&Player, &mut ChunkLoadQueue)>().iter().for_each(|(en, (_, q))| {
                     if q.contains(&chunk) {
                         if let Some(c) = self.chunks.get(&chunk) {
-                            n.write(ServerPacket::PreChunk {mode: true, x: chunk.x, z: chunk.z});
-                            c.to_packets(n);
+                            game.packet_to_entity(en, ServerPacket::PreChunk {mode: true, x: chunk.x, z: chunk.z});
+                            //n.write(ServerPacket::PreChunk {mode: true, x: chunk.x, z: chunk.z});
+                            c.to_packets(game, en);
                         } else {
                             log::error!("Expected chunk at ({}, {})", chunk.x, chunk.z);
                         }
                     }
-                }
+                });
             }
         }
     }
