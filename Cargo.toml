@@ -41,6 +41,8 @@ reqwest = "0.11"
 hex = "0.4.3"
 anvil-region = { version = "0.8.0", path = "src/anvil-region" }
 hecs = "0.6.5"
-
+thiserror = "1"
+byteorder = "1"
+parking_lot = "0.11.2"
 [profile.dev.package.worldgen]
 opt-level = 3

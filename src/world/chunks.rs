@@ -1,12 +1,8 @@
 use crate::configuration::CONFIGURATION;
-use crate::ecs::entities::player::NetworkManager;
 //use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
-use crate::game::Game;
 use crate::game::RefContainer;
-use crate::network::packet::ServerPacket;
 use flume::{Receiver, Sender};
-use hecs::Entity;
 use libdeflater::CompressionLvl;
 use nbt::decode::read_compound_tag;
 use nbt::encode::write_compound_tag;
@@ -63,7 +59,7 @@ impl Block {
         self.b_skylight
     }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ChunkSection {
     data: Vec<Block>,
     x: i32,
@@ -79,16 +75,11 @@ impl ChunkSection {
             section,
         }
     }
-    pub fn with_data(x: i32, z: i32, section: i8, data: Vec<Block>) -> Self {
-        Self {
-            data,
-            x,
-            z,
-            section,
-        }
-    }
     pub fn get_data(&mut self) -> &mut Vec<Block> {
         &mut self.data
+    }
+    pub fn data(&self) -> &Vec<Block> {
+        &self.data
     }
 }
 impl ChunkSection {
@@ -98,15 +89,15 @@ impl ChunkSection {
         z %= 16; */
         (y + (z * 16) + (x * 16 * 16)) as usize
     }
-    pub fn get_block(&mut self, idx: usize) -> Option<&mut Block> {
+    pub fn get_block(&mut self, idx: usize) -> Option<&Block> {
         //log::info!("Here! {}", idx);
         let len = self.data.len();
         let possible = self.data.get(idx);
         if possible.is_some() {
-            return self.data.get_mut(idx);
+            return self.data.get(idx);
         } else {
             for i in 0..idx + 5 {
-                if let None = self.data.get_mut(i) {
+                if let None = self.data.get(i) {
                     self.data.push(Block {
                         b_type: 0,
                         b_metadata: 0,
@@ -115,307 +106,32 @@ impl ChunkSection {
                     });
                 }
             }
-            return self.data.get_mut(idx);
+            return self.data.get(idx);
         }
         None
     }
-    pub fn to_packets_section_new(&self, g: &mut Game, entity: Entity) -> Option<()> {
-        //let mut packets = vec![];
-        let chunk = self;
-        //let chunk = chunk?;
-        //let coords = ChunkCoords { x: chunk.x, z: chunk.x };
-        let mut size_x = 0;
-        let mut size_y = 0;
-        let mut size_z = 0;
-        let mut z_counter = 16;
-        let mut x_counter = 128;
-        //log::info!("Len: {:?}", chunk.data.len());
-        for i in 0..chunk.data.len() + 0 {
-            if size_y < 16 {
-                size_y += 1;
-            } else if size_z < 16 {
-                if z_counter >= 16 {
-                    size_z += 1;
-                    // log::info!("+1 now {}", size_z);
-                    z_counter = 0;
-                    continue;
-                }
-                z_counter += 1;
-            } else if size_x < 16 {
-                //log::info!("Done {}", i);
-                if x_counter >= 128 {
-                    size_x += 1;
-                    //  log::info!("X+1 now {}", size_x);
-                    x_counter = 0;
-                    continue;
-                }
-                x_counter += 1;
-                //size_x += 1;
-            } else {
-                break;
-            }
-        }
-        /*         let size_y = 127;
-        let rest = chunk.data.len() % size_y;
-        let size_z = 16;
-        let size_x = 16; */
-        let mut blockdata =
-            Vec::with_capacity(chunk.data.len() + (chunk.data.len() as f32 * 1.5) as usize);
-        let mut metadata = Vec::with_capacity(chunk.data.len());
-        let mut blocklight = Vec::with_capacity(chunk.data.len());
-        let mut skylight = Vec::with_capacity(chunk.data.len());
-        for byte in &chunk.data {
-            blockdata.push(byte.b_type);
-            metadata.push(byte.b_metadata);
-            blocklight.push(byte.b_light);
-            skylight.push(byte.b_skylight);
-        }
-        //metadata.reverse();
-        blockdata.append(&mut compress_to_nibble(metadata)?);
-        blockdata.append(&mut compress_to_nibble(blocklight)?);
-        blockdata.append(&mut compress_to_nibble(skylight)?);
-        let start = Instant::now();
-        let mut data = Vec::with_capacity(blockdata.len());
-        let mut compressor =
-            flate2::write::ZlibEncoder::new(&mut data, flate2::Compression::fast());
-        compressor.write_all(&blockdata).ok()?;
-        compressor.finish().ok()?;
-        let size_x = (size_x - 1).max(0);
-        //log::info!("size_x: {}", size_x);
-        let size_y = (size_y - 1).max(0);
-        let size_z = (size_z - 1).max(0);
-        let mut epicy = ((chunk.section * 1) as i16) * 16;
-        if chunk.section > 16 {
-            //epicy -= 1;
-        }
-        //log::info!("EPIC Y: {:?} ON SECTION {}", epicy, self.section);
-        let packet = ServerPacket::MapChunk {
-            x: chunk.x * 16,
-            y: epicy,
-            z: chunk.z * 16,
-            size_x: size_x as u8,
-            size_y: size_y as u8,
-            size_z: size_z as u8,
-            compressed_size: data.len() as i32,
-            compressed_data: data,
-        };
-        log::debug!("Packet {:?}", packet);
-        g.packet_to_entity(entity, packet);
-        //n.write(packet);
-        //log::debug!("G");
-        Some(())
-    }
-    pub fn to_packets_section_raw(
-        &self,
-        player: Sender<ServerPacket>,
-        has_loaded_before: &mut Vec<ChunkCoords>,
-    ) -> Option<()> {
-        //let mut packets = vec![];
-        let chunk = self;
-        //let chunk = chunk?;
-        //let coords = ChunkCoords { x: chunk.x, z: chunk.x };
-        let mut size_x = 0;
-        let mut size_y = 0;
-        let mut size_z = 0;
-        let mut z_counter = 16;
-        let mut x_counter = 128;
-        //log::info!("Len: {:?}", chunk.data.len());
-        for i in 0..chunk.data.len() + 0 {
-            if size_y < 16 {
-                size_y += 1;
-            } else if size_z < 16 {
-                if z_counter >= 16 {
-                    size_z += 1;
-                    // log::info!("+1 now {}", size_z);
-                    z_counter = 0;
-                    continue;
-                }
-                z_counter += 1;
-            } else if size_x < 16 {
-                //log::info!("Done {}", i);
-                if x_counter >= 128 {
-                    size_x += 1;
-                    //  log::info!("X+1 now {}", size_x);
-                    x_counter = 0;
-                    continue;
-                }
-                x_counter += 1;
-                //size_x += 1;
-            } else {
-                break;
-            }
-        }
-        /*         let size_y = 127;
-        let rest = chunk.data.len() % size_y;
-        let size_z = 16;
-        let size_x = 16; */
-        let mut blockdata =
-            Vec::with_capacity(chunk.data.len() + (chunk.data.len() as f32 * 1.5) as usize);
-        let mut metadata = Vec::with_capacity(chunk.data.len());
-        let mut blocklight = Vec::with_capacity(chunk.data.len());
-        let mut skylight = Vec::with_capacity(chunk.data.len());
-        for byte in &chunk.data {
-            blockdata.push(byte.b_type);
-            metadata.push(byte.b_metadata);
-            blocklight.push(byte.b_light);
-            skylight.push(byte.b_skylight);
-        }
-        //metadata.reverse();
-        blockdata.append(&mut compress_to_nibble(metadata)?);
-        blockdata.append(&mut compress_to_nibble(blocklight)?);
-        blockdata.append(&mut compress_to_nibble(skylight)?);
-        let start = Instant::now();
-        let mut data = Vec::with_capacity(blockdata.len());
-        let mut compressor =
-            flate2::write::ZlibEncoder::new(&mut data, flate2::Compression::fast());
-        compressor.write_all(&blockdata).ok()?;
-        compressor.finish().ok()?;
-        //log::info!("Compression took {}ns.", start.elapsed().as_nanos());
-        /*         let size_x = size_x - 1;
-        let size_y = size_y - 1;
-        let size_z = size_z - 1; */
-        let size_x = (size_x - 1).max(0);
-        //log::info!("size_x: {}", size_x);
-        let size_y = (size_y - 1).max(0);
-        let size_z = (size_z - 1).max(0);
-        let mut epicy = ((chunk.section * 1) as i16) * 16;
-        if chunk.section > 16 {
-            //epicy -= 1;
-        }
-        //log::info!("EPIC Y: {:?} ON SECTION {}", epicy, self.section);
-        let packet = ServerPacket::MapChunk {
-            x: chunk.x * 16,
-            y: epicy,
-            z: chunk.z * 16,
-            size_x: size_x as u8,
-            size_y: size_y as u8,
-            size_z: size_z as u8,
-            compressed_size: data.len() as i32,
-            compressed_data: data,
-        };
-        log::debug!("Packet {:?}", packet);
-        player.send(packet).ok()?;
-        //log::debug!("G");
-        return Some(());
-    }
-    pub async fn to_packets_section_async(&self, player: Sender<ServerPacket>) -> Option<()> {
-        //let mut packets = vec![];
-        let chunk = self;
-        //let chunk = chunk?;
-        //let coords = ChunkCoords { x: chunk.x, z: chunk.x };
-        let mut size_x = 0;
-        let mut size_y = 0;
-        let mut size_z = 0;
-        let mut z_counter = 16;
-        let mut x_counter = 128;
-        //log::info!("Len: {:?}", chunk.data.len());
-        for _ in 0..chunk.data.len() + 0 {
-            if size_y < 16 {
-                size_y += 1;
-            } else if size_z < 16 {
-                if z_counter >= 16 {
-                    size_z += 1;
-                    // log::info!("+1 now {}", size_z);
-                    z_counter = 0;
-                    continue;
-                }
-                z_counter += 1;
-            } else if size_x < 16 {
-                //log::info!("Done {}", i);
-                if x_counter >= 128 {
-                    size_x += 1;
-                    //  log::info!("X+1 now {}", size_x);
-                    x_counter = 0;
-                    continue;
-                }
-                x_counter += 1;
-                //size_x += 1;
-            } else {
-                break;
-            }
-        }
-        /*         let size_y = 127;
-        let rest = chunk.data.len() % size_y;
-        let size_z = 16;
-        let size_x = 16; */
-        let mut blockdata =
-            Vec::with_capacity(chunk.data.len() + (chunk.data.len() as f32 * 1.5) as usize);
-        let mut metadata = Vec::with_capacity(chunk.data.len());
-        let mut blocklight = Vec::with_capacity(chunk.data.len());
-        let mut skylight = Vec::with_capacity(chunk.data.len());
-        for byte in &chunk.data {
-            blockdata.push(byte.b_type);
-            metadata.push(byte.b_metadata);
-            blocklight.push(byte.b_light);
-            skylight.push(byte.b_skylight);
-        }
-        blockdata.append(&mut compress_to_nibble(metadata)?);
-        blockdata.append(&mut compress_to_nibble(blocklight)?);
-        blockdata.append(&mut compress_to_nibble(skylight)?);
-        let data = deflate::deflate_bytes_zlib(&blockdata);
-        /*         let size_x = size_x - 1;
-        let size_y = size_y - 1;
-        let size_z = size_z - 1; */
-        let size_x = (size_x - 1).max(0);
-        //log::info!("size_x: {}", size_x);
-        let size_y = (size_y - 1).max(0);
-        let size_z = (size_z - 1).max(0);
-        let mut epicy = ((chunk.section * 1) as i16) * 16;
-        if chunk.section > 16 {
-            //epicy -= 1;
-        }
-        //log::info!("EPIC Y: {:?} ON SECTION {}", epicy, self.section);
-        let packet = ServerPacket::MapChunk {
-            x: chunk.x * 16,
-            y: epicy,
-            z: chunk.z * 16,
-            size_x: size_x as u8,
-            size_y: size_y as u8,
-            size_z: size_z as u8,
-            compressed_size: data.len() as i32,
-            compressed_data: data,
-        };
-        log::debug!("Packet {:?}", packet);
-        player.send_async(packet).await.ok()?;
-        //log::debug!("G");
-        return Some(());
-    }
 }
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Chunk {
     pub pos: ChunkCoords,
     pub data: [Option<ChunkSection>; 8],
     pub heightmap: [[i8; 16]; 16],
-    pub biomes: [[i8; 16]; 16],
 }
 impl Chunk {
+    pub fn sections(&self) -> &[Option<ChunkSection>] {
+        &self.data
+    }
+    pub fn position(&self) -> ChunkCoords {
+        self.pos
+    }
     pub fn plain(x: i32, z: i32) -> Self {
         let mut v = Self {
             pos: ChunkCoords { x, z },
             data: [None, None, None, None, None, None, None, None],
             heightmap: [[0; 16]; 16],
-            biomes: [[0; 16]; 16],
         };
         v.calculate_heightmap();
         v
-    }
-    pub fn to_packets(&self, g: &mut Game, entity: Entity) {
-        for section in self.data.iter() {
-            if let Some(s) = section {
-                s.to_packets_section_new(g, entity);
-            }
-        }
-    }
-    pub fn to_packets_async(&mut self, player: Sender<ServerPacket>) {
-        use rayon::prelude::*;
-        self.data.par_iter().for_each(|section| {
-            if let Some(section) = section {
-                section.to_packets_section_raw(player.clone(), &mut Vec::new());
-            }
-        });
-        /*         for section in &self.data {
-            tokio::task::yield_now().await;
-        } */
     }
     pub fn calculate_skylight(&mut self, time: i64) -> anyhow::Result<()> {
         //log::info!("Calculating skylight for {}, {}", self.x, self.z);
@@ -423,9 +139,6 @@ impl Chunk {
             for z in 0..16 {
                 let y = self.heightmap[x as usize][z as usize];
                 //for y in y..127 {
-                self.get_block(x, y as i32, z)
-                    .ok_or(anyhow::anyhow!("Block does not exist!"))?
-                    .b_skylight = 15;
                 //}
             }
         }
@@ -436,12 +149,7 @@ impl Chunk {
         for x in 0..16 {
             for z in 0..16 {
                 'y_loop: for y in (0..127).rev() {
-                    if let Some(block) = self.get_block(x, y, z) {
-                        if block.b_type != 0 {
-                            self.heightmap[x as usize][z as usize] = y as i8;
-                            break 'y_loop;
-                        }
-                    }
+                    
                 }
             }
         }
@@ -544,7 +252,6 @@ impl Chunk {
                 Some(chunksections[7].clone()),
             ],
             heightmap: [[0; 16]; 16],
-            biomes: [[0; 16]; 16],
         };
         chunk.calculate_heightmap().ok()?;
         //chunk.calculate_skylight(GAME_GLOBAL.get_time()).ok()?;
@@ -565,26 +272,6 @@ impl Chunk {
             }
         }
     } */
-    pub fn get_block(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Block> {
-        let idx = World::pos_to_index(x, y, z)?;
-        if x > 15 {
-            //log::info!("Coords {} {} {}", x, y, z);
-            //panic!("g");
-        }
-        if idx.2 > 1 {
-            //log::info!("Getting section {}", idx.2);
-        }
-        let section = self.data.get_mut(idx.2 as usize)?;
-        if section.is_none() {
-            *section = Some(ChunkSection::new(self.pos.x, self.pos.z, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        section.get_block(ChunkSection::pos_to_index(
-            x.rem_euclid(16),
-            y.rem_euclid(16),
-            z.rem_euclid(16),
-        ))
-    }
     pub fn epic_generate(x: i32, z: i32) -> Self {
         let mut blocks = Vec::new();
         for _ in 0..4096 {
@@ -613,7 +300,6 @@ impl Chunk {
                 None,
             ],
             heightmap: [[0; 16]; 16],
-            biomes: [[0; 16]; 16],
         };
         chunk
     }
@@ -636,10 +322,6 @@ impl Chunk {
                 if x == 0 && z == 0 {
                     log::debug!("Doing {} {} {}", x, y, z);
                 }
-                **section
-                    .get_block(ChunkSection::pos_to_index(x, y, z - section.section as i32))
-                    .as_mut()
-                    .unwrap() = block;
             }
         }
         self.calculate_heightmap()?;
@@ -669,7 +351,6 @@ impl Chunk {
                     if x == 0 && z == 0 {
                         log::debug!("Doing {} {} {}", x, y, z);
                     }
-                    **w_block = block;
                 } else {
                     if x == 0 && z == 0 {
                         log::debug!("Not doing {} {} {} it is type {}", x, y, z, w_block.b_type);
@@ -685,7 +366,7 @@ impl Chunk {
 use crate::game::{BlockPosition, Position};
 use std::collections::VecDeque;
 pub struct World {
-    pub chunks: HashMap<ChunkCoords, Chunk>,
+    pub chunks: HashMap<ChunkCoords, ChunkHandle>,
     pub generator: Arc<Box<dyn WorldGenerator>>,
     pub spawn_position: Position,
     pub block_updates: VecDeque<(BlockPosition, Block)>,
@@ -693,6 +374,9 @@ pub struct World {
 }
 use std::time::*;
 impl World {
+    pub fn insert_chunk(&mut self, chunk: Chunk) {
+        self.chunks.insert(chunk.position(), Arc::new(ChunkLock::new(chunk, true)));
+    }
     pub fn init_chunk(&mut self, coords: &ChunkCoords) {
         let chunk = self.check_chunk_exists(coords);
         if !chunk {
@@ -702,11 +386,11 @@ impl World {
             };
             if let Some(mcr_helper) = &mut self.mcr_helper {
                 if let Some(c) = mcr_helper.get_chunk(&coords) {
-                    self.chunks.insert(coords, c);
+                    self.insert_chunk(c);
                 }
             } else {
                 log::info!("Generating {:?}", coords);
-                self.chunks.insert(coords, Chunk::plain(coords.x, coords.z));
+                self.insert_chunk(Chunk::plain(coords.x, coords.z));
             }
         }
         /*         let _ = self
@@ -788,74 +472,6 @@ impl World {
         drop(tag);
         Ok(world)
     }
-    pub fn from_file(file: &str) -> anyhow::Result<Self> {
-        let start = Instant::now();
-        log::info!("Loading world from {}/", file);
-        let mut faxvec: Vec<std::path::PathBuf> = Vec::new();
-        for element in std::path::Path::new(file).read_dir()? {
-            let path = element.unwrap().path();
-            if let Some(extension) = path.extension() {
-                if extension == "nbt" {
-                    faxvec.push(path);
-                }
-            }
-        }
-        let mut chunks = HashMap::new();
-        use std::sync::mpsc::sync_channel;
-        let (tx, rx) = sync_channel(1000000);
-        use rayon::prelude::*;
-        faxvec.into_par_iter().for_each(move |path| {
-            let tx = tx.clone();
-            let insert = Chunk::from_file(path.to_str().unwrap())
-                .ok_or(anyhow::anyhow!("cant make chunk"))
-                .unwrap();
-            //log::info!("Loading chunk {}, {}", insert.x, insert.z);
-            tx.clone().send((insert.pos, insert)).unwrap();
-        });
-        for chunk in rx.iter() {
-            chunks.insert(chunk.0, chunk.1);
-        }
-        /*         for path in faxvec {
-            let insert = Chunk::from_file(path.to_str().unwrap())
-                .ok_or(anyhow::anyhow!("cant make chunk"))?;
-            log::info!("Loading chunk {}, {}", insert.x, insert.z);
-            chunks.insert(
-                ChunkCoords {
-                    x: insert.x,
-                    z: insert.z,
-                },
-                insert,
-            );
-        } */
-        use nbt::decode::read_compound_tag;
-        use nbt::CompoundTag;
-        let mut file = std::fs::File::open(format!("{}/main", file)).unwrap();
-        let root = read_compound_tag(&mut file).unwrap();
-        let generator: Box<dyn WorldGenerator> = match root.get_str("generator").unwrap() {
-            /*             "FlatChunkGenerator" => Box::new(FlatChunkGenerator {}),
-            "FunnyChunkGenerator" => Box::new(FunnyChunkGenerator::new(
-                root.get_i64("seed").unwrap() as u64,
-                FunnyChunkPreset::REGULAR,
-            )), */
-            "MountainChunkGenerator" => Box::new(MountainWorldGenerator::new(
-                root.get_i64("seed").unwrap() as u64,
-            )),
-            _ => Box::new(MountainWorldGenerator::new(0)),
-        };
-        log::info!("Done in {}s.", start.elapsed().as_secs());
-        Ok(Self {
-            chunks,
-            generator: Arc::new(generator),
-            spawn_position: Position::from_pos(3., 45., 8.),
-            block_updates: VecDeque::new(),
-            mcr_helper: Some(MCRegionLoader::new("")?),
-        })
-    }
-    pub fn epic_test(&mut self) {
-        let chunk = self.chunks.get_mut(&ChunkCoords { x: 0, z: 0 }).unwrap();
-        chunk.to_file("bstestfile");
-        *chunk = Chunk::from_file("bstestfile").unwrap();
-    }
     pub fn generate_spawn_chunks(&mut self) {
         let start_time = Instant::now();
         let interval = Duration::from_secs(1);
@@ -892,199 +508,6 @@ impl World {
     }
     pub fn check_chunk_exists(&self, coords: &ChunkCoords) -> bool {
         self.chunks.get(coords).is_some()
-    }
-    pub fn chunk_to_packets(
-        &self,
-        coords: ChunkCoords,
-        player: Sender<ServerPacket>,
-    ) -> anyhow::Result<()> {
-        use rayon::prelude::*;
-        let mut initialized = Vec::new();
-        log::info!("Getting {:?}", coords);
-        let chunk = self
-            .chunks
-            .get(&coords)
-            .ok_or(anyhow::anyhow!("Tried to send a chunk that doesn't exist!"))?;
-        for section in &chunk.data {
-            if section.is_some() {
-                log::debug!("Sending section");
-                if !initialized.contains(&coords) {
-                    player.send(ServerPacket::PreChunk {
-                        x: chunk.pos.x,
-                        z: chunk.pos.z,
-                        mode: true,
-                    })?;
-                    initialized.push(coords);
-                }
-                section
-                    .as_ref()
-                    .unwrap()
-                    .to_packets_section_raw(player.clone(), &mut Vec::new());
-                //return Ok(());
-            }
-        }
-        Ok(())
-    }
-    pub fn bad_to_packets(&self, player: Sender<ServerPacket>) -> anyhow::Result<()> {
-        let mut initialized = Vec::new();
-        for (coords, chunk) in &self.chunks {
-            for section in &chunk.data {
-                if section.is_some() {
-                    log::debug!("Sending section");
-                    if !initialized.contains(coords) {
-                        player.send(ServerPacket::PreChunk {
-                            x: chunk.pos.x,
-                            z: chunk.pos.z,
-                            mode: true,
-                        })?;
-                        initialized.push(*coords);
-                    }
-                    section
-                        .as_ref()
-                        .unwrap()
-                        .to_packets_section_raw(player.clone(), &mut Vec::new());
-                    //return Ok(());
-                }
-            }
-        }
-        Ok(())
-    }
-    /*     pub fn send_block_updates(&mut self, players: PlayerList) {
-        loop {
-            if let Some(update) = self.block_updates.pop_front() {
-                //log::info!("Update: {:?}", update);
-                for player in players.iter() {
-                    let player = player.1;
-                    if player
-                        .get_loaded_chunks()
-                        .contains(&update.0.to_chunk_coords())
-                    {
-                        if let Some(block) = self.get_block(update.0.x, update.0.y, update.0.z) {
-                            if *block != update.1 {
-                                let update = update.0;
-                                //log::info!("Sending update to {}", player.get_username());
-                                player.write_packet(ServerPacket::BlockChange {
-                                    x: update.x,
-                                    y: update.y as i8,
-                                    z: update.z,
-                                    block_type: block.b_type as i8,
-                                    block_metadata: block.b_metadata as i8,
-                                });
-                                self.chunks
-                                    .get_mut(&update.to_chunk_coords())
-                                    .expect("Impossible")
-                                    .calculate_heightmap();
-                                self.chunks
-                                    .get_mut(&update.to_chunk_coords())
-                                    .expect("Impossible")
-                                    .calculate_skylight(GAME_GLOBAL.get_time());
-                            }
-                        }
-                    }
-                }
-            } else {
-                self.block_updates = VecDeque::new();
-                break;
-            }
-        }
-    } */
-    pub fn set_block(&mut self, pos: &BlockPosition, b: &Block) -> Option<()> {
-        let idx = Self::pos_to_index(pos.x, pos.y, pos.z)?;
-        self.init_chunk(&pos.to_chunk_coords());
-        let chunk = self.chunks.get_mut(&pos.to_chunk_coords()).unwrap();
-        let section = chunk.data.get_mut(idx.2 as usize)?;
-        if section.is_none() {
-            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        *section.get_block(ChunkSection::pos_to_index(
-            pos.x.rem_euclid(16),
-            pos.y.rem_euclid(16),
-            pos.z.rem_euclid(16),
-        ))? = b.clone();
-        Some(())
-    }
-    pub fn get_block(&mut self, pos: &BlockPosition) -> Block {
-        let idx = Self::pos_to_index(pos.x, pos.y, pos.z).unwrap();
-        self.init_chunk(&pos.to_chunk_coords());
-        let chunk = self.chunks.get_mut(&pos.to_chunk_coords()).unwrap();
-        let section = chunk.data.get_mut(idx.2 as usize).unwrap();
-        if section.is_none() {
-            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        section
-            .get_block(ChunkSection::pos_to_index(
-                pos.x.rem_euclid(16),
-                pos.y.rem_euclid(16),
-                pos.z.rem_euclid(16),
-            ))
-            .unwrap_or(&mut Block::default())
-            .clone()
-    }
-    fn get_block_mut(&mut self, x: i32, y: i32, z: i32) -> Option<&mut Block> {
-        let idx = Self::pos_to_index(x, y, z)?;
-        let chunk = self
-            .chunks
-            .get(&ChunkCoords { x: idx.0, z: idx.1 })
-            .is_some();
-        if !chunk {
-            self.init_chunk(&ChunkCoords { x: idx.0, z: idx.1 });
-        }
-        drop(chunk);
-        let chunk = self.chunks.get_mut(&ChunkCoords { x: idx.0, z: idx.1 })?;
-        let section = chunk.data.get_mut(idx.2 as usize)?;
-        if section.is_none() {
-            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        let block = section.get_block(ChunkSection::pos_to_index(
-            x.rem_euclid(16),
-            y.rem_euclid(16),
-            z.rem_euclid(16),
-        ))?;
-        self.block_updates
-            .push_back((BlockPosition { x, y, z }, block.clone()));
-        Some(block)
-    }
-    fn get_block_internal(&mut self, x: i32, y: i32, z: i32) -> Option<&Block> {
-        let idx = Self::pos_to_index(x, y, z)?;
-        let chunk = self
-            .chunks
-            .get(&ChunkCoords { x: idx.0, z: idx.1 })
-            .is_some();
-        if !chunk {
-            if let Some(c) = self
-                .mcr_helper
-                .as_mut()
-                .unwrap()
-                .get_chunk(&ChunkCoords { x: idx.0, z: idx.1 })
-            {
-                self.chunks.insert(ChunkCoords { x: idx.0, z: idx.1 }, c);
-            } else {
-                // TODO a standardized thing for generating missing chunks, not repeating code
-                //////////////////log::info!("Generating");
-                self.chunks.insert(
-                    ChunkCoords { x: idx.0, z: idx.1 },
-                    self.generator.gen_chunk(ChunkCoords { x: idx.0, z: idx.1 }),
-                );
-                self.generator
-                    .clone()
-                    .gen_structures(self, ChunkCoords { x: idx.0, z: idx.1 });
-            }
-        }
-        drop(chunk);
-        let chunk = self.chunks.get_mut(&ChunkCoords { x: idx.0, z: idx.1 })?;
-        let section = chunk.data.get_mut(idx.2 as usize)?;
-        if section.is_none() {
-            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        Some(section.get_block(ChunkSection::pos_to_index(
-            x.rem_euclid(16),
-            y.rem_euclid(16),
-            z.rem_euclid(16),
-        ))?)
     }
     pub fn pos_to_index(x: i32, y: i32, z: i32) -> Option<(i32, i32, i32)> {
         //log::info!("X {} Y {} Z {}", x, y, z);
@@ -1248,6 +671,8 @@ use worldgen::noisemap::{NoiseMap, NoiseMapGenerator, NoiseMapGeneratorBase, See
 use worldgen::world::tile::{Constraint, ConstraintType};
 use worldgen::world::{Tile, World as NGWorld};
 
+use super::chunk_lock::ChunkHandle;
+use super::chunk_lock::ChunkLock;
 //use super::classic::FlatWorldGenerator;
 use super::mcregion::MCRegionLoader;
 pub struct MountainStructureGenerator {
@@ -1464,7 +889,6 @@ impl ChunkGenerator for MountainChunkGenerator {
                 None,
             ],
             heightmap: [[0; 16]; 16],
-            biomes: [[0; 16]; 16],
         };
         chunk.calculate_heightmap().unwrap();
         let noise = self
@@ -1489,37 +913,6 @@ impl ChunkGenerator for MountainChunkGenerator {
                 num += 40;
                 if num > 11 {
                     //continue;
-                }
-                if num < WATER_HEIGHT {
-                    *chunk.get_block(x, num, z).unwrap() = Block {
-                        b_type: 13,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    };
-                } else {
-                    *chunk.get_block(x, num, z).unwrap() = Block {
-                        b_type: 2,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    };
-                }
-                for y in 0..num - 3 {
-                    *chunk.get_block(x, y, z).unwrap() = Block {
-                        b_type: 1,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    };
-                }
-                for y in num - 3..num {
-                    *chunk.get_block(x, y, z).unwrap() = Block {
-                        b_type: 3,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    };
                 }
             }
         }
@@ -1591,7 +984,6 @@ impl ChunkGenerator for FunnyChunkGenerator {
                 None,
             ],
             heightmap: [[0; 16]; 16],
-            biomes: [[0; 16]; 16],
         };
         let noise = self
             .noise
@@ -1616,40 +1008,17 @@ impl ChunkGenerator for FunnyChunkGenerator {
                 if num > 11 {
                     //continue;
                 }
-                *chunk.get_block(x, num, z).unwrap() = Block {
-                    b_type: 2,
-                    b_metadata: 0,
-                    b_light: 0,
-                    b_skylight: 0,
-                };
-                for y in 0..num - 3 {
-                    *chunk.get_block(x, y, z).unwrap() = Block {
-                        b_type: 1,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    };
-                }
-                for y in num - 3..num {
-                    *chunk.get_block(x, y, z).unwrap() = Block {
-                        b_type: 3,
-                        b_metadata: 0,
-                        b_light: 0,
-                        b_skylight: 0,
-                    };
-                }
             }
         }
         let tree_x = rng.gen_range(0..16);
         let tree_z = rng.gen_range(0..16);
         for y in (0..127).rev() {
-            let block = chunk.get_block(tree_x, y, tree_z).unwrap();
-            if block.b_type != 2 {
-                continue;
-            }
+            //let block = chunk.get_block(tree_x, y, tree_z).unwrap();
+            //if block.b_type != 2 {
+            //    continue;
+            //}
             for offset in 1..rng.gen_range(3..8) {
-                let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap();
-                block.set_type(17);
+                //let block = chunk.get_block(tree_x, y + offset, tree_z).unwrap();
             }
         }
         chunk
@@ -1702,7 +1071,6 @@ impl ChunkGenerator for FlatChunkGenerator {
                 None,
             ],
             heightmap: [[0; 16]; 16],
-            biomes: [[0; 16]; 16],
         };
         chunk
             .fill_layer(

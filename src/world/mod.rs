@@ -3,10 +3,11 @@ use std::{collections::HashMap, mem::{replace, take}, sync::Arc};
 use hecs::Entity;
 use nbt::decode::read_compound_tag;
 
-use crate::{ecs::{Ecs, entities::player::{ChunkLoadQueue, NetworkManager, Player}}, game::{BlockPosition, ChunkCoords, Game, Position}, network::packet::ServerPacket};
+use crate::{ecs::{Ecs, entities::player::{ChunkLoadQueue, Player}}, game::{BlockPosition, ChunkCoords, Game, Position}};
 
 pub mod chunks;
 pub mod mcregion;
+pub mod chunk_lock;
 use chunks::*;
 use mcregion::*;
 pub struct World {
@@ -37,35 +38,6 @@ impl World {
     }
     pub fn process_chunk_loads(&mut self, game: &mut Game) {
         self.unload_unused_chunks(&mut game.ecs);
-        let chunks = take(&mut self.load_manager.chunks);
-        //log::info!("Len: {}", chunks.len());
-        let mut packets = Vec::new();
-        for (chunk, data) in chunks.into_iter() {
-            if !data.load {
-                self.chunks.remove(&chunk);
-                for (en, (_, q)) in game.ecs.query::<(&Player, &mut ChunkLoadQueue)>().iter() {
-                    if q.contains(&chunk) {
-                        packets.push((en, ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z}));
-                        game.packet_to_entity(en, ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z});
-                        //n.write(ServerPacket::PreChunk {mode: false, x: chunk.x, z: chunk.z});
-                    }
-                    q.remove(&chunk);
-                }
-            } else {
-                self.internal_load_chunk(&chunk);
-                game.ecs.query::<(&Player, &mut ChunkLoadQueue)>().iter().for_each(|(en, (_, q))| {
-                    if q.contains(&chunk) {
-                        if let Some(c) = self.chunks.get(&chunk) {
-                            game.packet_to_entity(en, ServerPacket::PreChunk {mode: true, x: chunk.x, z: chunk.z});
-                            //n.write(ServerPacket::PreChunk {mode: true, x: chunk.x, z: chunk.z});
-                            c.to_packets(game, en);
-                        } else {
-                            log::error!("Expected chunk at ({}, {})", chunk.x, chunk.z);
-                        }
-                    }
-                });
-            }
-        }
     }
     fn internal_load_chunk(&mut self, coords: &ChunkCoords) {
         if let Some(c) = self.region_provider.get_chunk(coords) {
@@ -116,11 +88,6 @@ impl World {
             *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
         }
         let section = section.as_mut().unwrap();
-        *section.get_block(ChunkSection::pos_to_index(
-            pos.x.rem_euclid(16),
-            pos.y.rem_euclid(16),
-            pos.z.rem_euclid(16),
-        ))? = b.clone();
         Some(())
     }
     pub fn get_block(&mut self, pos: &BlockPosition) -> Option<Block> {

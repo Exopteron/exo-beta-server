@@ -1,7 +1,6 @@
 use crate::server::Server;
 use crate::game::{Game, Message, DamageType, ChunkCoords};
-use crate::network::ids::{EntityID, IDS};
-use crate::network::packet::{ClientPacket, ServerPacket};
+use crate::network::ids::{NetworkID, IDS};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use crate::configuration::CONFIGURATION;

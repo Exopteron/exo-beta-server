@@ -1,10 +1,10 @@
 use crate::ecs::{
-    entities::player::{NetworkManager, Player, Username},
+    entities::player::{Player, Username},
     systems::Systems,
 };
 
 pub fn init_systems(s: &mut Systems) {
-    s.add_system("check_disconnected", |game| {
+/*     s.add_system("check_disconnected", |game| {
         let mut to_despawn = Vec::new();
         let mut to_check = Vec::new();
         for (p, _) in game.ecs.query::<&Player>().iter() {
@@ -28,5 +28,5 @@ pub fn init_systems(s: &mut Systems) {
             game.despawn(e);
         }
         Ok(())
-    });
+    }); */
 }

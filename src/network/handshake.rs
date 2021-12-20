@@ -1,41 +1,29 @@
 use rand::RngCore;
 
 use super::worker::Worker;
-use super::packet::{ClientPacket, ClientPacketTypes, ServerPacket};
-use super::ids::EntityID;
+use super::ids::NetworkID;
+use crate::protocol::io::String16;
+use crate::protocol::packets::server::{Handshake, ServerHandshakePacket, LoginRequest};
+use crate::protocol::{ClientHandshakePacket, ClientLoginPacket};
 use crate::server::NewPlayer;
 pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<NewPlayer> {
-    let packet = worker.read().await?;
-    if !matches!(packet.packet_type(), ClientPacketTypes::Handshake) {
-        return Err(anyhow::anyhow!("Wrong packet!"));
-    }
-    let handshake_packet = if let ClientPacket::Handshake(packet) = packet {
-        packet
-    } else {
-        return Err(anyhow::anyhow!("Wrong packet!"));
-    };
-    // log::info!("{} attempting to log in as {}", worker.addr, handshake_packet.username);
+    log::info!("A");
+    let packet = worker.read::<ClientHandshakePacket>().await?;
+    log::info!("B");
+    let ClientHandshakePacket::Handshake(handshake) = packet;
+    log::info!("{} attempting to log in as {}", worker.addr, handshake.username.0);
     //log::info!("Packet: {:?}", handshake_packet);
-    let packet = ServerPacket::Handshake { connection_hash: "-".to_string() };
+    let packet = ServerHandshakePacket::Handshake(Handshake { connection_hash: String16("-".to_owned())});
     worker.write(packet).await?;
-    let packet = worker.read().await?;
-    if !matches!(packet.packet_type(), ClientPacketTypes::LoginRequest) {
-        return Err(anyhow::anyhow!("Wrong packet!"));
-    }
-    let lr_packet = if let ClientPacket::LoginRequest(packet) = packet {
-        packet
-    } else {
-        return Err(anyhow::anyhow!("Wrong packet!"));
-    };
+    log::info!("Written");
+    let packet = worker.read::<ClientLoginPacket>().await?;
+    log::info!("Sup");
+    let ClientLoginPacket::LoginRequest(login_request) = packet;
     // log::info!("Successfully authenticated {}[/{}]", lr_packet.username, worker.addr);
-    if lr_packet.protocol_version != 29 {
-        worker.write(ServerPacket::Disconnect { reason: "Wrong version.".to_string() }).await?;
+    if login_request.protocol_version != 69420 && false {
+        //worker.write(ServerPacket::Disconnect { reason: "Wrong version.".to_string() }).await?;
         return Err(anyhow::anyhow!("Wrong protocol version!"));
     }
-    let id = EntityID::new();
-    //log::info!("Packet: {:?}", lr_packet);
-    //log::info!("[Connection worker] User {} logging in with entity id {}", lr_packet.username, id.0);
-/*     let packet = ServerPacket::ServerLoginRequest { entity_id: id.0, unknown: "".to_string(), unknown_2: "".to_string(), map_seed: 0, dimension: 0};
-    worker.write(packet).await?; */
-    Ok(NewPlayer { username: lr_packet.username, recv_packets_recv: worker.recv_packets_recv.clone(), packet_send_sender: worker.packet_send_sender.clone(), id, addr: worker.addr})
+    let id = NetworkID::new();
+    Ok(NewPlayer { username: login_request.username.0, recv_packets_recv: worker.recv_packets_recv.clone(), packet_send_sender: worker.packet_send_sender.clone(), id, addr: worker.addr})
 }

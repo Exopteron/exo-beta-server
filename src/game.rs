@@ -3,16 +3,20 @@ use crate::configuration::CONFIGURATION;
 use crate::ecs::Ecs;
 use crate::ecs::EntityRef;
 use crate::ecs::entities::player::CurrentWorldInfo;
-use crate::ecs::entities::player::NetworkManager;
 use crate::ecs::entities::player::Player;
 use crate::ecs::entities::player::PlayerBuilder;
 use crate::ecs::entities::player::Username;
 use crate::ecs::systems::Systems;
 //use crate::game::events::*;
-use crate::network::ids::EntityID;
+use crate::network::ids::NetworkID;
 use crate::network::ids::IDS;
-use crate::network::packet::{ClientPacket, ServerPacket};
 use crate::objects::Objects;
+use crate::protocol::ServerLoginPacket;
+use crate::protocol::ServerPlayPacket;
+use crate::protocol::io::String16;
+use crate::protocol::packets::server::LoginRequest;
+use crate::protocol::packets::server::PlayerPositionAndLook;
+use crate::protocol::packets::server::SpawnPosition;
 use crate::server::Client;
 use crate::server::Server;
 use crate::world::World;
@@ -428,15 +432,6 @@ pub struct Game {
 use nbt::*;
 use rand::Rng;
 impl Game {
-    pub fn get_client(&mut self, entity: Entity) -> anyhow::Result<Arc<RefCell<Client>>> {
-        let id = self.ecs.entity(entity)?.get::<EntityID>()?;
-        let server = self.objects.get_mut::<Server>()?;
-        if let Some(client) = server.clients.clone().borrow().get(&*id) {
-            return Ok(client.clone());
-        } else {
-            return Err(anyhow::anyhow!("No such client"));
-        }
-    }
     pub fn new(
         systems: Systems,
     ) -> Self {
@@ -506,7 +501,7 @@ impl Game {
             log::info!("No server operators in file.");
         }
         let mut worlds = HashMap::new();
-        worlds.insert(0i32, crate::world::World::from_file_mcr("epicpog").unwrap());
+        //worlds.insert(0i32, crate::world::World::from_file_mcr("epicpog").unwrap());
         let game = Self {
             objects: objects,
             systems: Arc::new(RefCell::new(systems)),
@@ -537,9 +532,9 @@ impl Game {
     }
     pub fn accept_packets(&mut self, server: &mut Server) -> anyhow::Result<()> {
         let mut packets = Vec::new();
-        for (entity, (player, id)) in self.ecs.query::<(&Player, &EntityID)>().iter() {
-            if let Some(cl) = server.clients.borrow().get(&id) {
-                for packet in cl.borrow().recieved_packets() {
+        for (entity, (player, id)) in self.ecs.query::<(&Player, &NetworkID)>().iter() {
+            if let Some(cl) = server.clients.get(&id) {
+                for packet in cl.recieved_packets() {
                     //log::info!("Got one");
                     packets.push((entity.clone(), packet));
                 }
@@ -573,61 +568,15 @@ impl Game {
         }
         Ok(())
     }
-    pub fn teleport_player_notify(&mut self, entity: Entity, pos: &Position) -> anyhow::Result<()> {
-        let entityref = self.ecs.entity(entity)?;
-        *entityref.get_mut::<Position>()? = *pos;
-        self.packet_to_entity(entity, ServerPacket::PlayerPositionAndLook { x: pos.x, stance: 67.240000009536743, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: false });
-        Ok(())
-    }
-    pub fn packet_to_entity(&mut self, entity: Entity, packet: ServerPacket) {
-        let closure = || {
-            let id = self.ecs.entity(entity)?.get::<EntityID>()?;
-            let server = self.objects.get_mut::<Server>()?;
-            if let Some(client) = server.clients.clone().borrow().get(&*id) {
-                client.borrow_mut().write(packet)?;
-                return Ok(());
-            } else {
-                return Err(anyhow::anyhow!("No such client"));
-            }
-        };
-        if let Err(_) = closure() {
-            self.despawn(entity);
-        }
-    }
-    pub fn despawn(&mut self, entity: Entity) {
-        let mut closure = move || -> anyhow::Result<()> {
-            let x = self.ecs.entity(entity)?.get::<EntityID>()?;
-            let id = x.deref().clone();
-            drop(x);
-            self.ecs.world.despawn(entity)?;
-            let server = self.objects.get_mut::<Server>()?;
-            if let Some(client) = server.clients.clone().borrow().get(&id) {
-                client.borrow_mut().write(ServerPacket::Disconnect { reason: String::from("Disconnected")})?;
-            }
-            Ok(())
-        };
-        if let Err(_) = closure() {
-
-        }
-    }
-    fn accept_player(&mut self, server: &mut Server, id: EntityID) -> anyhow::Result<()> {
+    fn accept_player(&mut self, server: &mut Server, id: NetworkID) -> anyhow::Result<()> {
         log::info!("Player {:?}", id);
-        let clients = server.clients.borrow_mut();
-        let client = clients.get(&id).unwrap().clone();
-        let mut client = client.borrow_mut();
-        let packet = ServerPacket::ServerLoginRequest {
-            entity_id: id.0,
-            level_type: "default".to_string(),
-            dimension: 0,
-            server_mode: 1,
-            difficulty: 0,
-            max_players: 16,
-        };
-        client.write(packet)?;
+        let clients = &mut server.clients;
+        let mut client = clients.get_mut(&id).ok_or(anyhow::anyhow!("Client does not exist"))?;
         let pos = Position::from_pos(0., 255., 0.);
         log::info!("Pos {:?}", pos);
-        client.write(ServerPacket::PlayerPositionAndLook { x: pos.x, stance: 67.240000009536743, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: false })?;
-        client.write(ServerPacket::SpawnPosition { x: pos.x.round() as i32, y: pos.x.round() as i32, z: pos.x.round() as i32 })?;
+        client.write(ServerPlayPacket::LoginRequest(LoginRequest { entity_id: id.0, not_used: String16("".to_owned()), map_seed: 0, server_mode: 1, dimension: 0, difficulty: 0, world_height: 128, max_players: 8 }))?;
+        client.write(ServerPlayPacket::PlayerPositionAndLook(PlayerPositionAndLook { x: pos.x, stance: 67.240000009536743, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: false }))?;
+        client.write(ServerPlayPacket::SpawnPosition(SpawnPosition { x: pos.x.round() as i32, y: pos.x.round() as i32, z: pos.x.round() as i32 }))?;
         PlayerBuilder::build(&mut self.ecs, Username(client.username.clone()), pos, id, CurrentWorldInfo::new(0));
         Ok(())
     }
