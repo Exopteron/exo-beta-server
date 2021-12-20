@@ -27,7 +27,8 @@ impl MCRegionLoader {
         })
     }
     pub fn save_all(&mut self, world: &mut World) -> anyhow::Result<()> {
-        for (coords, chunk) in world.chunks.iter_mut() {
+        for chunk in world.chunk_map.iter_chunks() {
+            let coords = chunk.read().pos;
             let mut region = self
                 .cheating
                 .get_region(RegionPosition::from_chunk_position(coords.x, coords.z))?;
@@ -93,6 +94,7 @@ impl MCRegionLoader {
         let mut region = self.cheating.get_region(region_pos).ok()?;
         let chunk_tag = region.read_chunk(region_chunk_pos).ok()?;
         let level_tag = chunk_tag.get_compound_tag("Level").ok()?;
+        //log::info!("WE are here");
         return Region::chunk_from_tag(level_tag).ok();
     }
 }
@@ -132,6 +134,7 @@ struct PresentChunk {
     sector_count: u8,
     timestamp: u32,
 }
+use super::World;
 use super::chunk_lock::ChunkHandle;
 use super::chunks::*;
 use std::io::Read;
@@ -188,11 +191,11 @@ impl Region {
         let mut blocks = Vec::new();
         let mut i = 0;
         for block in block_ids {
-            blocks.push(Block {
+            blocks.push(BlockState {
                 b_type: block,
                 b_metadata: metadata[i],
                 b_light: 0,
-                b_skylight: 0,
+                b_skylight: 15,
             });
             i += 1;
         }
@@ -239,7 +242,6 @@ impl Region {
             ],
             heightmap: [[0; 16]; 16],
         };
-        chunk.calculate_heightmap()?;
         return Ok(chunk);
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
@@ -339,7 +341,7 @@ impl Region {
             let mut blocks = Vec::new();
             let mut i = 0;
             for block in block_ids {
-                blocks.push(Block {
+                blocks.push(BlockState {
                     b_type: block,
                     b_metadata: metadata[i],
                     b_light: 0,
@@ -390,7 +392,6 @@ impl Region {
                 ],
                 heightmap: [[0; 16]; 16],
             };
-            chunk.calculate_heightmap()?;
             chunks.push(chunk);
         }
         Ok(Self { chunks })

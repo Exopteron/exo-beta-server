@@ -1,24 +1,27 @@
-use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
-use tokio::net::tcp::OwnedReadHalf;
-use tokio::net::tcp::OwnedWriteHalf;
-use tokio::time::timeout;
-use std::io;
-use std::io::ErrorKind;
-use std::net::SocketAddr;
-use std::time::Duration;
-use flume::{Sender, Receiver};
+use super::handshake;
+use super::handshake::HandshakeResult;
+use super::packet;
 use crate::configuration::CONFIGURATION;
+use crate::player_count::PlayerCount;
 use crate::protocol::ClientPlayPacket;
 use crate::protocol::MinecraftCodec;
 use crate::protocol::Readable;
 use crate::protocol::ServerPlayPacket;
 use crate::protocol::Writeable;
+use crate::protocol::packets::server::Kick;
 use crate::server::NewPlayer;
-use super::handshake;
-use super::packet;
+use flume::{Receiver, Sender};
 use std::fmt::Debug;
+use std::io;
+use std::io::ErrorKind;
+use std::net::SocketAddr;
+use std::time::Duration;
+use tokio::io::AsyncReadExt;
+use tokio::io::AsyncWriteExt;
+use tokio::net::tcp::OwnedReadHalf;
+use tokio::net::tcp::OwnedWriteHalf;
+use tokio::net::TcpStream;
+use tokio::time::timeout;
 pub struct Worker {
     reader: Reader,
     writer: Writer,
@@ -26,16 +29,25 @@ pub struct Worker {
     new_players: Sender<NewPlayer>,
     pub packet_send_sender: Sender<ServerPlayPacket>,
     pub recv_packets_recv: Receiver<ClientPlayPacket>,
+    pub player_count: PlayerCount
 }
 impl Worker {
-    pub fn new(stream: TcpStream, addr: SocketAddr, new_players: Sender<NewPlayer>) -> Self {
+    pub fn new(stream: TcpStream, addr: SocketAddr, new_players: Sender<NewPlayer>, player_count: PlayerCount) -> Self {
         let (reader, writer) = stream.into_split();
 
         let (recv_packets_send, recv_packets_recv) = flume::unbounded();
         let (packet_send_sender, packet_send_recv) = flume::unbounded();
         let reader = Reader::new(reader, recv_packets_send.clone());
         let writer = Writer::new(writer, packet_send_recv.clone());
-        Self { reader, writer, addr, new_players, packet_send_sender: packet_send_sender.clone(), recv_packets_recv: recv_packets_recv.clone() }
+        Self {
+            reader,
+            writer,
+            addr,
+            new_players,
+            packet_send_sender: packet_send_sender.clone(),
+            recv_packets_recv: recv_packets_recv.clone(),
+            player_count,
+        }
     }
     pub fn begin(self) {
         tokio::task::spawn(async move {
@@ -45,10 +57,19 @@ impl Worker {
     async fn run(mut self) -> anyhow::Result<()> {
         match handshake::handle_connection(&mut self).await {
             Ok(res) => {
-                //log::debug!("Sending");
-                let user = res.username.clone();
-                self.new_players.send_async(res).await?;
-                self.do_main(user).await;
+                if let HandshakeResult::Player(res) = res {
+                    if self.player_count.try_add_player().is_err() {
+                        self.write(ServerPlayPacket::Kick(Kick {
+                            reason: "The server is full!".into(),
+                        }))
+                        .await
+                        .ok();
+                        return Ok(());
+                    }
+                    let user = res.username.clone();
+                    self.new_players.send_async(res).await?;
+                    self.do_main(user).await;
+                }
             }
             Err(e) => {
                 log::error!("[Connection worker] Error handling user: {:?}", e);
@@ -57,15 +78,11 @@ impl Worker {
         Ok(())
     }
     async fn do_main(self, username: String) {
-        let Self {
-            reader,
-            writer,
-            ..
-        } = self;
+        let Self { reader, writer, .. } = self;
         let reader = tokio::task::spawn(async move { reader.run().await });
         let writer = tokio::task::spawn(async move { writer.run().await });
         tokio::task::spawn(async move {
-            let result = tokio::select!{
+            let result = tokio::select! {
                 a = reader => a,
                 b = writer => b,
             };

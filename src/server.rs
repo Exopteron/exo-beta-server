@@ -1,15 +1,49 @@
-use flume::{Sender, Receiver};
+use crate::ecs::entities::player::ChatMessage;
+use crate::ecs::entities::player::Username;
+use crate::ecs::systems;
+use crate::ecs::systems::world::view::WaitingChunks;
+use crate::ecs::systems::SystemExecutor;
+use crate::entities;
+use crate::entities::metadata::EntityMetadata;
+use crate::entities::PreviousPosition;
+use crate::game::ChunkCoords;
+use crate::game::Game;
+use crate::game::Position;
+use crate::network::ids::NetworkID;
+use crate::network::metadata::Metadata;
 use crate::network::Listener;
+use crate::player_count::PlayerCount;
+use crate::protocol::io::String16;
+use crate::protocol::packets::EntityAnimationType;
+use crate::protocol::packets::server::ChunkData;
+use crate::protocol::packets::server::ChunkDataKind;
+use crate::protocol::packets::server::DestroyEntity;
+use crate::protocol::packets::server::EntityLook;
+use crate::protocol::packets::server::EntityLookAndRelativeMove;
+use crate::protocol::packets::server::EntityRelativeMove;
+use crate::protocol::packets::server::EntityTeleport;
+use crate::protocol::packets::server::KeepAlive;
+use crate::protocol::packets::server::Kick;
+use crate::protocol::packets::server::NamedEntitySpawn;
+use crate::protocol::packets::server::PlayerListItem;
+use crate::protocol::packets::server::PlayerPositionAndLook;
+use crate::protocol::packets::server::PreChunk;
+use crate::protocol::packets::server::SendEntityAnimation;
+use crate::protocol::packets::server::SendEntityMetadata;
 use crate::protocol::ClientPlayPacket;
 use crate::protocol::ServerPlayPacket;
-use std::collections::HashMap;
-use crate::game::Game;
-use crate::network::ids::NetworkID;
-use std::sync::Arc;
+use crate::world::chunk_lock::ChunkHandle;
+use crate::world::chunk_subscriptions::ChunkSubscriptions;
+use flume::{Receiver, Sender};
+use std::cell::Cell;
 use std::cell::RefCell;
+use std::collections::HashMap;
+use std::collections::HashSet;
+use std::collections::VecDeque;
+use std::net::*;
+use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
-use std::net::*;
 pub struct NewPlayer {
     pub username: String,
     pub recv_packets_recv: Receiver<ClientPlayPacket>,
@@ -29,11 +63,218 @@ impl NewPlayer {
 pub struct Client {
     pub recv_packets_recv: Receiver<ClientPlayPacket>,
     pub packet_send_sender: Sender<ServerPlayPacket>,
-    pub username: String,
+    username: String,
     pub id: NetworkID,
+    sent_entities: RefCell<HashSet<NetworkID>>,
     pub addr: SocketAddr,
+    pub disconnected: Cell<bool>,
+    pub chunk_send_queue: RefCell<VecDeque<ChunkData>>,
+    known_chunks: RefCell<HashSet<ChunkCoords>>,
+    knows_position: Cell<bool>,
+    /// The previous own position sent by the client.
+    /// Used to detect when we need to teleport the client.
+    client_known_position: Cell<Option<Position>>,
 }
 impl Client {
+    pub fn add_tablist_player(
+        &self,
+        name: String,
+        latency: i16,
+    ) {
+        log::trace!("Sending PlayerListItem({}) to {}", name, self.username);
+        self.send_packet(PlayerListItem { name: String16(name), online: true, ping: latency });
+    }
+
+    pub fn remove_tablist_player(&self, name: String) {
+        log::trace!("Sending RemovePlayer({}) to {}", name, self.username);
+        self.send_packet(PlayerListItem { name: String16(name), online: false, ping: 0});
+    }
+    pub fn send_entity_animation(&self, network_id: NetworkID, animation: EntityAnimationType) {
+        if self.id == network_id {
+            return;
+        }
+        self.send_packet(SendEntityAnimation {
+            eid: network_id.0,
+            animation,
+        })
+    }
+    pub fn send_entity_metadata(&self, network_id: NetworkID, metadata: Metadata) {
+        if self.id == network_id {
+            return;
+        }
+        self.send_packet(SendEntityMetadata {
+            eid: network_id.0,
+            metadata: metadata,
+        });
+    }
+    pub fn update_entity_position(
+        &self,
+        network_id: NetworkID,
+        position: Position,
+        prev_position: PreviousPosition,
+    ) {
+        if self.id == network_id {
+            // This entity is the client. Only update
+            // the position if it has changed from the client's
+            // known position.
+            if Some(position) != self.client_known_position.get() {
+                self.update_own_position(position);
+            }
+            return;
+        }
+
+        let no_change_yaw = (position.yaw - prev_position.0.yaw).abs() < 0.001;
+        let no_change_pitch = (position.pitch - prev_position.0.pitch).abs() < 0.001;
+
+        // If the entity jumps or falls we should send a teleport packet instead to keep relative movement in sync.
+        if position.on_ground != prev_position.0.on_ground {
+            self.send_packet(EntityTeleport {
+                eid: network_id.0,
+                x: position.x.into(),
+                y: position.y.into(),
+                z: position.z.into(),
+                yaw: position.yaw as i8,
+                pitch: position.pitch as i8,
+            });
+
+            return;
+        }
+
+        if no_change_yaw && no_change_pitch {
+            self.send_packet(EntityRelativeMove {
+                eid: network_id.0,
+                delta_x: (position.x * 32.0 - prev_position.0.x * 32.0) as i8,
+                delta_y: (position.y * 32.0 - prev_position.0.y * 32.0) as i8,
+                delta_z: (position.z * 32.0 - prev_position.0.z * 32.0) as i8,
+            });
+        } else {
+            self.send_packet(EntityLookAndRelativeMove {
+                eid: network_id.0,
+                delta_x: (position.x * 32.0 - prev_position.0.x * 32.0) as i8,
+                delta_y: (position.y * 32.0 - prev_position.0.y * 32.0) as i8,
+                delta_z: (position.z * 32.0 - prev_position.0.z * 32.0) as i8,
+                yaw: position.yaw as i8,
+                pitch: position.pitch as i8,
+            });
+        }
+    }
+
+    pub fn unload_entity(&self, id: NetworkID) {
+        log::trace!("Unloading {:?} on {}", id, self.username);
+        self.sent_entities.borrow_mut().remove(&id);
+        self.send_packet(DestroyEntity { eid: id.0.into() });
+    }
+    fn register_entity(&self, network_id: NetworkID) {
+        self.sent_entities.borrow_mut().insert(network_id);
+    }
+    pub fn send_player(&self, network_id: NetworkID, username: &Username, pos: Position) {
+        if username.0 == self.username {
+            return;
+        }
+        log::trace!("Sending {:?} to {}", username.0, self.username);
+        assert!(!self.sent_entities.borrow().contains(&network_id));
+        self.send_packet(NamedEntitySpawn {
+            eid: network_id.0,
+            x: pos.x.into(),
+            y: pos.y.into(),
+            z: pos.z.into(),
+            rotation: pos.yaw as i8,
+            pitch: pos.pitch as i8,
+            player_name: username.0.clone().into(),
+            current_item: 0,
+        });
+        self.register_entity(network_id);
+    }
+    pub fn set_disconnected(&self, val: bool) {
+        self.disconnected.set(val);
+    }
+    pub fn set_client_known_position(&self, pos: Position) {
+        self.client_known_position.set(Some(pos));
+    }
+    pub fn client_known_position(&self) -> Option<Position> {
+        self.client_known_position.get()
+    }
+    pub fn send_keepalive(&self) {
+        log::trace!("Sending keepalive to {}", self.username);
+        self.send_packet(KeepAlive { id: 0 });
+    }
+    pub fn update_own_position(&self, new_position: Position) {
+        log::trace!(
+            "Updating position of {} to {:?}",
+            self.username,
+            new_position
+        );
+        self.send_packet(PlayerPositionAndLook {
+            x: new_position.x,
+            y: new_position.y,
+            z: new_position.z,
+            yaw: new_position.yaw,
+            pitch: new_position.pitch,
+            stance: 71.62,
+            on_ground: new_position.on_ground,
+        });
+        self.knows_position.set(true);
+        self.client_known_position.set(Some(new_position));
+    }
+    pub fn knows_own_position(&self) -> bool {
+        self.knows_position.get()
+    }
+    pub fn known_chunks(&self) -> usize {
+        self.known_chunks.borrow().len()
+    }
+
+    pub fn unload_chunk(&self, pos: ChunkCoords) {
+        log::trace!("Unloading chunk at {:?} on {}", pos, self.username);
+        self.send_packet(PreChunk {
+            chunk_x: pos.x,
+            chunk_z: pos.z,
+            mode: false,
+        });
+        self.known_chunks.borrow_mut().remove(&pos);
+    }
+    pub fn send_chunk(&self, chunk: &ChunkHandle) {
+        //log::info!("Sending chunk");
+        self.chunk_send_queue.borrow_mut().push_back(ChunkData {
+            chunk: Arc::clone(chunk),
+            kind: ChunkDataKind::LoadChunk,
+        });
+        self.known_chunks
+            .borrow_mut()
+            .insert(chunk.read().position());
+    }
+    // TODO: tick
+    pub fn tick(&self) {
+        //let num_to_send = MAX_CHUNKS_PER_TICK.min(self.chunk_send_queue.borrow().len());
+        for packet in self.chunk_send_queue.borrow_mut().drain(0..) {
+            log::trace!(
+                "Sending chunk at {:?} to {}",
+                packet.chunk.read().position(),
+                self.username
+            );
+            //let chunk = Arc::clone(&packet.chunk);
+            //self.send_packet(UpdateLight { chunk });
+            let pos = packet.chunk.clone().read().pos;
+            self.send_packet(PreChunk {
+                chunk_x: pos.x,
+                chunk_z: pos.z,
+                mode: true,
+            });
+            self.send_packet(packet);
+        }
+    }
+    pub fn send_chat_message(&self, message: ChatMessage) {
+        let packet = crate::protocol::packets::server::ChatMessage {
+            message: String16(message.0.to_string()),
+        };
+        self.send_packet(packet);
+    }
+    fn send_packet(&self, packet: impl Into<ServerPlayPacket>) {
+        let _ = self.packet_send_sender.try_send(packet.into());
+    }
+
+    pub fn username(&self) -> &str {
+        &self.username
+    }
     pub fn new(player: NewPlayer, id: NetworkID) -> Self {
         Self {
             recv_packets_recv: player.recv_packets_recv,
@@ -41,7 +282,22 @@ impl Client {
             username: player.username,
             id,
             addr: player.addr,
+            disconnected: Cell::from(false),
+            chunk_send_queue: RefCell::new(VecDeque::new()),
+            known_chunks: RefCell::new(HashSet::new()),
+            knows_position: Cell::new(false),
+            client_known_position: Cell::new(None),
+            sent_entities: RefCell::new(HashSet::new()),
         }
+    }
+    pub fn disconnect(&self, reason: &str) {
+        self.disconnected.set(true);
+        self.send_packet(Kick {
+            reason: String16(reason.to_owned()),
+        });
+    }
+    pub fn is_disconnected(&self) -> bool {
+        self.recv_packets_recv.is_disconnected() || self.disconnected.get()
     }
     pub fn write(&mut self, packet: ServerPlayPacket) -> anyhow::Result<()> {
         self.packet_send_sender.send(packet)?;
@@ -57,20 +313,57 @@ impl Client {
 pub struct Server {
     new_players: Receiver<NewPlayer>,
     pub clients: HashMap<NetworkID, Client>,
-    pub last_ping_time: Instant,
+    pub last_keepalive_time: Instant,
+    pub chunk_subscriptions: ChunkSubscriptions,
+    pub waiting_chunks: WaitingChunks,
+    pub player_count: PlayerCount,
 }
 impl Server {
+    /// Sends a packet to all clients currently subscribed
+    /// to the given position. This function should be
+    /// used for entity updates, block updates, etc—
+    /// any packets that need to be sent only to nearby players.
+    pub fn broadcast_nearby_with(&self, position: Position, mut callback: impl FnMut(&Client)) {
+        for &client_id in self
+            .chunk_subscriptions
+            .subscriptions_for(position.to_chunk_coords())
+        {
+            if let Some(client) = self.clients.get(&client_id) {
+                callback(client);
+            }
+        }
+    }
+    pub fn broadcast_keepalive(&mut self) {
+        self.broadcast_with(|client| client.send_keepalive());
+        self.last_keepalive_time = Instant::now();
+    }
     pub async fn bind() -> anyhow::Result<Self> {
+        let player_count = PlayerCount::new(10);
         let (new_players_send, new_players) = flume::bounded(4);
-        Listener::start_listening(new_players_send).await?;
-        Ok( Self { new_players, clients: HashMap::new(), last_ping_time: Instant::now() } )
+        Listener::start_listening(new_players_send, player_count.clone()).await?;
+        Ok(Self {
+            new_players,
+            clients: HashMap::new(),
+            last_keepalive_time: Instant::now(),
+            chunk_subscriptions: ChunkSubscriptions::default(),
+            waiting_chunks: WaitingChunks::default(),
+            player_count,
+        })
     }
     pub fn register(self, game: &mut Game) {
         game.insert_object(self);
+        game.add_entity_spawn_callback(entities::add_entity_components);
     }
     pub fn accept_clients(&mut self) -> Vec<NetworkID> {
         let mut clients = Vec::new();
         for player in self.new_players.clone().try_iter() {
+            if let Some(old_client) = self
+                .clients
+                .iter()
+                .find(|x| x.1.username == player.username)
+            {
+                old_client.1.disconnect("Logged in from another location!");
+            }
             let id = self.create_client(player);
             clients.push(id);
         }
@@ -85,10 +378,26 @@ impl Server {
     pub fn get_id(&mut self) -> NetworkID {
         NetworkID::new()
     }
-    pub fn broadcast(&mut self, mut function: impl FnMut(&mut Client) -> anyhow::Result<()>) -> anyhow::Result<()> {
+    /// Invokes a callback on all clients.
+    pub fn broadcast_with(&self, mut callback: impl FnMut(&Client)) {
+        for client in self.clients.iter() {
+            callback(client.1);
+        }
+    }
+    pub fn broadcast_mut(
+        &mut self,
+        mut function: impl FnMut(&mut Client) -> anyhow::Result<()>,
+    ) -> anyhow::Result<()> {
         for mut client in self.clients.iter_mut() {
             function(&mut client.1)?;
         }
         Ok(())
+    }
+    /// Removes a client.
+    pub fn remove_client(&mut self, id: NetworkID) {
+        let client = self.clients.remove(&id);
+        if let Some(client) = client {
+            log::debug!("Removed client for {}", client.username());
+        }
     }
 }

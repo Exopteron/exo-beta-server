@@ -4,10 +4,10 @@ use std::{
     cell::{Ref, RefCell, RefMut},
 };
 #[derive(Default)]
-pub struct Objects {
+pub struct Resources {
     objects: HashMap<TypeId, RefCell<Box<dyn Any>>>
 }
-impl Objects {
+impl Resources {
     pub fn new() -> Self {
         Self::default()
     }

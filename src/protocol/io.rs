@@ -1,8 +1,11 @@
 //! Traits for reading/writing Minecraft-encoded values.
 
+use crate::{entities::metadata::{MetaEntry, EntityMetadata}, network::metadata::Metadata};
+
 use super::ProtocolVersion;
 use anyhow::{anyhow, bail, Context};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
+use encoding::{all::UTF_16BE, Encoding, EncoderTrap};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     borrow::Cow,
@@ -11,7 +14,7 @@ use std::{
     io::{self, Cursor, Read, Write},
     iter::{self, FromIterator},
     marker::PhantomData,
-    num::TryFromIntError,
+    num::TryFromIntError, fmt::Display,
 };
 use thiserror::Error;
 /// Trait implemented for types which can be read
@@ -144,8 +147,69 @@ where
         Ok(())
     }
 }
+#[derive(Debug, Clone)]
+pub struct PingData {
+    motd: String,
+    online_players: usize,
+    slots: usize,
+}
+impl PingData {
+    pub fn new(motd: impl Into<String>, online_players: usize, slots: usize) -> Self {
+        Self { motd: motd.into(), online_players, slots }
+    }
+}
+impl Readable for PingData {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        unreachable!()
+    }
+}
+impl Writeable for PingData {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        let format = format!("{}\u{00a7}{}\u{00a7}{}", self.motd, self.online_players, self.slots);
+        String16(format).write(buffer, version)?;
+        Ok(())
+    }
+}
+#[derive(Clone, Debug)]
+pub struct AbsoluteInt(pub f64);
+impl Readable for AbsoluteInt {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        let val = i32::read(buffer, version)?;
+        Ok(Self((val as f64) / 32.0))
+    }
+}
+impl Writeable for AbsoluteInt {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        let val = (self.0 * 32.0) as i32;
+        val.write(buffer, version)
+    }
+}
+impl Into<AbsoluteInt> for f64 {
+    fn into(self) -> AbsoluteInt {
+        AbsoluteInt(self)
+    }
+}
 #[derive(Clone, Debug)]
 pub struct String16(pub String);
+impl Display for String16 {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+impl Into<String16> for String {
+    fn into(self) -> String16 {
+        String16(self)
+    }
+}
+impl Into<String16> for &str {
+    fn into(self) -> String16 {
+        String16(self.to_string())
+    }
+}
 impl Writeable for String16 {
     fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
         (self.0.chars().count() as i16).write(buffer, version)?;
@@ -161,7 +225,6 @@ impl Readable for String16 {
     where
         Self: Sized,
     {
-        log::info!("I was called");
         let length = i16::read(buffer, version).context("failed to read string length")? as usize * 2;
 
         // Read string into buffer.
@@ -349,5 +412,18 @@ impl<'a> From<&'a [u8]> for LengthInferredVecU8<'a> {
 impl<'a> From<LengthInferredVecU8<'a>> for Vec<u8> {
     fn from(x: LengthInferredVecU8<'a>) -> Self {
         x.0.into_owned()
+    }
+}
+impl Writeable for Metadata {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        buffer.append(&mut self.finish());
+        Ok(())
+    }
+}
+impl Readable for Metadata {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        unimplemented!();
     }
 }

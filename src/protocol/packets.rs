@@ -194,7 +194,44 @@ macro_rules! def_enum {
         }
     };
 }
-
+def_enum! {
+    DiggingStatus (i8) {
+        0 = StartedDigging,
+        2 = FinishedDigging,
+        4 = DropItem,
+        5 = ShootArrow,
+    }
+}
+def_enum! {
+    Face (i8) {
+        0 = NegativeY,
+        1 = PositiveY,
+        2 = NegativeZ,
+        3 = PositiveZ,
+        4 = NegativeX,
+        5 = PositiveX,
+    }
+}
+def_enum! {
+    EntityAnimationType (i8) {
+        0 = NoAnimation,
+        1 = SwingArm,
+        2 = Damage,
+        3 = LeaveBed,
+        104 = Crouch,
+        105 = Uncrouch,
+        102 = Unknown,
+    }
+}
+def_enum! {
+    EntityActionKind (i8) {
+        1 = StartSneaking,
+        2 = StopSneaking,
+        3 = LeaveBed,
+        4 = StartSprinting,
+        5 = StopSprinting,
+    }
+}
 macro_rules! packet_enum {
     (
         $ident:ident {
@@ -229,7 +266,10 @@ macro_rules! packet_enum {
                     $(
                         id if id == $id => Ok($ident::$packet($packet::read(buffer, version)?)),
                     )*
-                    _ => Err(anyhow::anyhow!("unknown packet ID {}", packet_id)),
+                    _ => {
+                        log::info!("Saw unknown packet {:x}", packet_id);
+                        Err(anyhow::anyhow!("unknown packet ID {}", packet_id))
+                    },
                 }
             }
         }

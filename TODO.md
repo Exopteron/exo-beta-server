@@ -1,6 +1,5 @@
 # To-Do
 
-* Rewrite chunk stuff
-* Rewrite more of the networking stuff
-* Rewrite basically everything else
-* This is so much work
+* Use multithreaded chunk loading (pretty slow right now)
+* World interaction
+* Make tab list display correct latency

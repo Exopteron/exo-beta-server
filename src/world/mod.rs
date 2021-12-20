@@ -1,70 +1,86 @@
-use std::{collections::HashMap, mem::{replace, take}, sync::Arc};
+pub mod view;
+use std::{
+    collections::{HashMap, HashSet},
+    mem::{replace, take},
+    sync::Arc,
+};
 
 use hecs::Entity;
 use nbt::decode::read_compound_tag;
 
-use crate::{ecs::{Ecs, entities::player::{ChunkLoadQueue, Player}}, game::{BlockPosition, ChunkCoords, Game, Position}};
+use crate::{
+    ecs::{
+        entities::player::{ChunkLoadQueue, Player},
+        systems::SysResult,
+        Ecs,
+    },
+    events::ChunkLoadEvent,
+    game::{BlockPosition, ChunkCoords, Game, Position},
+};
 
+pub mod chunk_lock;
+pub mod chunk_subscriptions;
 pub mod chunks;
 pub mod mcregion;
-pub mod chunk_lock;
+pub mod chunk_map;
+pub mod chunk_entities;
 use chunks::*;
 use mcregion::*;
+use self::{chunk_lock::{ChunkHandle, ChunkLock}, chunk_map::ChunkMap};
 pub struct World {
-    pub chunks: HashMap<ChunkCoords, Chunk>,
+    pub chunk_map: ChunkMap,
     pub region_provider: MCRegionLoader,
-    pub load_manager: ChunkLoadManager,
-    pub generator: Arc<Box<dyn WorldGenerator>>,
+    pub loading_chunks: HashSet<ChunkCoords>,
+    canceled_chunk_loads: HashSet<ChunkCoords>,
 }
 impl World {
-    pub fn unload_unused_chunks(&mut self, ecs: &mut Ecs) {
-        let mut all_loaded = Vec::new();
-        for (_, (_, c)) in ecs.query::<(&Player, &ChunkLoadQueue)>().iter() {
-            for c in c.chunks.iter() {
-                if !all_loaded.contains(c) {
-                    all_loaded.push(c.clone());
+    pub fn load_chunks(&mut self, ecs: &mut Ecs) -> SysResult {
+        let load_queue = take(&mut self.loading_chunks);
+        for pos in load_queue {
+            //log::info!("Trying to load {:?}", pos);
+            let chunk = match self.region_provider.get_chunk(&pos) {
+                Some(c) => c,
+                None => {
+                    log::error!("Can't load chunk {}, It does not exist!", pos);
+                    continue;
                 }
             }
+            .clone();
+            self.chunk_map.insert_chunk(chunk);
+            ecs.insert_event(ChunkLoadEvent {
+                chunk: self.chunk_map.chunk_handle_at(pos).unwrap(),
+                position: pos.clone(),
+            });
         }
-        let mut to_unload = Vec::new();
-        for chunk in self.chunks.iter() {
-            if !all_loaded.contains(&chunk.0) {
-                to_unload.push(chunk.0.clone());
-            } 
+        Ok(())
+    }
+    /// Unloads the given chunk.
+    pub fn unload_chunk(&mut self, pos: &ChunkCoords) -> anyhow::Result<()> {
+        if let Some((pos, handle)) = self.chunk_map.0.remove_entry(&pos) {
+            handle.set_unloaded()?;
         }
-        for c in to_unload {
-            self.unload_chunk(&c);
+        self.chunk_map.remove_chunk(*pos);
+        if self.is_chunk_loading(pos) {
+            self.canceled_chunk_loads.insert(*pos);
         }
+
+        log::trace!("Unloaded chunk {:?}", pos);
+        Ok(())
     }
-    pub fn process_chunk_loads(&mut self, game: &mut Game) {
-        self.unload_unused_chunks(&mut game.ecs);
+    /// Returns whether the given chunk is queued to be loaded.
+    pub fn is_chunk_loading(&self, pos: &ChunkCoords) -> bool {
+        self.loading_chunks.contains(&pos)
     }
-    fn internal_load_chunk(&mut self, coords: &ChunkCoords) {
-        if let Some(c) = self.region_provider.get_chunk(coords) {
-            self.chunks.insert(c.pos, c);
-        } else {
-            // TODO async gen
-            let c = self.generator.gen_chunk(*coords);
-            self.chunks.insert(c.pos, c);
-        }
-    }
-    pub fn load_chunk(&mut self, coords: &ChunkCoords) {
-        log::info!("Loading chunk ({}, {})", coords.x, coords.z);
-        self.load_manager.load_chunk(coords);
-    }
-    pub fn unload_chunk(&mut self, coords: &ChunkCoords) {
-        log::info!("Unloading chunk ({}, {})", coords.x, coords.z);
-        self.load_manager.unload_chunk(coords);
+    pub fn queue_chunk_load(&mut self, pos: &ChunkCoords) {
+        self.loading_chunks.insert(pos.clone());
     }
     pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
         let mut file = std::fs::File::open(&format!("{}/level.dat", dir))?;
         let world = Self {
-            generator: Arc::new(Box::new(MountainWorldGenerator::new(
-                0,
-            ))),
             region_provider: MCRegionLoader::new(dir)?,
-            load_manager: ChunkLoadManager::default(),
-            chunks: HashMap::new(),
+            chunk_map: ChunkMap::new(),
+            loading_chunks: HashSet::new(),
+            canceled_chunk_loads: HashSet::new(),
         };
         Ok(world)
     }
@@ -77,38 +93,8 @@ impl World {
         }
         Some((chunk_x, chunk_z, section))
     }
-    pub fn set_block(&mut self, pos: &BlockPosition, b: &Block) -> Option<()> {
-        if !self.is_chunk_loaded(&pos.to_chunk_coords()) {
-            return None;
-        }
-        let idx = Self::pos_to_index(pos.x, pos.y, pos.z)?;
-        let chunk = self.chunks.get_mut(&pos.to_chunk_coords()).unwrap();
-        let section = chunk.data.get_mut(idx.2 as usize)?;
-        if section.is_none() {
-            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        Some(())
-    }
-    pub fn get_block(&mut self, pos: &BlockPosition) -> Option<Block> {
-        if !self.is_chunk_loaded(&pos.to_chunk_coords()) {
-            return None;
-        }
-        let idx = Self::pos_to_index(pos.x, pos.y, pos.z).unwrap();
-        let chunk = self.chunks.get_mut(&pos.to_chunk_coords()).unwrap();
-        let section = chunk.data.get_mut(idx.2 as usize).unwrap();
-        if section.is_none() {
-            *section = Some(ChunkSection::new(idx.0, idx.1, idx.2 as i8));
-        }
-        let section = section.as_mut().unwrap();
-        section.get_block(ChunkSection::pos_to_index(
-            pos.x.rem_euclid(16),
-            pos.y.rem_euclid(16),
-            pos.z.rem_euclid(16),
-        )).cloned()
-    }
     pub fn is_chunk_loaded(&self, pos: &ChunkCoords) -> bool {
-        self.chunks.contains_key(pos)
+        self.chunk_map.0.contains_key(pos)
     }
 }
 pub struct ChunkLoadData {

@@ -15,4 +15,6 @@ packets! {
         unused_5 u8;
         unused_6 u8;
     }
+
+    ServerListPing {}
 }

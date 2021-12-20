@@ -52,18 +52,28 @@ impl ChunkData {
         }
     }
 }
-
+impl Readable for ChunkData {
+    fn read(buffer: &mut std::io::Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        unreachable!();
+    }
+}
 impl Writeable for ChunkData {
     fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        //log::info!("Writing chunk data {}", buffer[0]);
         let chunk = self.chunk.read();
+        //log::info!("Chunk has {} sections", chunk.sections().len());
         let mut first = true;
         for (y, section) in chunk.sections().iter().enumerate().take(8) {
             if let Some(section) = section {
                 if self.should_skip_section(y) {
                     continue;
                 }
+                //log::info!("Section {}", y);
                 if !first {
-                    0x33i8.write(buffer, version)?;
+                    //log::info!("Adding new packet iD");
+                    51u8.write(buffer, version)?;
                 } else {
                     first = false;
                 }
@@ -87,16 +97,18 @@ impl Writeable for ChunkData {
                     flate2::write::ZlibEncoder::new(&mut data, flate2::Compression::fast());
                 compressor.write_all(&blockdata)?;
                 compressor.finish()?;
-                chunk.position().x.write(buffer, version)?;
-                (y as i16).write(buffer, version)?;
-                chunk.position().z.write(buffer, version)?;
+                (chunk.position().x * 16).write(buffer, version)?;
+                ((y as i16) * 16).write(buffer, version)?;
+                (chunk.position().z * 16).write(buffer, version)?;
                 15i8.write(buffer, version)?;
                 15i8.write(buffer, version)?;
                 15i8.write(buffer, version)?;
                 (data.len() as i32).write(buffer, version)?;
+                //data.reverse();
                 buffer.append(&mut data);
             }
         }
+        //log::info!("Buffer: {:?}", buffer);
         Ok(())
     }
 }

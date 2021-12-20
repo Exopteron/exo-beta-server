@@ -1,35 +1,48 @@
 use crate::commands::*;
 use crate::configuration::CONFIGURATION;
-use crate::ecs::Ecs;
-use crate::ecs::EntityRef;
+use crate::ecs::entities::player::ChatMessage;
+use crate::ecs::entities::player::Chatbox;
 use crate::ecs::entities::player::CurrentWorldInfo;
 use crate::ecs::entities::player::Player;
 use crate::ecs::entities::player::PlayerBuilder;
 use crate::ecs::entities::player::Username;
-use crate::ecs::systems::Systems;
+use crate::ecs::systems::SystemExecutor;
+use crate::ecs::Ecs;
+use crate::ecs::EntityRef;
+use crate::ecs::HasEcs;
+use crate::ecs::HasResources;
+use crate::entities::EntityInit;
+use crate::events::EntityCreateEvent;
+use crate::events::EntityRemoveEvent;
+use crate::events::PlayerJoinEvent;
 //use crate::game::events::*;
 use crate::network::ids::NetworkID;
 use crate::network::ids::IDS;
-use crate::objects::Objects;
-use crate::protocol::ServerLoginPacket;
-use crate::protocol::ServerPlayPacket;
+use crate::objects::Resources;
 use crate::protocol::io::String16;
 use crate::protocol::packets::server::LoginRequest;
 use crate::protocol::packets::server::PlayerPositionAndLook;
 use crate::protocol::packets::server::SpawnPosition;
+use crate::protocol::ServerLoginPacket;
+use crate::protocol::ServerPlayPacket;
 use crate::server::Client;
 use crate::server::Server;
-use crate::world::World;
+use crate::world::chunk_entities::ChunkEntities;
 use crate::world::mcregion::MCRegionLoader;
+use crate::world::World;
 //pub mod aa_bounding_box;
 //use items::*;
 use flume::{Receiver, Sender};
 use hecs::Entity;
+use hecs::EntityBuilder;
+use hecs::NoSuchEntity;
 use once_cell::sync::Lazy;
 use std::any::Any;
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
 use std::collections::{HashMap, HashSet};
+use std::fmt::Display;
+use std::mem;
 use std::ops::Deref;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -144,7 +157,7 @@ pub struct Position {
 #[derive(Copy, Clone)]
 pub struct Block {
     pub position: BlockPosition,
-    pub block: crate::world::chunks::Block,
+    pub block: crate::world::chunks::BlockState,
 }
 use glam::DVec3;
 impl std::default::Default for Position {
@@ -307,12 +320,25 @@ pub struct ChunkCoords {
     pub x: i32,
     pub z: i32,
 }
+impl Display for ChunkCoords {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {})", self.x, self.z)
+    }
+}
 impl Eq for ChunkCoords {}
 //use num::num_integer::roots::Roots;
 impl ChunkCoords {
-    /// Check distance to another chunk coordinate.
-    pub fn distance(&self, other: &ChunkCoords) -> f64 {
-        (((self.x - other.x).pow(2) + (self.z - other.z).pow(2)) as f64).sqrt()
+    pub fn new(x: i32, z: i32) -> Self {
+        Self { x, z }
+    }
+    /// Computes the Manhattan distance from this chunk to another.
+    pub fn manhattan_distance_to(self, other: ChunkCoords) -> i32 {
+        (self.x - other.x).abs() + (self.z - other.z).abs()
+    }
+
+    /// Computes the squared Euclidean distance (in chunks) between `self` and `other`.
+    pub fn distance_squared_to(self, other: ChunkCoords) -> i32 {
+        (self.x - other.x).pow(2) + (self.z - other.z).pow(2)
     }
     /// Chunk coordinates from a position.
     pub fn from_pos(position: &Position) -> Self {
@@ -330,23 +356,6 @@ pub struct RenderedPlayerInfo {
 #[derive(Clone, Debug)]
 pub struct RenderedEntityInfo {
     pub position: Position,
-}
-#[derive(Clone)]
-pub struct Chatbox {
-    pub messages: Vec<Message>,
-}
-impl Chatbox {
-    /// Add message to chatbox.
-    pub fn push(&mut self, message: Message) {
-        self.messages.push(message);
-    }
-}
-impl std::default::Default for Chatbox {
-    fn default() -> Self {
-        Self {
-            messages: Vec::new(),
-        }
-    }
 }
 #[derive(Clone, Debug)]
 pub struct Message {
@@ -421,24 +430,71 @@ pub struct CachedCommandData {
     root: String,
     desc: String,
 }
+type EntitySpawnCallback = Box<dyn FnMut(&mut EntityBuilder, &EntityInit)>;
 pub struct Game {
-    pub objects: Arc<Objects>,
+    pub objects: Arc<Resources>,
     pub worlds: HashMap<i32, World>,
     pub ecs: Ecs,
-    pub systems: Arc<RefCell<Systems>>,
+    pub systems: Arc<RefCell<SystemExecutor<Game>>>,
     pub loaded_chunks: LoadedChunks,
     pub ticks: u128,
+    entity_builder: EntityBuilder,
+    entity_spawn_callbacks: Vec<EntitySpawnCallback>,
+    pub chunk_entities: ChunkEntities,
 }
 use nbt::*;
 use rand::Rng;
+impl HasResources for Game {
+    fn resources(&self) -> Arc<Resources> {
+        self.objects.clone()
+    }
+}
+impl HasEcs for Game {
+    fn ecs(&self) -> &Ecs {
+        &self.ecs
+    }
+
+    fn ecs_mut(&mut self) -> &mut Ecs {
+        &mut self.ecs
+    }
+}
 impl Game {
-    pub fn new(
-        systems: Systems,
-    ) -> Self {
+    /// Broadcasts a chat message to all entities with
+    /// a `ChatBox` component (usually just players).
+    pub fn broadcast_chat(&self, message: impl Into<ChatMessage>) {
+        let message = message.into();
+        for (_, mailbox) in self.ecs.query::<&mut Chatbox>().iter() {
+            mailbox.send_message(message.clone());
+        }
+    }
+    /// Spawns an entity and returns its [`Entity`](ecs::Entity) handle.
+    ///
+    /// Also triggers necessary events, like `EntitySpawnEvent` and `PlayerJoinEvent`.
+    pub fn spawn_entity(&mut self, mut builder: EntityBuilder) -> Entity {
+        let entity = self.ecs.spawn(builder.build());
+        self.entity_builder = builder;
+
+        self.trigger_entity_spawn_events(entity);
+
+        entity
+    }
+
+    fn trigger_entity_spawn_events(&mut self, entity: Entity) {
+        self.ecs
+            .insert_entity_event(entity, EntityCreateEvent)
+            .unwrap();
+        if self.ecs.get::<Player>(entity).is_ok() {
+            log::info!("Player join");
+            self.ecs
+                .insert_entity_event(entity, PlayerJoinEvent)
+                .unwrap();
+        }
+    }
+    pub fn new() -> Self {
         use rand::RngCore;
         //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
         use crate::world::chunks::*;
-/*         let mut world: crate::world::chunks::World;
+        /*         let mut world: crate::world::chunks::World;
         if let Ok(w) = crate::world::chunks::World::from_file_mcr(&CONFIGURATION.level_name) {
             log::info!("LOading world!");
             world = w;
@@ -488,7 +544,7 @@ impl Game {
             world.generate_spawn_chunks();
         } */
         //world = crate::world::mcregion::temp_from_dir("New World").unwrap();
-        let mut objects = Arc::new(Objects::new());
+        let mut objects = Arc::new(Resources::new());
         let mut perm_level_map = HashMap::new();
         let ops = crate::configuration::get_ops();
         if ops.len() > 0 {
@@ -501,18 +557,47 @@ impl Game {
             log::info!("No server operators in file.");
         }
         let mut worlds = HashMap::new();
-        //worlds.insert(0i32, crate::world::World::from_file_mcr("epicpog").unwrap());
+        worlds.insert(0i32, crate::world::World::from_file_mcr("epicpog").unwrap());
         let game = Self {
             objects: objects,
-            systems: Arc::new(RefCell::new(systems)),
+            systems: Arc::new(RefCell::new(SystemExecutor::new())),
             worlds,
             ecs: Ecs::new(),
             ticks: 0,
             loaded_chunks: LoadedChunks(HashMap::new()),
+            entity_builder: EntityBuilder::new(),
+            entity_spawn_callbacks: Vec::new(),
+            chunk_entities: ChunkEntities::default(),
         };
         //let mut game_globals = GameGlobals { time: 0 };
         //GAME_GLOBAL.set(game_globals);
         game
+    }
+    /// Creates an entity builder with the default components
+    /// for an entity of type `init`.
+    pub fn create_entity_builder(&mut self, position: Position, init: EntityInit) -> EntityBuilder {
+        let mut builder = mem::take(&mut self.entity_builder);
+        builder.add(position);
+        self.invoke_entity_spawn_callbacks(&mut builder, init);
+        builder
+    }
+    /// Adds a new entity spawn callback, invoked
+    /// before an entity is created.
+    ///
+    /// This allows you to add components to entities
+    /// before they are built.
+    pub fn add_entity_spawn_callback(
+        &mut self,
+        callback: impl FnMut(&mut EntityBuilder, &EntityInit) + 'static,
+    ) {
+        self.entity_spawn_callbacks.push(Box::new(callback));
+    }
+    fn invoke_entity_spawn_callbacks(&mut self, builder: &mut EntityBuilder, init: EntityInit) {
+        let mut callbacks = mem::take(&mut self.entity_spawn_callbacks);
+        for callback in &mut callbacks {
+            callback(builder, &init);
+        }
+        self.entity_spawn_callbacks = callbacks;
     }
     pub fn insert_object<T>(&mut self, object: T)
     where
@@ -542,12 +627,9 @@ impl Game {
         }
         for (player, packet) in packets {
             if let Err(e) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                if let Err(e) = crate::network::packet::handler::handle_packet(
-                    self,
-                    server,
-                    player,
-                    packet,
-                ) {
+                if let Err(e) =
+                    crate::network::packet::handler::handle_packet(self, server, player, packet)
+                {
                     let player = self.ecs.entity(player).unwrap();
                     log::error!(
                         "Error handling packet from user {}: {:?}",
@@ -557,7 +639,7 @@ impl Game {
                 }
             })) {
                 //log::info!("Critical error handling packet from user {}.", player.clone().get_username());
-/*                 player.write_packet(ServerPacket::Disconnect {
+                /*                 player.write_packet(ServerPacket::Disconnect {
                     reason: String::from("A fatal error has occured."),
                 });
                 player.remove(Some(format!(
@@ -568,16 +650,54 @@ impl Game {
         }
         Ok(())
     }
+    /// Causes the given entity to be removed on the next tick.
+    /// In the meantime, triggers `EntityRemoveEvent`.
+    pub fn remove_entity(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
+        self.ecs.defer_despawn(entity);
+        self.ecs.insert_entity_event(entity, EntityRemoveEvent)
+    }
     fn accept_player(&mut self, server: &mut Server, id: NetworkID) -> anyhow::Result<()> {
         log::info!("Player {:?}", id);
         let clients = &mut server.clients;
-        let mut client = clients.get_mut(&id).ok_or(anyhow::anyhow!("Client does not exist"))?;
+        let mut client = clients
+            .get_mut(&id)
+            .ok_or(anyhow::anyhow!("Client does not exist"))?;
         let pos = Position::from_pos(0., 255., 0.);
         log::info!("Pos {:?}", pos);
-        client.write(ServerPlayPacket::LoginRequest(LoginRequest { entity_id: id.0, not_used: String16("".to_owned()), map_seed: 0, server_mode: 1, dimension: 0, difficulty: 0, world_height: 128, max_players: 8 }))?;
-        client.write(ServerPlayPacket::PlayerPositionAndLook(PlayerPositionAndLook { x: pos.x, stance: 67.240000009536743, y: pos.y, z: pos.z, yaw: pos.yaw, pitch: pos.pitch, on_ground: false }))?;
-        client.write(ServerPlayPacket::SpawnPosition(SpawnPosition { x: pos.x.round() as i32, y: pos.x.round() as i32, z: pos.x.round() as i32 }))?;
-        PlayerBuilder::build(&mut self.ecs, Username(client.username.clone()), pos, id, CurrentWorldInfo::new(0));
+        client.write(ServerPlayPacket::LoginRequest(LoginRequest {
+            entity_id: id.0,
+            not_used: String16("".to_owned()),
+            map_seed: 0,
+            server_mode: 1,
+            dimension: 0,
+            difficulty: 0,
+            world_height: 128,
+            max_players: server.player_count.get_max() as u8,
+        }))?;
+        client.write(ServerPlayPacket::PlayerPositionAndLook(
+            PlayerPositionAndLook {
+                x: pos.x,
+                stance: 67.240000009536743,
+                y: pos.y,
+                z: pos.z,
+                yaw: pos.yaw,
+                pitch: pos.pitch,
+                on_ground: false,
+            },
+        ))?;
+        client.write(ServerPlayPacket::SpawnPosition(SpawnPosition {
+            x: pos.x.round() as i32,
+            y: pos.x.round() as i32,
+            z: pos.x.round() as i32,
+        }))?;
+        let player = PlayerBuilder::create(
+            self,
+            Username(client.username().to_owned()),
+            pos,
+            id,
+            CurrentWorldInfo::new(0),
+        );
+        self.spawn_entity(player);
         Ok(())
     }
 }

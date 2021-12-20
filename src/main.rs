@@ -9,10 +9,14 @@ pub mod world;
 pub mod api;
 pub mod ecs;
 pub mod protocol;
+pub mod events;
+pub mod player_count;
+pub mod entities;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
 use anyhow::anyhow;
+use std::cell::RefCell;
 use std::io::Read;
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 #[tokio::main]
@@ -21,15 +25,14 @@ async fn main() -> anyhow::Result<()> {
     let start = Instant::now();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
     let _ = &configuration::CONFIGURATION.server_name;
-    let mut systems = Systems::new();
-    ecs::systems::default_systems(&mut systems);
-    systems.add_system("packet_accept", |game| {
+    let mut systems = SystemExecutor::<Game>::new();
+    systems.add_system(|game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>().unwrap();
         game.accept_packets(&mut server)?;
         Ok(())
     });
-    systems.add_system("poll_new_players", |game| {
+    systems.add_system(|game| {
         let obj = game.objects.clone();
         let mut server = obj.get_mut::<server::Server>()?;
         game.poll_new_players(&mut server)?;
@@ -41,11 +44,11 @@ async fn main() -> anyhow::Result<()> {
         }
         Ok(())
     }); */
-    let mut game = game::Game::new(
-        systems,
-    );
+    let mut game = game::Game::new();
+    ecs::systems::default_systems(&mut game, &mut systems);
     let server = server::Server::bind().await?;
     server.register(&mut game);
+    game.systems = Arc::new(RefCell::new(systems));
     let obj = game.objects.clone();
     log::info!("Done! ({}ms) For command help, run \"help\".", start.elapsed().as_millis());
     run(game);
@@ -73,10 +76,13 @@ async fn main() -> anyhow::Result<()> {
     }
 } */
 use std::panic::{self, AssertUnwindSafe};
+use std::sync::Arc;
 use std::time::Instant;
 use sysinfo::ProcessorExt;
 
-use crate::ecs::systems::Systems;
+use crate::ecs::systems::SystemExecutor;
+use crate::game::Game;
+
 
 //use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game) -> TickLoop {
