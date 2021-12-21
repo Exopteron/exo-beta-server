@@ -56,7 +56,11 @@ impl WorldGenerator for TerrainWorldGenerator {
             .set(Size::of(16, 16))
             .set(Seed::of_value(seed))
             .set(Step::of(-0.01, 0.01));
-        let nm = nm * 25;
+        let nm2 = NoiseMap::new(noise)
+            .set(Size::of(16, 16))
+            .set(Seed::of_value(seed))
+            .set(Step::of(0.05, 0.05));
+        let nm = ((nm * 5)  + nm2) * 25;
         let noise = nm.generate_chunk(-(position.z as i64), -(position.x as i64));
         let mut noisevec = Vec::with_capacity(noise.len() * 2);
         for row in noise {
