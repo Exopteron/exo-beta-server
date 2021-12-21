@@ -1,7 +1,7 @@
 use anyhow::bail;
 
 pub use chunk_data::{ChunkData, ChunkDataKind};
-use crate::{protocol::{Readable, Writeable, io::{String16, AbsoluteInt}}, entities::metadata::EntityMetadata, network::metadata::Metadata};
+use crate::{protocol::{Readable, Writeable, io::{String16, AbsoluteInt, Slot}}, entities::metadata::EntityMetadata, network::metadata::Metadata, world::chunks::BlockState, game::BlockPosition};
 
 use super::*;
 
@@ -99,5 +99,68 @@ packets! {
         name String16;
         online bool;
         ping i16;
+    }
+
+    WindowItems {
+        window_id i8;
+        items ShortPrefixedVec<Slot>;
+    }
+
+    SetSlot {
+        window_id i8;
+        slot i16;
+        item Slot;
+    }
+
+    Transaction {
+        window_id i8;
+        action_number i16;
+        accepted bool;
+    }
+
+    EntityEquipment {
+        eid i32;
+        slot i16;
+        item_id i16;
+        damage i16;
+    }
+
+    BlockChange {
+        pos BlockPosition;
+        state BlockState;
+    }
+
+    SoundEffect {
+        effect SoundEffectKind;
+        pos BlockPosition;
+        data i32;
+    }
+
+    UpdateHealth {
+        health i16;
+        food i16;
+        saturation f32;
+    }
+
+    NewState {
+        reason i8;
+        gamemode i8;
+    }
+
+    Respawn {
+        world i8;
+        difficulty i8;
+        gamemode i8;
+        world_height i16;
+        map_seed i64;
+    }
+
+    EntityStatus {
+        eid i32;
+        status EntityStatusKind;
+    }
+
+    TimeUpdate {
+        time i64;
     }
 }

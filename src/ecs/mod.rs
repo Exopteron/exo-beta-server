@@ -31,6 +31,9 @@ impl<'a> EntityRef<'a> {
             .get_mut()
             .ok_or_else(|| ComponentError::MissingComponent(MissingComponent::new::<T>()))
     }
+    pub fn entity(&self) -> Entity {
+        self.0.entity()
+    }
 }
 
 impl Ecs {

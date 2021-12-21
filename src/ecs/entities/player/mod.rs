@@ -1,9 +1,19 @@
 use std::{collections::HashMap, sync::Arc};
 
+use anyhow::bail;
 use flume::{Receiver, Sender};
 use hecs::{Entity, EntityBuilder};
+use num_derive::{FromPrimitive, ToPrimitive};
 
-use crate::{ecs::Ecs, game::{ChunkCoords, Position, Game}, network::{ids::NetworkID}, world::{chunks::Chunk, view::View}, entities::{EntityInit, PreviousPosition}};
+use crate::{
+    ecs::{systems::SysResult, Ecs},
+    entities::{EntityInit, PreviousPosition},
+    game::{ChunkCoords, Game, Position, DamageType},
+    network::ids::NetworkID,
+    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::CONFIGURATION,
+};
+
+use super::living::{Health, Hunger, PreviousHealth};
 
 pub struct Player;
 #[derive(Clone)]
@@ -29,7 +39,7 @@ impl ChunkLoadQueue {
     pub fn contains(&self, c: &ChunkCoords) -> bool {
         self.chunks.contains(c)
     }
-    pub fn retain(&mut self, f: impl FnMut(&ChunkCoords,) -> bool) {
+    pub fn retain(&mut self, f: impl FnMut(&ChunkCoords) -> bool) {
         self.chunks.retain(f);
     }
 }
@@ -61,11 +71,13 @@ impl ChatMessage {
     }
 }
 pub struct Chatbox {
-    messages: Vec<ChatMessage>
+    messages: Vec<ChatMessage>,
 }
 impl Chatbox {
     pub fn new() -> Self {
-        Self { messages: Vec::new() }
+        Self {
+            messages: Vec::new(),
+        }
     }
     pub fn send_message(&mut self, message: ChatMessage) {
         self.messages.push(message);
@@ -76,36 +88,111 @@ impl Chatbox {
 }
 
 /// Whether an entity is sneaking, like in pressing shift.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Sneaking(pub bool);
 
 /// A component on players that tracks if they are sprinting or not.
-#[derive(
-    Copy,
-    Clone,
-    Debug,
-    PartialEq,
-    Eq,
-    Hash,
-)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Sprinting(pub bool);
 impl Sprinting {
     pub fn new(value: bool) -> Self {
         Sprinting(value)
     }
 }
-pub struct PlayerBuilder {
+/// The hotbar slot a player's cursor is currently on
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct HotbarSlot(usize);
+pub const SLOT_HOTBAR_OFFSET: usize = 36;
+impl HotbarSlot {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
 
+    pub fn get(&self) -> usize {
+        self.0
+    }
+
+    pub fn set(&mut self, id: usize) -> SysResult {
+        if id > 8 {
+            bail!("invalid hotbar slot id");
+        }
+
+        self.0 = id;
+        Ok(())
+    }
 }
+
+/// A gamemode.
+#[derive(
+    Copy, Clone, Debug, PartialEq, Eq, Hash, FromPrimitive, ToPrimitive,
+)]
+#[repr(u8)]
+pub enum Gamemode {
+    Survival = 0,
+    Creative = 1,
+}
+
+impl Gamemode {
+    /// Gets a gamemode from its ID.
+    pub fn from_id(id: u8) -> Option<Self> {
+        Some(match id {
+            0 => Gamemode::Survival,
+            1 => Gamemode::Creative,
+            _ => return None,
+        })
+    }
+    pub fn id(&self) -> i8 {
+        match self {
+            Self::Survival => 0,
+            Self::Creative => 1
+        }
+    }
+}
+
+/// A player's previous gamemode
+#[derive(
+    Copy,
+    Clone,
+    Debug,
+    PartialEq,
+    Eq,
+    Hash,
+)]
+pub struct PreviousGamemode(pub Option<Gamemode>);
+
+
+impl PreviousGamemode {
+    /// Gets a previous gamemode from its ID.
+    pub fn from_id(id: i8) -> Self {
+        PreviousGamemode(match id {
+            0 => Some(Gamemode::Survival),
+            1 => Some(Gamemode::Creative),
+            _ => None,
+        })
+    }
+
+    /// Gets this gamemode's id
+    pub fn id(&self) -> i8 {
+        match self.0 {
+            Some(Gamemode::Survival) => 0,
+            Some(Gamemode::Creative) => 1,
+            None => -1,
+        }
+    }
+}
+pub struct PlayerBuilder {}
 impl PlayerBuilder {
-    pub fn create(game: &mut Game, username: Username, position: Position, id: NetworkID, world_info: CurrentWorldInfo) -> EntityBuilder {
+    pub fn create(
+        game: &mut Game,
+        username: Username,
+        position: Position,
+        id: NetworkID,
+        world_info: CurrentWorldInfo,
+    ) -> EntityBuilder {
+        let inventory = Inventory::player();
+        let window = Window::new(BackingWindow::Player {
+            player: inventory.new_handle(),
+        });
         let mut builder = game.create_entity_builder(position, EntityInit::Player);
         builder.add(Player);
         builder.add(position);
@@ -115,7 +202,15 @@ impl PlayerBuilder {
         builder.add(Chatbox::new());
         builder.add(Sneaking(false));
         builder.add(Sprinting::new(false));
-        builder.add(View::new(position.to_chunk_coords(), 8));
+        builder.add(HotbarSlot::new(0));
+        builder.add(Gamemode::Creative);
+        builder.add(PreviousGamemode::from_id(1));
+        builder.add(window);
+        builder.add(PermissionLevel(4));
+        builder.add(Health(20, DamageType::None));
+        builder.add(PreviousHealth(Health(20, DamageType::None)));
+        builder.add(Hunger(20, 0.0));
+        builder.add(View::new(position.to_chunk_coords(), CONFIGURATION.chunk_distance));
         builder
     }
 }

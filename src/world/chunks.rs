@@ -11,6 +11,9 @@ pub const SECTION_HEIGHT: usize = 16;
 
 /// The width in blocks of a chunk section.
 pub const SECTION_WIDTH: usize = CHUNK_WIDTH;
+
+/// The volume in blocks of a chunk section.
+pub const SECTION_VOLUME: usize = (SECTION_HEIGHT * SECTION_WIDTH * SECTION_WIDTH) as usize;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BlockState {
     pub b_type: u8,
@@ -29,6 +32,14 @@ impl std::default::Default for BlockState {
     }
 }
 impl BlockState {
+    pub fn from_id(id: u8) -> Self {
+        Self {
+            b_type: id,
+            b_skylight: 15,
+            b_light: 15,
+            b_metadata: 0,
+        }
+    }
     pub fn is_air(&self) -> bool {
         self.b_type == 0
     }
@@ -37,7 +48,7 @@ impl BlockState {
             b_type: 0,
             b_metadata: 0,
             b_light: 0,
-            b_skylight: 0,
+            b_skylight: 15,
         }
     }
     pub fn set_type(&mut self, block_type: u8) {
@@ -68,19 +79,28 @@ impl BlockState {
         self.b_skylight
     }
 }
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ChunkSection {
     data: Vec<BlockState>,
-    x: i32,
-    z: i32,
     section: i8,
+}
+impl Default for ChunkSection {
+    fn default() -> Self {
+        let mut vec = Vec::new();
+        vec.resize(16 * 16 * 16, BlockState::air());
+        Self {
+            data: vec,
+            section: Default::default(),
+        }
+    }
 }
 impl ChunkSection {
     fn block_index(x: usize, y: usize, z: usize) -> Option<usize> {
         if x >= SECTION_WIDTH || y >= SECTION_WIDTH || z >= SECTION_WIDTH {
             None
         } else {
-            Some((y << 8) | (z << 4) | x)
+            //Some((y << 8) | (z << 4) | x)
+            Some(y + (z * 16) + (x * 16 * 16))
         }
     }
     /// Sets the block at the given coordinates within
@@ -97,11 +117,9 @@ impl ChunkSection {
         self.data.get(Self::block_index(x, y, z)?).cloned()
     }
 
-    pub fn new(x: i32, z: i32, section: i8) -> Self {
+    pub fn new(section: i8) -> Self {
         Self {
             data: Vec::new(),
-            x,
-            z,
             section,
         }
     }
@@ -148,6 +166,41 @@ pub struct Chunk {
     pub heightmap: [[i8; 16]; 16],
 }
 impl Chunk {
+    pub fn fill_layer(&mut self, level: usize, block: BlockState) {
+        for x in 0..16 {
+            for z in 0..16 {
+                self.set_block_at(x, level, z, block);
+            }
+        }
+    }
+    pub fn fill_layer_air(&mut self, level: usize, block: BlockState) {
+        for x in 0..16 {
+            for z in 0..16 {
+                if let Some(b) = self.block_at(x, level, z) {
+                    if b.is_air() {
+                        self.set_block_at(x, level, z, block);
+                    }
+                }
+            }
+        }
+    }
+    pub fn new(coords: ChunkCoords) -> Self {
+        let data = [
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+            Some(ChunkSection::default()),
+        ];
+        Self {
+            pos: coords,
+            data,
+            heightmap: [[0; 16]; 16],
+        }
+    }
     /// Sets the section at index `y`.
     pub fn set_section_at(&mut self, y: isize, section: Option<ChunkSection>) {
         self.data[y as usize] = section;
@@ -155,7 +208,6 @@ impl Chunk {
     /// Sets the block at the given position within this chunk.
     ///
     /// Returns `None` if the coordinates are out of bounds.
-    /// FIXME: Do not update heightmap when it is not neccessary
     pub fn set_block_at(&mut self, x: usize, y: usize, z: usize, block: BlockState) -> Option<()> {
         let old_block = self.block_at(x, y, z)?;
         let section = self.section_for_y_mut(y)?;
@@ -193,11 +245,11 @@ impl Chunk {
         }
     }
     fn section_for_y_mut(&mut self, y: usize) -> Option<&mut Option<ChunkSection>> {
-        self.data.get_mut((y / SECTION_HEIGHT) + 1)
+        self.data.get_mut(y / SECTION_HEIGHT)
     }
 
     fn section_for_y(&self, y: usize) -> Option<&Option<ChunkSection>> {
-        self.data.get((y / SECTION_HEIGHT) + 1)
+        self.data.get(y / SECTION_HEIGHT)
     }
     pub fn sections(&self) -> &[Option<ChunkSection>] {
         &self.data

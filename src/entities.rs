@@ -23,7 +23,13 @@ pub struct SpawnPacketSender(fn(&EntityRef, &Client) -> SysResult);
 
 impl SpawnPacketSender {
     pub fn send(&self, entity: &EntityRef, client: &Client) -> SysResult {
-        (self.0)(entity, client)
+        let res = (self.0)(entity, client);
+        if res.is_ok() {
+            if client.username() != entity.get::<Username>()?.0 {
+                client.send_exact_entity_position(*entity.get::<NetworkID>()?, *entity.get::<Position>()?);
+            }
+        }
+        res
     }
 }
 
@@ -63,6 +69,7 @@ fn spawn_player(entity: &EntityRef, client: &Client) -> SysResult {
     let pos = *entity.get::<Position>()?;
     let name = &*entity.get::<Username>()?;
     client.send_player(network_id, name, pos);
+    client.send_entity_equipment(entity)?;
     Ok(())
 }
 

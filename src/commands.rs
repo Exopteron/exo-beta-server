@@ -1,3 +1,5 @@
+use hecs::Entity;
+
 use crate::game::Game;
 use std::any::Any;
 use std::sync::Arc;
@@ -8,21 +10,24 @@ Command codes:
 4 = unknown command
 5 = bad permissions
 */
-pub trait CommandExecutor {
-    fn as_any(&mut self) -> &mut dyn Any;
-    fn send_message(&mut self, message: crate::game::Message);
-    fn permission_level(&self) -> u8;
-    fn username(&self) -> String;
-}
 #[derive(Clone, Debug)]
 pub enum CommandArgumentTypes {
     StringRest,
     String,
     Int,
 }
+pub struct PermissionLevel(pub u8);
 pub trait CommandArgument {
     fn as_any(&mut self) -> &mut dyn Any;
     fn display(&self) -> String;
+    fn as_int(&mut self) -> i32 {
+        match self.as_any().downcast_ref() {
+            Some(i) => *i,
+            None => {
+                panic!("Not int");
+            }
+        }
+    }
 }
 impl CommandArgument for String {
     fn display(&self) -> String {
@@ -58,7 +63,7 @@ pub struct Command {
         Box<
             dyn Fn(
                 &mut Game,
-                &mut dyn CommandExecutor,
+                Entity,
                 Vec<Box<dyn CommandArgument>>,
             ) -> anyhow::Result<usize>,
         >,
@@ -76,7 +81,7 @@ impl Command {
         function: Box<
             dyn Fn(
                 &mut Game,
-                &mut dyn CommandExecutor,
+                Entity,
                 Vec<Box<dyn CommandArgument>>,
             ) -> anyhow::Result<usize>,
         >,
@@ -127,7 +132,7 @@ impl CommandSystem {
     pub fn execute(
         &mut self,
         game: &mut Game,
-        executor: &mut dyn CommandExecutor,
+        executor: Entity,
         command: &str,
     ) -> anyhow::Result<usize> {
         let command = command.split(" ").collect::<Vec<&str>>();
@@ -136,6 +141,7 @@ impl CommandSystem {
         }
         let mut cmd: Option<Command> = None;
         for registered in &self.commands {
+            //log::info!("cmd {} {}", registered.root, command[0]);
             if registered.root == command[0] {
                 //log::info!("is");
                 cmd = Some(registered.clone());
@@ -148,7 +154,7 @@ impl CommandSystem {
         }
         let mut argselect = 1;
         let cmd = cmd.unwrap();
-        if executor.permission_level() < cmd.perm_level {
+        if game.ecs.get::<PermissionLevel>(executor)?.0 < cmd.perm_level {
             return Ok(5);
         }
         let mut args: Vec<Box<dyn CommandArgument>> = Vec::new();

@@ -1,10 +1,13 @@
 pub mod view;
+pub mod cache;
+pub mod generation;
 use std::{
     collections::{HashMap, HashSet},
     mem::{replace, take},
-    sync::Arc,
+    sync::{Arc, atomic::AtomicBool},
 };
-
+pub mod worker;
+use ahash::AHashMap;
 use hecs::Entity;
 use nbt::decode::read_compound_tag;
 
@@ -16,40 +19,64 @@ use crate::{
     },
     events::ChunkLoadEvent,
     game::{BlockPosition, ChunkCoords, Game, Position},
+    world::worker::SaveRequest,
 };
 
+pub mod chunk_entities;
 pub mod chunk_lock;
+pub mod chunk_map;
 pub mod chunk_subscriptions;
 pub mod chunks;
 pub mod mcregion;
-pub mod chunk_map;
-pub mod chunk_entities;
+use self::{
+    chunk_lock::{ChunkHandle, ChunkLock},
+    chunk_map::ChunkMap,
+    worker::{ChunkWorker, LoadRequest}, cache::ChunkCache, generation::{EmptyWorldGenerator, FlatWorldGenerator, TerrainWorldGenerator},
+};
 use chunks::*;
 use mcregion::*;
-use self::{chunk_lock::{ChunkHandle, ChunkLock}, chunk_map::ChunkMap};
 pub struct World {
     pub chunk_map: ChunkMap,
-    pub region_provider: MCRegionLoader,
+    pub cache: ChunkCache,
+    chunk_worker: ChunkWorker,
     pub loading_chunks: HashSet<ChunkCoords>,
     canceled_chunk_loads: HashSet<ChunkCoords>,
+    shutdown: Arc<AtomicBool>,
 }
 impl World {
+    pub fn drop_chunk_sender(&mut self) {
+        self.chunk_worker.drop_sender();
+    }
+    pub fn get_shutdown(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.shutdown)
+    }
+    /// Retrieves the block at the specified
+    /// location. If the chunk in which the block
+    /// exists is not loaded or the coordinates
+    /// are out of bounds, `None` is returned.
+    pub fn block_at(&self, pos: BlockPosition) -> Option<BlockState> {
+        self.chunk_map.block_at(pos)
+    }
+    /// Sets the block at the given position.
+    ///
+    /// Returns `true` if the block was set, or `false`
+    /// if its chunk was not loaded or the coordinates
+    /// are out of bounds and thus no operation
+    /// was performed.
+    pub fn set_block_at(&self, pos: BlockPosition, block: BlockState) -> bool {
+        self.chunk_map.set_block_at(pos, block)
+    }
     pub fn load_chunks(&mut self, ecs: &mut Ecs) -> SysResult {
-        let load_queue = take(&mut self.loading_chunks);
-        for pos in load_queue {
-            //log::info!("Trying to load {:?}", pos);
-            let chunk = match self.region_provider.get_chunk(&pos) {
-                Some(c) => c,
-                None => {
-                    log::error!("Can't load chunk {}, It does not exist!", pos);
-                    continue;
-                }
+        while let Some(loaded) = self.chunk_worker.poll_loaded_chunk()? {
+            self.loading_chunks.remove(&loaded.pos);
+            if self.canceled_chunk_loads.remove(&loaded.pos) {
+                continue;
             }
-            .clone();
+            let chunk = loaded.chunk;
             self.chunk_map.insert_chunk(chunk);
             ecs.insert_event(ChunkLoadEvent {
-                chunk: self.chunk_map.chunk_handle_at(pos).unwrap(),
-                position: pos.clone(),
+                chunk: Arc::clone(&self.chunk_map.0[&loaded.pos]),
+                position: loaded.pos,
             });
         }
         Ok(())
@@ -58,6 +85,11 @@ impl World {
     pub fn unload_chunk(&mut self, pos: &ChunkCoords) -> anyhow::Result<()> {
         if let Some((pos, handle)) = self.chunk_map.0.remove_entry(&pos) {
             handle.set_unloaded()?;
+            self.chunk_worker.queue_chunk_save(SaveRequest {
+                pos,
+                chunk: handle.clone(),
+            });
+            self.cache.insert(pos, handle);
         }
         self.chunk_map.remove_chunk(*pos);
         if self.is_chunk_loading(pos) {
@@ -71,16 +103,25 @@ impl World {
     pub fn is_chunk_loading(&self, pos: &ChunkCoords) -> bool {
         self.loading_chunks.contains(&pos)
     }
-    pub fn queue_chunk_load(&mut self, pos: &ChunkCoords) {
-        self.loading_chunks.insert(pos.clone());
+    pub fn queue_chunk_load(&mut self, req: LoadRequest) {
+        let pos = req.pos;
+        if self.cache.contains(&pos) {
+            self.chunk_map.0.insert(pos, self.cache.remove(pos).unwrap());
+            self.chunk_map.chunk_handle_at(pos).unwrap().set_loaded();
+        } else {
+            self.loading_chunks.insert(req.pos);
+            self.chunk_worker.queue_load(req);
+        }
     }
     pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
-        let mut file = std::fs::File::open(&format!("{}/level.dat", dir))?;
+        let shutdown = Arc::new(AtomicBool::new(false));
         let world = Self {
-            region_provider: MCRegionLoader::new(dir)?,
+            chunk_worker: ChunkWorker::new(dir, Arc::new(TerrainWorldGenerator {}), shutdown.clone()),
             chunk_map: ChunkMap::new(),
             loading_chunks: HashSet::new(),
             canceled_chunk_loads: HashSet::new(),
+            shutdown,
+            cache: ChunkCache::new(),
         };
         Ok(world)
     }
@@ -107,7 +148,7 @@ impl ChunkLoadData {
 }
 #[derive(Default)]
 pub struct ChunkLoadManager {
-    chunks: HashMap<ChunkCoords, ChunkLoadData>,
+    chunks: AHashMap<ChunkCoords, ChunkLoadData>,
 }
 impl ChunkLoadManager {
     pub fn load_chunk(&mut self, coords: &ChunkCoords) {

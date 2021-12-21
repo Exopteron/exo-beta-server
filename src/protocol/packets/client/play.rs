@@ -1,5 +1,5 @@
 use super::*;
-use crate::{protocol::io::String16};
+use crate::{protocol::io::{String16, Slot}, game::BlockPosition};
 
 packets! {
     ChatMessage {
@@ -59,13 +59,6 @@ packets! {
     HoldingChange {
         slot_id i16;
     }
-    PlayerBlockPlacement {
-        x i32;
-        y i8;
-        z i32;
-        direction Face;
-        block PBPBlockItem;
-    }
     CloseWindow {
         window_id i8;
     }
@@ -74,38 +67,47 @@ packets! {
         target i32;
         left_click bool;
     }
-}
-
-#[derive(Clone, Debug)]
-pub struct PBPBlockItem {
-    pub block_or_item_id: i16,
-    pub amount: Option<i8>,
-    pub damage: Option<i16>,
-}
-impl Readable for PBPBlockItem {
-    fn read(buffer: &mut std::io::Cursor<&[u8]>, version: crate::protocol::ProtocolVersion) -> anyhow::Result<Self>
-    where
-        Self: Sized {
-        let block_or_item_id = i16::read(buffer, version)?;
-        let mut amount = None;
-        let mut damage = None;
-        if block_or_item_id >= 0 {
-            amount = Some(i8::read(buffer, version)?);
-            damage = Some(i16::read(buffer, version)?);
-        }
-        Ok(Self { block_or_item_id, amount, damage })
+    WindowClick {
+        window_id i8;
+        slot i16;
+        right_click bool;
+        action_number i16;
+        shift bool;
+        item Slot;
+    }
+    Transaction {
+        window_id i8;
+        action_number i16;
+        accepted bool;
+    }
+    Respawn {
+        world i8;
+        difficulty i8;
+        gamemode i8;
+        world_height i16;
+        map_seed i64;
     }
 }
 
-impl Writeable for PBPBlockItem {
+#[derive(Clone, Debug)]
+pub struct PlayerBlockPlacement {
+    pub pos: BlockPosition,
+    pub direction: Face,
+    pub block_or_item: Slot,
+}
+impl Readable for PlayerBlockPlacement {
+    fn read(buffer: &mut std::io::Cursor<&[u8]>, version: crate::protocol::ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        let pos = BlockPosition::read(buffer, version)?;
+        let direction = Face::read(buffer, version)?;
+        let slot = Slot::read(buffer, version)?;
+        Ok(Self { pos, direction, block_or_item: slot })
+    }
+}
+
+impl Writeable for PlayerBlockPlacement {
     fn write(&self, buffer: &mut Vec<u8>, version: crate::protocol::ProtocolVersion) -> anyhow::Result<()> {
-        self.block_or_item_id.write(buffer, version)?;
-        if let Some(v) = self.amount {
-            v.write(buffer, version)?;
-        }
-        if let Some(v) = self.damage {
-            v.write(buffer, version)?;
-        }
         Ok(())
     }
 }

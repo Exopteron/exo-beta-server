@@ -195,6 +195,26 @@ macro_rules! def_enum {
     };
 }
 def_enum! {
+    EntityStatusKind (i8) {
+        2 = EntityHurt,
+        3 = EntityDead,
+        4 = Unknown4,
+        5 = Unknown5
+    }
+}
+def_enum! {
+    SoundEffectKind (i32) {
+        1000 = Click2,
+        1001 = Click1,
+        1002 = BowFire,
+        1003 = DoorToggle,
+        1004 = Extinguish,
+        1005 = RecordPlay,
+        2000 = Smoke,
+        2001 = BlockBreak,
+    }
+}
+def_enum! {
     DiggingStatus (i8) {
         0 = StartedDigging,
         2 = FinishedDigging,
@@ -204,6 +224,7 @@ def_enum! {
 }
 def_enum! {
     Face (i8) {
+        -1 = Invalid,
         0 = NegativeY,
         1 = PositiveY,
         2 = NegativeZ,

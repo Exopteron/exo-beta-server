@@ -1,5 +1,7 @@
 use std::collections::HashMap;
 
+use ahash::AHashMap;
+
 use crate::{game::{ChunkCoords, Game}, network::ids::NetworkID, ecs::systems::{SystemExecutor, SysResult}, server::Server, events::{EntityRemoveEvent, ViewUpdateEvent}};
 
 use super::view::View;
@@ -10,7 +12,7 @@ use super::view::View;
 /// receive updates from a given chunk, fast.
 #[derive(Default)]
 pub struct ChunkSubscriptions {
-    chunks: HashMap<ChunkCoords, Vec<NetworkID>>,
+    chunks: AHashMap<ChunkCoords, Vec<NetworkID>>,
 }
 
 impl ChunkSubscriptions {

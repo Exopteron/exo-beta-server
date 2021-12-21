@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use ahash::AHashMap;
 use hecs::Entity;
 
 use crate::{ecs::systems::{SystemExecutor, SysResult}, game::{Game, ChunkCoords, Position}, events::{EntityRemoveEvent, EntityCreateEvent, ChunkCrossEvent}};
@@ -14,7 +15,7 @@ pub fn register(systems: &mut SystemExecutor<Game>) {
 /// A spatial index to look up entities within a given chunk.
 #[derive(Default)]
 pub struct ChunkEntities {
-    entities: HashMap<ChunkCoords, Vec<Entity>>,
+    entities: AHashMap<ChunkCoords, Vec<Entity>>,
 }
 
 impl ChunkEntities {

@@ -185,14 +185,13 @@ pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) {
     chat::register(g, s);
     crate::world::view::register(s);
     crate::world::chunk_subscriptions::register(s);
-    world::view::register(s);
-    world::loading::register(g, s);
+    world::register(g, s);
     s.group::<Server>().add_system(|_game, server| {
         for client in server.clients.iter_mut() {
             client.1.tick();
         }
         Ok(())
-    }).add_system(send_keepalives);
+    }).add_system(send_keepalives).add_system(time_update);
     crate::entities::register(g, s);
     crate::world::chunk_entities::register(s);
     tablist::register(s);
@@ -203,5 +202,13 @@ fn send_keepalives(_game: &mut Game, server: &mut Server) -> SysResult {
     if server.last_keepalive_time + interval < Instant::now() {
         server.broadcast_keepalive();
     }
+    Ok(())
+}
+
+fn time_update(game: &mut Game, server: &mut Server) -> SysResult {
+    server.clients.iter().for_each(|(_, cl)| {
+        cl.notify_time(game.time);
+    });
+    game.time += 1;
     Ok(())
 }

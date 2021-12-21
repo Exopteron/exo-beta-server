@@ -1,0 +1,6 @@
+{
+  "multiplayer.player.joined": "%s joined the game.",
+  "multiplayer.player.left": "%s left the game.",
+  "chat.type.text": "<%s> %s",
+  "multiplayer.disconnect.server_shutdown": "Server closed"
+}

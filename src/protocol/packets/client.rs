@@ -43,4 +43,7 @@ packet_enum!(ClientPlayPacket {
     0x0F = PlayerBlockPlacement,
     0x65 = CloseWindow,
     0x07 = UseEntity,
+    0x66 = WindowClick,
+    0x6A = Transaction,
+    0x09 = Respawn,
 });

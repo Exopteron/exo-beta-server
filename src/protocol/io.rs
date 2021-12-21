@@ -1,6 +1,6 @@
 //! Traits for reading/writing Minecraft-encoded values.
 
-use crate::{entities::metadata::{MetaEntry, EntityMetadata}, network::metadata::Metadata};
+use crate::{entities::metadata::{MetaEntry, EntityMetadata}, network::metadata::Metadata, item::{inventory_slot::InventorySlot, stack::ItemStack, item::{Item, ItemRegistry}}, world::chunks::BlockState, game::BlockPosition};
 
 use super::ProtocolVersion;
 use anyhow::{anyhow, bail, Context};
@@ -17,6 +17,7 @@ use std::{
     num::TryFromIntError, fmt::Display,
 };
 use thiserror::Error;
+pub type Slot = InventorySlot;
 /// Trait implemented for types which can be read
 /// from a buffer.
 pub trait Readable {
@@ -145,6 +146,72 @@ where
         }
 
         Ok(())
+    }
+}
+impl Writeable for BlockPosition {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        self.x.write(buffer, version)?;
+        (self.y as i8).write(buffer, version)?;
+        self.z.write(buffer, version)?;
+        Ok(())
+    }
+}
+impl Readable for BlockPosition {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        let mut this = BlockPosition::default();
+        this.x = i32::read(buffer, version)?;
+        this.y = i8::read(buffer, version)? as i32;
+        this.z = i32::read(buffer, version)?;
+        Ok(this)
+    }
+}
+impl Writeable for BlockState {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        self.b_type.write(buffer, version)?;
+        self.b_metadata.write(buffer, version)?;
+        Ok(())
+    }
+}
+impl Readable for BlockState {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        let mut this = BlockState::air();
+        this.b_type = u8::read(buffer, version)?;
+        this.b_metadata = u8::read(buffer, version)?;
+        Ok(this)
+    }
+}
+impl Writeable for Slot {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        let id: (i16, i16) = match self.item_kind() {
+            None => (-1, -1),
+            Some(v) => {
+                v.id()
+            }
+        };
+        id.0.write(buffer, version)?;
+        if id.0 != -1 {
+            self.count().write(buffer, version)?;
+            self.meta().write(buffer, version)?;
+        }
+        Ok(())
+    }
+}
+impl Readable for Slot {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        let id = i16::read(buffer, version)?;
+        if id != -1 {
+            let count = i8::read(buffer, version)?;
+            let meta = i16::read(buffer, version)?;
+            return Ok(Slot::Filled(ItemStack::new(ItemRegistry::global().get_item((id, meta)).ok_or(anyhow::anyhow!("No such item"))?, count, meta)));
+        } else {
+            return Ok(Slot::Empty);
+        }
     }
 }
 #[derive(Debug, Clone)]

@@ -1,8 +1,10 @@
 use crate::commands::*;
 use crate::configuration::CONFIGURATION;
+use crate::ecs::entities::living::Health;
 use crate::ecs::entities::player::ChatMessage;
 use crate::ecs::entities::player::Chatbox;
 use crate::ecs::entities::player::CurrentWorldInfo;
+use crate::ecs::entities::player::Gamemode;
 use crate::ecs::entities::player::Player;
 use crate::ecs::entities::player::PlayerBuilder;
 use crate::ecs::entities::player::Username;
@@ -12,6 +14,8 @@ use crate::ecs::EntityRef;
 use crate::ecs::HasEcs;
 use crate::ecs::HasResources;
 use crate::entities::EntityInit;
+use crate::events::PlayerSpawnEvent;
+use crate::events::block_change::BlockChangeEvent;
 use crate::events::EntityCreateEvent;
 use crate::events::EntityRemoveEvent;
 use crate::events::PlayerJoinEvent;
@@ -23,13 +27,17 @@ use crate::protocol::io::String16;
 use crate::protocol::packets::server::LoginRequest;
 use crate::protocol::packets::server::PlayerPositionAndLook;
 use crate::protocol::packets::server::SpawnPosition;
+use crate::protocol::packets::SoundEffectKind;
 use crate::protocol::ServerLoginPacket;
 use crate::protocol::ServerPlayPacket;
 use crate::server::Client;
 use crate::server::Server;
+use crate::translation::TranslationManager;
 use crate::world::chunk_entities::ChunkEntities;
+use crate::world::chunks::BlockState;
 use crate::world::mcregion::MCRegionLoader;
 use crate::world::World;
+use ahash::AHashMap;
 //pub mod aa_bounding_box;
 //use items::*;
 use flume::{Receiver, Sender};
@@ -75,9 +83,10 @@ impl BlockPosition {
     }
     /// Convert block position to chunk coordinates.
     pub fn to_chunk_coords(&self) -> ChunkCoords {
-        let x = self.x as i32 / 16;
-        let z = self.z as i32 / 16;
-        ChunkCoords { x, z }
+        ChunkCoords {
+            x: self.x >> 4,
+            z: self.z >> 4,
+        }
     }
     /// Get +x,-x,+y,-y,+z,-z offsets from a block position.
     pub fn all_directions(&self) -> impl Iterator<Item = BlockPosition> {
@@ -154,6 +163,19 @@ pub struct Position {
     pub pitch: f32,
     pub on_ground: bool,
 }
+impl From<BlockPosition> for Position {
+    fn from(bpos: BlockPosition) -> Self {
+        Self {
+            x: bpos.x as f64,
+            stance: 0.0,
+            y: bpos.y as f64,
+            z: bpos.z as f64,
+            yaw: 0.,
+            pitch: 0.,
+            on_ground: false,
+        }
+    }
+}
 #[derive(Copy, Clone)]
 pub struct Block {
     pub position: BlockPosition,
@@ -176,7 +198,7 @@ impl std::default::Default for Position {
 use std::fmt;
 impl std::fmt::Display for Position {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({}, {}, {})", self.x, self.y, self.z)
+        write!(f, "({:.3}, {:.3}, {:.3})", self.x, self.y, self.z)
     }
 }
 impl Position {
@@ -282,39 +304,6 @@ pub enum DamageType {
     Mob { damager: String },
     Drown,
 }
-#[derive(Clone, PartialEq, Debug, Hash, Copy, Ord)]
-pub struct ItemStack {
-    pub id: i16,
-    pub damage: i16,
-    pub count: i8,
-}
-use std::cmp::*;
-impl PartialOrd for ItemStack {
-    fn partial_cmp(&self, other: &ItemStack) -> Option<Ordering> {
-        Some(self.count.cmp(&other.count))
-    }
-}
-//impl std::borrow::Borrow for ItemStack {}
-impl Eq for ItemStack {}
-impl std::default::Default for ItemStack {
-    fn default() -> Self {
-        Self {
-            id: 0,
-            damage: 0,
-            count: 0,
-        }
-    }
-}
-impl ItemStack {
-    /// New itemstack from id, damage and count.
-    pub fn new(id: i16, damage: i16, count: i8) -> Self {
-        Self { id, damage, count }
-    }
-    /// Reset itemstack to default.
-    pub fn reset(&mut self) {
-        *self = Self::default();
-    }
-}
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
 pub struct ChunkCoords {
     pub x: i32,
@@ -349,15 +338,6 @@ impl ChunkCoords {
     }
 }
 #[derive(Clone, Debug)]
-pub struct RenderedPlayerInfo {
-    pub position: Position,
-    pub held_item: ItemStack,
-}
-#[derive(Clone, Debug)]
-pub struct RenderedEntityInfo {
-    pub position: Position,
-}
-#[derive(Clone, Debug)]
 pub struct Message {
     pub message: String,
 }
@@ -373,7 +353,7 @@ impl Message {
         }
     }
 }
-pub struct LoadedChunks(pub HashMap<ChunkCoords, u128>);
+pub struct LoadedChunks(pub AHashMap<ChunkCoords, u128>);
 impl LoadedChunks {
     pub fn push(&mut self, coords: ChunkCoords) {
         if !self.0.contains_key(&coords) {
@@ -433,14 +413,16 @@ pub struct CachedCommandData {
 type EntitySpawnCallback = Box<dyn FnMut(&mut EntityBuilder, &EntityInit)>;
 pub struct Game {
     pub objects: Arc<Resources>,
-    pub worlds: HashMap<i32, World>,
+    pub worlds: AHashMap<i32, World>,
     pub ecs: Ecs,
     pub systems: Arc<RefCell<SystemExecutor<Game>>>,
-    pub loaded_chunks: LoadedChunks,
     pub ticks: u128,
     entity_builder: EntityBuilder,
     entity_spawn_callbacks: Vec<EntitySpawnCallback>,
     pub chunk_entities: ChunkEntities,
+    pub commands: Rc<RefCell<CommandSystem>>,
+    pub time: i64,
+    pub console_entity: Entity,
 }
 use nbt::*;
 use rand::Rng;
@@ -459,6 +441,47 @@ impl HasEcs for Game {
     }
 }
 impl Game {
+    pub fn broadcast_to_ops(&mut self, username: &str, message: &str) {
+        let epic_msg = format!("§7({}: {})", username, message);
+        for (_, (chatbox, perm_level)) in
+            self.ecs.query::<(&mut Chatbox, &PermissionLevel)>().iter()
+        {
+            if perm_level.0 >= 4 {
+                chatbox.send_message(epic_msg.clone().into());
+            }
+        }
+    }
+    pub fn execute_command(&mut self, command: &str, executor: Entity) -> anyhow::Result<usize> {
+        let commands = self.commands.clone();
+        let mut commands = commands.borrow_mut();
+        commands.execute(self, executor, command)
+    }
+    /// Gets the block at the given position.
+    pub fn block(&self, pos: BlockPosition, world: i32) -> Option<BlockState> {
+        self.worlds.get(&world)?.block_at(pos)
+    }
+    /// Sets the block at the given position.
+    ///
+    /// Triggers necessary `BlockChangeEvent`s.
+    pub fn set_block(&mut self, pos: BlockPosition, block: BlockState, world_id: i32) -> bool {
+        let world = match self.worlds.get_mut(&world_id) {
+            Some(w) => w,
+            None => {
+                return false;
+            }
+        };
+        let was_successful = world.set_block_at(pos, block);
+        if was_successful {
+            self.ecs
+                .insert_event(BlockChangeEvent::single(pos, world_id));
+        }
+        was_successful
+    }
+    /// Breaks the block at the given position, propagating any
+    /// necessary block updates.
+    pub fn break_block(&mut self, pos: BlockPosition, world_id: i32) -> bool {
+        self.set_block(pos, BlockState::air(), world_id)
+    }
     /// Broadcasts a chat message to all entities with
     /// a `ChatBox` component (usually just players).
     pub fn broadcast_chat(&self, message: impl Into<ChatMessage>) {
@@ -484,9 +507,11 @@ impl Game {
             .insert_entity_event(entity, EntityCreateEvent)
             .unwrap();
         if self.ecs.get::<Player>(entity).is_ok() {
-            log::info!("Player join");
             self.ecs
                 .insert_entity_event(entity, PlayerJoinEvent)
+                .unwrap();
+            self.ecs
+                .insert_entity_event(entity, PlayerSpawnEvent)
                 .unwrap();
         }
     }
@@ -556,18 +581,78 @@ impl Game {
         } else {
             log::info!("No server operators in file.");
         }
-        let mut worlds = HashMap::new();
-        worlds.insert(0i32, crate::world::World::from_file_mcr("epicpog").unwrap());
+        let mut worlds = AHashMap::new();
+        worlds.insert(0i32, crate::world::World::from_file_mcr(&CONFIGURATION.level_name).unwrap());
+        let mut commands = CommandSystem::new();
+        commands.register(Command::new(
+            "reload",
+            "reload",
+            4,
+            vec![],
+            Box::new(|game, executor, mut args| {
+                *game.objects.get_mut::<TranslationManager>()? = TranslationManager::initialize()?;
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "time",
+            "set time",
+            4,
+            vec![CommandArgumentTypes::Int],
+            Box::new(|game, executor, mut args| {
+                let executor = game.ecs.entity(executor)?;
+                let time: i32 = args[0].as_int();
+                game.time = time as i64;
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "die",
+            "die",
+            4,
+            vec![CommandArgumentTypes::Int],
+            Box::new(|game, executor, mut args| {
+                let executor = game.ecs.entity(executor)?;
+                let arg: i32 = args[0].as_int();
+                executor
+                    .get_mut::<Health>()?
+                    .damage(arg as i16, DamageType::Void);
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "gamemode",
+            "change gamemode",
+            4,
+            vec![CommandArgumentTypes::Int],
+            Box::new(|game, executor, mut args| {
+                let executor = game.ecs.entity(executor)?;
+                let name = executor.get::<Username>()?.0.clone();
+                let arg: i32 = args[0].as_int();
+                let id = Gamemode::from_id(arg as u8);
+                if let Some(gamemode) = id {
+                    *executor.get_mut::<Gamemode>()? = gamemode;
+                    game.broadcast_to_ops(&name, &format!("Set own game mode to {:?}", gamemode));
+                } else {
+                    let mut chatbox = executor.get_mut::<Chatbox>()?;
+                    chatbox.send_message("§7Invalid gamemode.".into());
+                    return Ok(3);
+                }
+                Ok(0)
+            }),
+        ));
         let game = Self {
             objects: objects,
             systems: Arc::new(RefCell::new(SystemExecutor::new())),
             worlds,
             ecs: Ecs::new(),
             ticks: 0,
-            loaded_chunks: LoadedChunks(HashMap::new()),
             entity_builder: EntityBuilder::new(),
             entity_spawn_callbacks: Vec::new(),
             chunk_entities: ChunkEntities::default(),
+            commands: Rc::new(RefCell::new(commands)),
+            time: 0,
+            console_entity: Entity::from_bits(0),
         };
         //let mut game_globals = GameGlobals { time: 0 };
         //GAME_GLOBAL.set(game_globals);
@@ -657,13 +742,17 @@ impl Game {
         self.ecs.insert_entity_event(entity, EntityRemoveEvent)
     }
     fn accept_player(&mut self, server: &mut Server, id: NetworkID) -> anyhow::Result<()> {
-        log::info!("Player {:?}", id);
         let clients = &mut server.clients;
-        let mut client = clients
+        let client = clients
             .get_mut(&id)
             .ok_or(anyhow::anyhow!("Client does not exist"))?;
-        let pos = Position::from_pos(0., 255., 0.);
-        log::info!("Pos {:?}", pos);
+        let pos = Position::from_pos(0., 75., 0.);
+        log::info!(
+            "{} logging in with entity ID {} at {}",
+            client.username(),
+            id.0,
+            pos
+        );
         client.write(ServerPlayPacket::LoginRequest(LoginRequest {
             entity_id: id.0,
             not_used: String16("".to_owned()),
@@ -698,6 +787,13 @@ impl Game {
             CurrentWorldInfo::new(0),
         );
         self.spawn_entity(player);
+        broadcast_player_join(self, client.username());
         Ok(())
     }
+}
+
+fn broadcast_player_join(game: &mut Game, username: &str) {
+    let translation = game.objects.get::<TranslationManager>().unwrap();
+    let message = translation.translate("multiplayer.player.joined", Some(vec![username.to_string()]));
+    game.broadcast_chat(message);
 }

@@ -6,6 +6,7 @@ use nbt::encode::write_zlib_compound_tag;
 use nbt::CompoundTag;
 use once_cell::sync::OnceCell;
 
+use crate::game::BlockPosition;
 use crate::game::ChunkCoords;
 use crate::game::Position;
 use crate::world;
@@ -18,13 +19,25 @@ pub struct MCRegionLoader {
 static PATH: OnceCell<String> = OnceCell::new();
 impl MCRegionLoader {
     pub fn new<'a>(path: &'a str) -> anyhow::Result<Self> {
-        log::info!("Called");
         std::fs::create_dir_all(&format!("{}/region", path))?;
         //PATH.set(format!("{}/region", path.to_string())).unwrap();
         Ok(Self {
             world_dir: path.to_string(),
             cheating: FolderRegionProvider::new(&format!("{}/region", path.to_string())),
         })
+    }
+    pub fn save_chunk(&mut self, chunk: ChunkHandle) -> anyhow::Result<()> {
+        let coords = chunk.read().pos;
+        let mut region = self
+            .cheating
+            .get_region(RegionPosition::from_chunk_position(coords.x, coords.z))?;
+        region
+            .write_chunk(
+                RegionChunkPosition::from_chunk_position(coords.x, coords.z),
+                Self::chunk_to_nbt(chunk.clone())?,
+            )
+            .or(Err(anyhow::anyhow!("Bad write")))?;
+        Ok(())
     }
     pub fn save_all(&mut self, world: &mut World) -> anyhow::Result<()> {
         for chunk in world.chunk_map.iter_chunks() {
@@ -69,14 +82,13 @@ impl MCRegionLoader {
             for z in 0..16 {
                 for y in 0..128 {
                     // TODO: write this stuff here
-                    //block_data.push(chunk.get_block(x, y, z).unwrap().b_type as i8);
-                    //metadata.push(chunk.get_block(x, y, z).unwrap().b_metadata);
+                    block_data.push(chunk.block_at(x, y, z).unwrap().b_type as i8);
+                    metadata.push(chunk.block_at(x, y, z).unwrap().b_metadata);
                 }
             }
         }
         //log::info!("Block len: {:?}", block_data.len());
-        let metadata = crate::world::chunks::compress_to_nibble(metadata)
-            .ok_or(anyhow::anyhow!("Bad compression to nibbles!"))?;
+        let metadata = crate::world::chunks::compress_to_nibble(metadata).unwrap_or(Vec::new());
         let metadata = vec_u8_into_i8(metadata);
         level_tag.insert_i8_vec("Data", metadata);
         level_tag.insert_i8_vec("Blocks", block_data);
@@ -88,14 +100,34 @@ impl MCRegionLoader {
         Ok(root_tag)
         //Err(anyhow::anyhow!(""))
     }
-    pub fn get_chunk(&mut self, coords: &ChunkCoords) -> Option<Chunk> {
+    pub fn get_chunk(&mut self, coords: &ChunkCoords) -> ChunkLoadResult {
         let region_pos = RegionPosition::from_chunk_position(coords.x, coords.z);
         let region_chunk_pos = RegionChunkPosition::from_chunk_position(coords.x, coords.z);
-        let mut region = self.cheating.get_region(region_pos).ok()?;
-        let chunk_tag = region.read_chunk(region_chunk_pos).ok()?;
-        let level_tag = chunk_tag.get_compound_tag("Level").ok()?;
-        //log::info!("WE are here");
-        return Region::chunk_from_tag(level_tag).ok();
+        let mut region = match self.cheating.get_region(region_pos) {
+            Ok(c) => c,
+            Err(_) => {
+                return ChunkLoadResult::Missing(coords.clone());
+            }
+        };
+        let chunk_tag = match region.read_chunk(region_chunk_pos) {
+            Ok(c) => c,
+            Err(_) => {
+                return ChunkLoadResult::Missing(coords.clone());
+            }
+        };
+        let level_tag = match chunk_tag.get_compound_tag("Level") {
+            Ok(c) => c,
+            Err(_) => {
+                return ChunkLoadResult::Error(anyhow::anyhow!("Level tag read error"));
+            }
+        };
+        return match Region::chunk_from_tag(level_tag) {
+            Ok(c) => ChunkLoadResult::Loaded(LoadedChunk {
+                chunk: c,
+                pos: coords.clone(),
+            }),
+            Err(e) => ChunkLoadResult::Error(e),
+        };
     }
 }
 #[derive(Clone)]
@@ -112,6 +144,7 @@ use std::io::Write;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 use std::time::SystemTime;
 use std::time::UNIX_EPOCH;
 /*
@@ -134,9 +167,11 @@ struct PresentChunk {
     sector_count: u8,
     timestamp: u32,
 }
-use super::World;
 use super::chunk_lock::ChunkHandle;
 use super::chunks::*;
+use super::worker::ChunkLoadResult;
+use super::worker::LoadedChunk;
+use super::World;
 use std::io::Read;
 use std::io::Seek;
 use std::io::SeekFrom;
@@ -181,19 +216,27 @@ impl Region {
             .get_i8_vec("Blocks")
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
         let block_ids = vec_i8_into_u8(val.clone());
+        if block_ids.len() == 0 {
+            return Err(anyhow::anyhow!("0 length blocks"));
+        }
         let val = tag
             .get_i8_vec("Data")
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
         //log::info!("Got to here!");
         let block_metadata = vec_i8_into_u8(val.clone());
         use super::chunks::*;
-        let metadata = super::chunks::decompress_vec(block_metadata).unwrap();
+        let metadata = super::chunks::decompress_vec(block_metadata);
         let mut blocks = Vec::new();
         let mut i = 0;
         for block in block_ids {
+            let meta = if let Some(ref meta) = metadata {
+                meta[i]
+            } else {
+                0
+            };
             blocks.push(BlockState {
                 b_type: block,
-                b_metadata: metadata[i],
+                b_metadata: meta,
                 b_light: 0,
                 b_skylight: 15,
             });
@@ -209,7 +252,7 @@ impl Region {
         //log::info!("Pos: {} {}", x_pos, z_pos);
         let mut chunksections = Vec::new();
         for i in 0..8 {
-            chunksections.push(ChunkSection::new(x_pos, z_pos, i));
+            chunksections.push(ChunkSection::new(i));
         }
         for section in 0..8 {
             for x in 0..16 {
@@ -226,10 +269,7 @@ impl Region {
             }
         }
         let mut chunk = Chunk {
-            pos: ChunkCoords {
-                x: x_pos,
-                z: z_pos,
-            },
+            pos: ChunkCoords { x: x_pos, z: z_pos },
             data: [
                 Some(chunksections[0].clone()),
                 Some(chunksections[1].clone()),
@@ -359,7 +399,7 @@ impl Region {
             log::info!("Pos: {} {}", x_pos, z_pos);
             let mut chunksections = Vec::new();
             for i in 0..8 {
-                chunksections.push(ChunkSection::new(x_pos, z_pos, i));
+                chunksections.push(ChunkSection::new(i));
             }
             for section in 0..8 {
                 for x in 0..16 {
@@ -376,10 +416,7 @@ impl Region {
                 }
             }
             let mut chunk = Chunk {
-                pos: ChunkCoords {
-                    x: x_pos,
-                    z: z_pos,
-                },
+                pos: ChunkCoords { x: x_pos, z: z_pos },
                 data: [
                     Some(chunksections[0].clone()),
                     Some(chunksections[1].clone()),

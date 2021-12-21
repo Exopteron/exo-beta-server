@@ -27,7 +27,7 @@ fn update_player_views(game: &mut Game) -> SysResult {
             events.push((player, event));
 
             *view = new_view;
-            log::info!("View of {} has been updated", name.0);
+            log::trace!("View of {} has been updated", name.0);
         }
     }
 
@@ -43,7 +43,7 @@ fn update_view_on_join(game: &mut Game) -> SysResult {
     for (player, (&view, name, _)) in game.ecs.query::<(&View, &Username, &PlayerJoinEvent)>().iter() {
         let event = ViewUpdateEvent::new(View::empty(), view);
         events.push((player, event));
-        log::info!("View of {} has been updated (player joined)", name.0);
+        log::trace!("View of {} has been updated (player joined)", name.0);
     }
     for (player, event) in events {
         game.ecs.insert_entity_event(player, event)?;

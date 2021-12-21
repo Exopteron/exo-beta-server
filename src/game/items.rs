@@ -23,7 +23,7 @@ pub struct RecipeShapeless {
 }
 impl Eq for Recipe3X3 {}
 pub struct ItemRegistry {
-    items: HashMap<(i16, i16), Arc<RegistryItem>>,
+    items: AHashMap<(i16, i16), Arc<RegistryItem>>,
     recipe_solver: Solver,
 }
 pub enum ToolType {

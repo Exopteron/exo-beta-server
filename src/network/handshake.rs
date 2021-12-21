@@ -2,6 +2,7 @@ use rand::RngCore;
 
 use super::ids::NetworkID;
 use super::worker::Worker;
+use crate::configuration::CONFIGURATION;
 use crate::protocol::io::{String16, PingData};
 use crate::protocol::packets::server::{Handshake, LoginRequest, ServerHandshakePacket, Kick};
 use crate::protocol::{ClientHandshakePacket, ClientLoginPacket, ServerPlayPacket};
@@ -47,6 +48,6 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<HandshakeR
 }
 
 async fn handle_status(worker: &mut Worker) -> anyhow::Result<()> {
-    worker.write(ServerPlayPacket::PingData(PingData::new("A Minecraft Server", worker.player_count.get() as usize, worker.player_count.get_max() as usize))).await?;
+    worker.write(ServerPlayPacket::PingData(PingData::new(CONFIGURATION.server_motd.clone(), worker.player_count.get() as usize, worker.player_count.get_max() as usize))).await?;
     Ok(())
 }

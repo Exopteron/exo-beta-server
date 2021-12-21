@@ -7,22 +7,17 @@ struct SerializeOPS {
 pub struct ServerConfig {
     pub listen_address: String,
     pub listen_port: u16,
-    pub server_name: String,
     pub server_motd: String,
     pub max_players: u32,
     pub level_name: String,
-    pub chunk_distance: i32,
+    pub chunk_distance: u32,
     pub chunk_generator: String,
+    pub translation_file: String,
     pub tps: i32,
     pub world_seed: Option<u64>,
     pub autosave_interval: i64,
     pub logging: LoggingConfig,
-    pub experimental: ExperimentalConfig,
     // generic configuration, max players etc
-}
-#[derive(serde_derive::Deserialize, Debug)]
-pub struct ExperimentalConfig {
-    pub async_chat: bool,
 }
 #[derive(serde_derive::Deserialize, Debug)]
 pub struct LoggingConfig {
@@ -40,10 +35,7 @@ listen_address = "127.0.0.1"
 # Listen port
 listen_port = 25565
 
-# Server name (unused)
-server_name = "Hello!"
-
-# Server MOTD (unused)
+# Server MOTD 
 server_motd = "there!"
 
 # Max players.
@@ -57,6 +49,9 @@ chunk_distance = 8
 
 # Chunk generator, can be: (flat, noise, mountain). Noise is quite slow (working on it). CURRENTLY HAS NO EFFECT.
 chunk_generator = "noise"
+
+# Translation file path.
+translation_file = "translation.json"
 
 # Server TPS (Ticks Per Second), probably shouldn't change it. But who's stopping you?
 tps = 20
@@ -85,15 +80,8 @@ slow_ticks = true
 
 # Profiler
 profiler = false
-
-# Experimental options
-
-[experimental]
-
-# Async chat system
-async_chat = false
 "#;
-// this will be in no way an implementation of ECS. (bcz idk how)
+
 pub static CONFIGURATION: Lazy<ServerConfig> = Lazy::new(|| {
     //ServerConfig {listen_address: "127.0.0.1".to_string(), listen_port: 25565, server_name: "Hello".to_string(), server_motd: "there!".to_string()}
     get_options()

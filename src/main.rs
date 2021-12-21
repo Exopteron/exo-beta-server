@@ -1,17 +1,19 @@
+pub mod api;
 pub mod configuration;
+pub mod ecs;
+pub mod entities;
+pub mod events;
 pub mod feather_tick_loop;
 pub mod game;
+pub mod item;
 pub mod logging;
 pub mod network;
 pub mod objects;
+pub mod player_count;
+pub mod protocol;
 pub mod server;
 pub mod world;
-pub mod api;
-pub mod ecs;
-pub mod protocol;
-pub mod events;
-pub mod player_count;
-pub mod entities;
+pub mod translation;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -24,7 +26,8 @@ async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
     let start = Instant::now();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
-    let _ = &configuration::CONFIGURATION.server_name;
+    let _ = &configuration::CONFIGURATION.max_players;
+    let translation = TranslationManager::initialize()?;
     let mut systems = SystemExecutor::<Game>::new();
     systems.add_system(|game| {
         let obj = game.objects.clone();
@@ -38,19 +41,28 @@ async fn main() -> anyhow::Result<()> {
         game.poll_new_players(&mut server)?;
         Ok(())
     });
-/*     systems.add_system("chunk_loading", |game| {
+    /*     systems.add_system("chunk_loading", |game| {
         for (_, world) in game.worlds.iter_mut() {
             world.process_chunk_loads(&mut game);
         }
         Ok(())
     }); */
+    let mut item_registry = ItemRegistry::new();
+    default::register_items(&mut item_registry);
+    item_registry.set();
     let mut game = game::Game::new();
     ecs::systems::default_systems(&mut game, &mut systems);
     let server = server::Server::bind().await?;
     server.register(&mut game);
+    game.insert_object(translation);
+    let systems_list: Vec<&str> = systems.system_names().collect();
+    log::info!("---SYSTEMS---\n{:#?}\n", systems_list);
     game.systems = Arc::new(RefCell::new(systems));
     let obj = game.objects.clone();
-    log::info!("Done! ({}ms) For command help, run \"help\".", start.elapsed().as_millis());
+    log::info!(
+        "Done! ({}ms) For command help, run \"help\".",
+        start.elapsed().as_millis()
+    );
     run(game);
     loop {}
     println!("Hello, world!");
@@ -77,12 +89,16 @@ async fn main() -> anyhow::Result<()> {
 } */
 use std::panic::{self, AssertUnwindSafe};
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Instant;
 use sysinfo::ProcessorExt;
 
 use crate::ecs::systems::SystemExecutor;
 use crate::game::Game;
-
+use crate::item::default;
+use crate::item::item::ItemRegistry;
+use crate::server::Server;
+use crate::translation::TranslationManager;
 
 //use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game) -> TickLoop {
@@ -97,6 +113,31 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     TickLoop::new(move || {
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
+            let translation = game.objects.get::<TranslationManager>().unwrap();
+            for (_, client) in game.objects.get::<Server>().expect("No server").clients.iter() {
+                client.disconnect(&translation.translate("multiplayer.disconnect.server_shutdown", None));
+            }
+            for (id, world) in game.worlds.iter_mut() {
+                let mut positions = Vec::new();
+                for chunk in world.chunk_map.iter_chunks() {
+                    let pos = chunk.read().pos.clone();
+                    positions.push(pos);
+                    drop(chunk);
+                }
+                log::info!("Unloading DIM-{} ({} chunks)", id, positions.len());
+                for pos in positions {
+                    //log::info!("Unloading chunk {} in {}", pos, id);
+                    if let Err(e) = world.unload_chunk(&pos) {
+                        log::error!("Error saving chunk {}: {:?}", pos, e);
+                    }
+                }
+                world.drop_chunk_sender();
+                loop {
+                    if world.get_shutdown().load(Ordering::Relaxed) {
+                        break;
+                    }
+                }
+            }
             std::process::exit(0);
         }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -126,7 +167,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
             println!("CPU: {}", sys.global_processor_info().brand());
             println!("----- Game information:");
             //println!("online players: {}", game.players.0.lock().unwrap().len());
-            println!("{} loaded chunks", game.loaded_chunks.0.len());
+            //println!("{} loaded chunks", game.loaded_chunks.0.len());
             println!("----- configuration info:\n{:?}", *CONFIGURATION);
             std::process::exit(1);
         };

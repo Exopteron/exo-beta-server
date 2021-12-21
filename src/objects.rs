@@ -3,9 +3,11 @@ use std::{
     any::{type_name, Any, TypeId},
     cell::{Ref, RefCell, RefMut},
 };
+
+use ahash::AHashMap;
 #[derive(Default)]
 pub struct Resources {
-    objects: HashMap<TypeId, RefCell<Box<dyn Any>>>
+    objects: AHashMap<TypeId, RefCell<Box<dyn Any>>>
 }
 impl Resources {
     pub fn new() -> Self {

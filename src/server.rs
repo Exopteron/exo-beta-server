@@ -1,39 +1,66 @@
+use crate::configuration::CONFIGURATION;
+use crate::ecs::entities::living::Health;
+use crate::ecs::entities::living::Hunger;
 use crate::ecs::entities::player::ChatMessage;
+use crate::ecs::entities::player::CurrentWorldInfo;
+use crate::ecs::entities::player::Gamemode;
+use crate::ecs::entities::player::HotbarSlot;
 use crate::ecs::entities::player::Username;
+use crate::ecs::entities::player::SLOT_HOTBAR_OFFSET;
 use crate::ecs::systems;
 use crate::ecs::systems::world::view::WaitingChunks;
+use crate::ecs::systems::SysResult;
 use crate::ecs::systems::SystemExecutor;
+use crate::ecs::EntityRef;
 use crate::entities;
 use crate::entities::metadata::EntityMetadata;
 use crate::entities::PreviousPosition;
+use crate::game::BlockPosition;
 use crate::game::ChunkCoords;
 use crate::game::Game;
 use crate::game::Position;
+use crate::item::inventory_slot::InventorySlot;
+use crate::item::window::Window;
 use crate::network::ids::NetworkID;
 use crate::network::metadata::Metadata;
 use crate::network::Listener;
 use crate::player_count::PlayerCount;
 use crate::protocol::io::String16;
-use crate::protocol::packets::EntityAnimationType;
+use crate::protocol::packets::server::BlockChange;
 use crate::protocol::packets::server::ChunkData;
 use crate::protocol::packets::server::ChunkDataKind;
 use crate::protocol::packets::server::DestroyEntity;
+use crate::protocol::packets::server::EntityEquipment;
 use crate::protocol::packets::server::EntityLook;
 use crate::protocol::packets::server::EntityLookAndRelativeMove;
 use crate::protocol::packets::server::EntityRelativeMove;
+use crate::protocol::packets::server::EntityStatus;
 use crate::protocol::packets::server::EntityTeleport;
 use crate::protocol::packets::server::KeepAlive;
 use crate::protocol::packets::server::Kick;
 use crate::protocol::packets::server::NamedEntitySpawn;
+use crate::protocol::packets::server::NewState;
 use crate::protocol::packets::server::PlayerListItem;
 use crate::protocol::packets::server::PlayerPositionAndLook;
 use crate::protocol::packets::server::PreChunk;
+use crate::protocol::packets::server::Respawn;
 use crate::protocol::packets::server::SendEntityAnimation;
 use crate::protocol::packets::server::SendEntityMetadata;
+use crate::protocol::packets::server::SetSlot;
+use crate::protocol::packets::server::SoundEffect;
+use crate::protocol::packets::server::TimeUpdate;
+use crate::protocol::packets::server::Transaction;
+use crate::protocol::packets::server::UpdateHealth;
+use crate::protocol::packets::server::WindowItems;
+use crate::protocol::packets::EntityAnimationType;
+use crate::protocol::packets::EntityStatusKind;
+use crate::protocol::packets::SoundEffectKind;
 use crate::protocol::ClientPlayPacket;
 use crate::protocol::ServerPlayPacket;
 use crate::world::chunk_lock::ChunkHandle;
 use crate::world::chunk_subscriptions::ChunkSubscriptions;
+use crate::world::chunks::BlockState;
+use ahash::AHashMap;
 use flume::{Receiver, Sender};
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -41,6 +68,7 @@ use std::collections::HashMap;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::net::*;
+use std::ops::Deref;
 use std::sync::Arc;
 use std::time::Duration;
 use std::time::Instant;
@@ -76,18 +104,122 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
-    pub fn add_tablist_player(
-        &self,
-        name: String,
-        latency: i16,
-    ) {
+    pub fn notify_time(&self, time: i64) {
+        self.send_packet(TimeUpdate {
+            time,
+        });
+    }
+    pub fn notify_respawn(&self, us: &EntityRef) -> SysResult {
+        let current_world = us.get::<CurrentWorldInfo>()?.world_id as i8;
+        let gamemode = us.get::<Gamemode>()?.id();
+        self.send_packet(Respawn {
+            world: current_world,
+            difficulty: 0,
+            gamemode,
+            world_height: 128,
+            map_seed: 0,
+        });
+        Ok(())
+    }
+    pub fn set_health(&self, health: &Health, hunger: &Hunger) {
+        self.send_packet(UpdateHealth {
+            health: health.0,
+            food: hunger.0,
+            saturation: hunger.1,
+        });
+    }
+    pub fn set_gamemode(&self, gamemode: Gamemode) {
+        self.send_packet(NewState {
+            reason: 3,
+            gamemode: gamemode as i8,
+        });
+    }
+    pub fn send_effect(&self, position: BlockPosition, effect: SoundEffectKind, data: i32) {
+        self.send_packet(SoundEffect {
+            effect,
+            pos: position,
+            data,
+        });
+    }
+    pub fn send_block_change(&self, position: BlockPosition, new_block: BlockState) {
+        self.send_packet(BlockChange {
+            pos: position,
+            state: new_block,
+        });
+    }
+    pub fn send_entity_status(&self, id: NetworkID, status: EntityStatusKind) {
+        self.send_packet(EntityStatus { eid: id.0, status });
+    }
+    pub fn send_entity_equipment(&self, entity: &EntityRef) -> SysResult {
+        let id = *entity.get::<NetworkID>()?;
+        if self.id == id {
+            return Ok(());
+        }
+        let hotbar_slot = entity.get::<HotbarSlot>()?.get();
+        let inventory = entity.get::<Window>()?;
+        let slot = inventory.item(SLOT_HOTBAR_OFFSET + hotbar_slot)?;
+        self.entity_equipment(id, 0, &slot);
+        for i in 1..5 {
+            let slot = inventory.item(i + 4)?;
+            self.entity_equipment(id, i as i16, &slot);
+        }
+        Ok(())
+    }
+    fn entity_equipment(&self, id: NetworkID, slot: i16, item: &InventorySlot) {
+        let kind = match item.item_kind() {
+            Some(i) => i.id(),
+            None => (-1, 0),
+        };
+        self.send_packet(EntityEquipment {
+            eid: id.0,
+            slot,
+            item_id: kind.0,
+            damage: kind.1,
+        });
+    }
+    pub fn set_cursor_slot(&self, item: &InventorySlot) {
+        log::trace!("Setting cursor slot of {} to {:?}", self.username, item);
+        self.set_slot(-1, -1, item);
+    }
+    pub fn set_slot(&self, window_id: i8, slot: i16, item: &InventorySlot) {
+        log::trace!("Setting slot {} of {} to {:?}", slot, self.username, item);
+        self.send_packet(SetSlot {
+            window_id,
+            slot,
+            item: item.clone(),
+        });
+    }
+    pub fn confirm_window_action(&self, window_id: i8, action_number: i16, is_accepted: bool) {
+        self.send_packet(Transaction {
+            window_id: window_id,
+            action_number,
+            accepted: is_accepted,
+        });
+    }
+    pub fn send_window_items(&self, window: &Window) {
+        log::trace!("Updating window for {}", self.username);
+        let packet = WindowItems {
+            window_id: 0,
+            items: window.inner().to_vec(),
+        };
+        self.send_packet(packet);
+    }
+    pub fn add_tablist_player(&self, name: String, latency: i16) {
         log::trace!("Sending PlayerListItem({}) to {}", name, self.username);
-        self.send_packet(PlayerListItem { name: String16(name), online: true, ping: latency });
+        self.send_packet(PlayerListItem {
+            name: String16(name),
+            online: true,
+            ping: latency,
+        });
     }
 
     pub fn remove_tablist_player(&self, name: String) {
         log::trace!("Sending RemovePlayer({}) to {}", name, self.username);
-        self.send_packet(PlayerListItem { name: String16(name), online: false, ping: 0});
+        self.send_packet(PlayerListItem {
+            name: String16(name),
+            online: false,
+            ping: 0,
+        });
     }
     pub fn send_entity_animation(&self, network_id: NetworkID, animation: EntityAnimationType) {
         if self.id == network_id {
@@ -105,6 +237,16 @@ impl Client {
         self.send_packet(SendEntityMetadata {
             eid: network_id.0,
             metadata: metadata,
+        });
+    }
+    pub fn send_exact_entity_position(&self, network_id: NetworkID, position: Position) {
+        self.send_packet(EntityTeleport {
+            eid: network_id.0,
+            x: position.x.into(),
+            y: position.y.into(),
+            z: position.z.into(),
+            yaw: position.yaw as i8,
+            pitch: position.pitch as i8,
         });
     }
     pub fn update_entity_position(
@@ -127,7 +269,8 @@ impl Client {
         let no_change_pitch = (position.pitch - prev_position.0.pitch).abs() < 0.001;
 
         // If the entity jumps or falls we should send a teleport packet instead to keep relative movement in sync.
-        if position.on_ground != prev_position.0.on_ground {
+        if position.on_ground != prev_position.0.on_ground && true {
+            //log::info!("Sending teleport packet to {}", self.username());
             self.send_packet(EntityTeleport {
                 eid: network_id.0,
                 x: position.x.into(),
@@ -157,6 +300,12 @@ impl Client {
                 pitch: position.pitch as i8,
             });
         }
+        // Needed for head orientation
+        self.send_packet(EntityLook {
+            eid: network_id.0,
+            yaw: position.yaw as i8,
+            pitch: position.pitch as i8,
+        });
     }
 
     pub fn unload_entity(&self, id: NetworkID) {
@@ -172,7 +321,9 @@ impl Client {
             return;
         }
         log::trace!("Sending {:?} to {}", username.0, self.username);
-        assert!(!self.sent_entities.borrow().contains(&network_id));
+        if self.sent_entities.borrow().contains(&network_id) {
+            return;
+        }
         self.send_packet(NamedEntitySpawn {
             eid: network_id.0,
             x: pos.x.into(),
@@ -312,13 +463,39 @@ impl Client {
 }
 pub struct Server {
     new_players: Receiver<NewPlayer>,
-    pub clients: HashMap<NetworkID, Client>,
+    pub clients: AHashMap<NetworkID, Client>,
     pub last_keepalive_time: Instant,
     pub chunk_subscriptions: ChunkSubscriptions,
     pub waiting_chunks: WaitingChunks,
     pub player_count: PlayerCount,
 }
 impl Server {
+    pub fn broadcast_entity_status(
+        &self,
+        position: Position,
+        id: NetworkID,
+        effect: EntityStatusKind,
+    ) {
+        self.broadcast_nearby_with(position, |cl| {
+            cl.send_entity_status(id, effect.clone());
+        });
+    }
+    pub fn broadcast_effect(&self, effect: SoundEffectKind, position: BlockPosition, data: i32) {
+        self.broadcast_nearby_with(position.into(), |c| {
+            c.send_effect(position, effect.clone(), data);
+        });
+    }
+    pub fn broadcast_equipment_change(&self, player: &EntityRef) -> SysResult {
+        let id = player.get::<NetworkID>()?.deref().clone();
+        self.broadcast_nearby_with(*player.get::<Position>()?, |cl| {
+            if cl.id != id {
+                if let Err(e) = cl.send_entity_equipment(&player) {
+                    log::error!("Error sending entity equipment: {:?}", e);
+                }
+            }
+        });
+        Ok(())
+    }
     /// Sends a packet to all clients currently subscribed
     /// to the given position. This function should be
     /// used for entity updates, block updates, etc—
@@ -338,12 +515,12 @@ impl Server {
         self.last_keepalive_time = Instant::now();
     }
     pub async fn bind() -> anyhow::Result<Self> {
-        let player_count = PlayerCount::new(10);
+        let player_count = PlayerCount::new(CONFIGURATION.max_players);
         let (new_players_send, new_players) = flume::bounded(4);
         Listener::start_listening(new_players_send, player_count.clone()).await?;
         Ok(Self {
             new_players,
-            clients: HashMap::new(),
+            clients: AHashMap::new(),
             last_keepalive_time: Instant::now(),
             chunk_subscriptions: ChunkSubscriptions::default(),
             waiting_chunks: WaitingChunks::default(),

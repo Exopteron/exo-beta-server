@@ -1,13 +1,14 @@
 // feather license in FEATHER_LICENSE.md
 use std::{collections::HashMap, sync::Arc};
 
+use ahash::AHashMap;
 use parking_lot::{RwLockWriteGuard, RwLockReadGuard};
 
 use crate::game::{BlockPosition, ChunkCoords};
 
 use super::{chunk_lock::{ChunkHandle, ChunkLock}, BlockState, chunks::Chunk};
-const CHUNK_HEIGHT: i32 = 127;
-pub type ChunkMapInner = HashMap<ChunkCoords, ChunkHandle>;
+const CHUNK_HEIGHT: i32 = 128;
+pub type ChunkMapInner = AHashMap<ChunkCoords, ChunkHandle>;
 
 /// This struct stores all the chunks on the server,
 /// so it allows access to blocks and lighting data.
@@ -58,7 +59,6 @@ impl ChunkMap {
         }
 
         let (x, y, z) = chunk_relative_pos(pos.into());
-
         self.chunk_at_mut(pos.to_chunk_coords())
             .map(|mut chunk| chunk.set_block_at(x, y, z, block))
             .is_some()

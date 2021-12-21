@@ -1,12 +1,17 @@
 use crate::{world::{view::View, chunk_lock::ChunkHandle}, game::ChunkCoords};
 
 // from feather license in FEATHER_LICENSE.md
+pub mod block_change;
+pub mod block_interact;
 /// Triggered when an entity is removed from the world.
 ///
 /// The entity will remain alive for one tick after it is
 /// destroyed to allow systems to observe this event.
 #[derive(Debug)]
 pub struct EntityRemoveEvent;
+
+#[derive(Debug)]
+pub struct EntityDeathEvent;
 
 /// Event triggered when an entity crosses into a new chunk.
 ///
@@ -55,6 +60,8 @@ impl ViewUpdateEvent {
 #[derive(Debug)]
 pub struct PlayerJoinEvent;
 
+#[derive(Debug)]
+pub struct PlayerSpawnEvent;
 /// Triggered when a chunk is loaded.
 #[derive(Debug)]
 pub struct ChunkLoadEvent {

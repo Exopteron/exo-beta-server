@@ -1,16 +1,19 @@
 //! Chunk loading and unloading based on player `View`s.
 
 use std::{
-    collections::{VecDeque, HashMap},
+    collections::{HashMap, VecDeque},
     mem,
     time::{Duration, Instant},
 };
 
-
+use ahash::AHashMap;
 use hecs::Entity;
 
 use crate::{
-    events::{EntityRemoveEvent, ViewUpdateEvent}, ecs::systems::{SystemExecutor, SysResult}, game::{Game, ChunkCoords}, world::chunk_subscriptions::vec_remove_item,
+    ecs::systems::{SysResult, SystemExecutor},
+    events::{EntityRemoveEvent, ViewUpdateEvent},
+    game::{ChunkCoords, Game},
+    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest},
 };
 
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
@@ -69,8 +72,8 @@ impl QueuedChunkUnload {
 /// A chunk is queued for unloading when it has no more tickets.
 #[derive(Default)]
 struct ChunkTickets {
-    tickets: HashMap<ChunkCoords, Vec<Ticket>>,
-    by_entity: HashMap<Ticket, Vec<ChunkCoords>>,
+    tickets: AHashMap<ChunkCoords, Vec<Ticket>>,
+    by_entity: AHashMap<Ticket, Vec<ChunkCoords>>,
 }
 
 impl ChunkTickets {
@@ -117,19 +120,19 @@ fn update_tickets_for_players(game: &mut Game, state: &mut ChunkLoadState) -> Sy
     for (_, world) in game.worlds.iter_mut() {
         for (player, event) in game.ecs.query::<&ViewUpdateEvent>().iter() {
             let player_ticket = Ticket(player);
-    
+
             // Remove old tickets
             for &old_chunk in &event.old_chunks {
                 state.remove_ticket(old_chunk, player_ticket);
             }
-    
+
             // Create new tickets
             for &new_chunk in &event.new_chunks {
                 state.chunk_tickets.insert_ticket(new_chunk, player_ticket);
-    
+
                 // Load if needed
                 if !world.is_chunk_loaded(&new_chunk) && !world.is_chunk_loading(&new_chunk) {
-                    world.queue_chunk_load(&new_chunk);
+                    world.queue_chunk_load(LoadRequest { pos: new_chunk });
                 }
             }
         }
@@ -147,16 +150,17 @@ fn unload_chunks(game: &mut Game, state: &mut ChunkLoadState) -> SysResult {
                 // by time.
                 break;
             }
-    
+
             state.chunk_unload_queue.pop_front();
-    
+
             // If the chunk has acquired new tickets, then abort unloading it.
             if state.chunk_tickets.num_tickets(unload.pos) > 0 {
                 continue;
             }
-    
+
             world.unload_chunk(&unload.pos)?;
         }
+        world.cache.purge_unused();
     }
     Ok(())
 }

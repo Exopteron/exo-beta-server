@@ -4,7 +4,7 @@ use anyhow::Context;
 
 use crate::{server::Server, game::{Game, Position}, ecs::systems::{SystemExecutor, SysResult}, events::{ViewUpdateEvent, EntityCreateEvent, EntityRemoveEvent, ChunkCrossEvent}, network::ids::NetworkID};
 
-use super::SpawnPacketSender;
+use super::{SpawnPacketSender, PreviousPosition};
 
 // feather license in FEATHER_LICENSE.md
 
@@ -67,7 +67,7 @@ fn send_entities_when_created(game: &mut Game, server: &mut Server) -> SysResult
         server.broadcast_nearby_with(position, |client| {
             spawn_packet
                 .send(&entity_ref, client)
-                .expect("failed to create spawn packet")
+                .expect("failed to create spawn packet");
         });
     }
 
