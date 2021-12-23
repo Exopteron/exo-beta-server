@@ -20,3 +20,19 @@ pub struct PreviousHealth(pub Health);
     Copy, Clone, Debug, PartialEq,
 )]
 pub struct Hunger(pub i16, pub f32);
+impl Hunger {
+    pub fn get_points(&mut self, num: i16) -> bool {
+        if self.1 > 0. {
+            self.1 -= 1.5;
+            return true;
+        }
+        if self.0 < num {
+            return false;
+        }
+        self.0 -= num;
+        return true;
+    }
+}
+pub struct PreviousHunger(pub Hunger);
+
+pub struct Regenerator(pub u128);

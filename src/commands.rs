@@ -1,6 +1,7 @@
 use hecs::Entity;
 
 use crate::game::Game;
+use crate::server::Server;
 use std::any::Any;
 use std::sync::Arc;
 /*
@@ -63,6 +64,7 @@ pub struct Command {
         Box<
             dyn Fn(
                 &mut Game,
+                &mut Server,
                 Entity,
                 Vec<Box<dyn CommandArgument>>,
             ) -> anyhow::Result<usize>,
@@ -81,6 +83,7 @@ impl Command {
         function: Box<
             dyn Fn(
                 &mut Game,
+                &mut Server,
                 Entity,
                 Vec<Box<dyn CommandArgument>>,
             ) -> anyhow::Result<usize>,
@@ -132,6 +135,7 @@ impl CommandSystem {
     pub fn execute(
         &mut self,
         game: &mut Game,
+        server: &mut Server,
         executor: Entity,
         command: &str,
     ) -> anyhow::Result<usize> {
@@ -195,6 +199,6 @@ impl CommandSystem {
                 }
             }
         }
-        (cmd.function)(game, executor, args)
+        (cmd.function)(game, server, executor, args)
     }
 }

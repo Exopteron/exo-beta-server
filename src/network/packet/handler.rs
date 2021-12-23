@@ -1,7 +1,7 @@
 use hecs::Entity;
 
 use crate::configuration::CONFIGURATION;
-use crate::ecs::entities::living::Health;
+use crate::ecs::entities::living::{Health, Dead};
 use crate::ecs::entities::player::{
     ChatMessage, Chatbox, ChunkLoadQueue, CurrentWorldInfo, Username,
 };
@@ -44,7 +44,7 @@ pub fn handle_packet(
             movement::handle_player_look(server, pref, p)?;
         }
         ClientPlayPacket::ChatMessage(p) => {
-            handle_chat_message(game, player, p)?;
+            handle_chat_message(game, server, player, p)?;
         }
         ClientPlayPacket::Disconnect(p) => {
             let name = pref.get::<Username>()?;
@@ -81,8 +81,14 @@ pub fn handle_packet(
             .insert_entity_event(player, PlayerSpawnEvent)
             .unwrap();
             drop(netid);
+            if let Err(_) = game.ecs.remove::<Dead>(player) {
+
+            }
             let pref = game.ecs.entity(player)?;
             server.clients.get(&netid).unwrap().notify_respawn(&pref)?;
+        }
+        ClientPlayPacket::UpdateSign(p) => {
+            interaction::handle_update_sign(game, server, player, p)?;
         }
         _ => {}
     }
@@ -91,6 +97,7 @@ pub fn handle_packet(
 
 fn handle_chat_message(
     game: &mut Game,
+    server: &mut Server,
     player: Entity,
     packet: crate::protocol::packets::client::ChatMessage,
 ) -> SysResult {
@@ -99,7 +106,7 @@ fn handle_chat_message(
         let mut message = packet.message.0.clone();
         log::info!("{} issued server command {}", name, message);
         message.remove(0);
-        if let Ok(c) = game.execute_command(&message, player) {
+        if let Ok(c) = game.execute_command(server, &message, player) {
             let player = game.ecs.entity(player)?;
             let mut chatbox = player.get_mut::<Chatbox>()?;
             if let Some(message) = crate::commands::code_to_message(c) {

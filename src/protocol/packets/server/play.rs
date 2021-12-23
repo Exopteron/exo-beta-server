@@ -1,7 +1,7 @@
 use anyhow::bail;
 
 pub use chunk_data::{ChunkData, ChunkDataKind};
-use crate::{protocol::{Readable, Writeable, io::{String16, AbsoluteInt, Slot}}, entities::metadata::EntityMetadata, network::metadata::Metadata, world::chunks::BlockState, game::BlockPosition};
+use crate::{protocol::{Readable, Writeable, io::{String16, AbsoluteInt, Slot, RotationFraction360}}, entities::metadata::EntityMetadata, network::metadata::Metadata, world::chunks::BlockState, game::BlockPosition};
 
 use super::*;
 
@@ -63,8 +63,8 @@ packets! {
 
     EntityLook {
         eid i32;
-        yaw i8;
-        pitch i8;
+        yaw RotationFraction360;
+        pitch RotationFraction360;
     }
 
     EntityLookAndRelativeMove {
@@ -72,8 +72,8 @@ packets! {
         delta_x i8;
         delta_y i8;
         delta_z i8;
-        yaw i8;
-        pitch i8;
+        yaw RotationFraction360;
+        pitch RotationFraction360;
     }
 
     EntityTeleport {
@@ -81,8 +81,8 @@ packets! {
         x AbsoluteInt;
         y AbsoluteInt;
         z AbsoluteInt;
-        yaw i8;
-        pitch i8;
+        yaw RotationFraction360;
+        pitch RotationFraction360;
     }
 
     SendEntityMetadata {
@@ -162,5 +162,15 @@ packets! {
 
     TimeUpdate {
         time i64;
+    }
+
+    UpdateSign {
+        x i32;
+        y i16;
+        z i32;
+        text1 String16;
+        text2 String16;
+        text3 String16;
+        text4 String16;
     }
 }

@@ -26,7 +26,7 @@ impl MCRegionLoader {
             cheating: FolderRegionProvider::new(&format!("{}/region", path.to_string())),
         })
     }
-    pub fn save_chunk(&mut self, chunk: ChunkHandle) -> anyhow::Result<()> {
+    pub fn save_chunk(&mut self, chunk: ChunkHandle, tile_entities: Vec<CompoundTag>) -> anyhow::Result<()> {
         let coords = chunk.read().pos;
         let mut region = self
             .cheating
@@ -34,27 +34,12 @@ impl MCRegionLoader {
         region
             .write_chunk(
                 RegionChunkPosition::from_chunk_position(coords.x, coords.z),
-                Self::chunk_to_nbt(chunk.clone())?,
+                Self::chunk_to_nbt(chunk.clone(), tile_entities)?,
             )
             .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
     }
-    pub fn save_all(&mut self, world: &mut World) -> anyhow::Result<()> {
-        for chunk in world.chunk_map.iter_chunks() {
-            let coords = chunk.read().pos;
-            let mut region = self
-                .cheating
-                .get_region(RegionPosition::from_chunk_position(coords.x, coords.z))?;
-            region
-                .write_chunk(
-                    RegionChunkPosition::from_chunk_position(coords.x, coords.z),
-                    Self::chunk_to_nbt(chunk.clone())?,
-                )
-                .or(Err(anyhow::anyhow!("Bad write")))?;
-        }
-        return Ok(());
-    }
-    pub fn set_chunk(&mut self, chunk: ChunkHandle) -> anyhow::Result<()> {
+    pub fn set_chunk(&mut self, chunk: ChunkHandle, tile_entities: Vec<CompoundTag>) -> anyhow::Result<()> {
         let pos = chunk.read().pos;
         let mut region = self
             .cheating
@@ -62,14 +47,15 @@ impl MCRegionLoader {
         region
             .write_chunk(
                 RegionChunkPosition::from_chunk_position(pos.x, pos.z),
-                Self::chunk_to_nbt(chunk)?,
+                Self::chunk_to_nbt(chunk, tile_entities)?,
             )
             .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
     }
-    pub fn chunk_to_nbt(chunk: ChunkHandle) -> anyhow::Result<CompoundTag> {
+    pub fn chunk_to_nbt(chunk: ChunkHandle, tile_entities: Vec<CompoundTag>) -> anyhow::Result<CompoundTag> {
         let mut root_tag = CompoundTag::new();
         let mut level_tag = CompoundTag::new();
+        level_tag.insert_compound_tag_vec("TileEntities", tile_entities);
         let mut chunk = match chunk.try_read() {
             Some(chunk) => chunk,
             None => {
@@ -123,8 +109,9 @@ impl MCRegionLoader {
         };
         return match Region::chunk_from_tag(level_tag) {
             Ok(c) => ChunkLoadResult::Loaded(LoadedChunk {
-                chunk: c,
+                chunk: c.0,
                 pos: coords.clone(),
+                tile_entity_data: c.1,
             }),
             Err(e) => ChunkLoadResult::Error(e),
         };
@@ -141,6 +128,7 @@ use std::fs::File;
 use std::fs::OpenOptions;
 use std::hash::Hash;
 use std::io::Write;
+use std::ops::Deref;
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -211,7 +199,11 @@ pub fn temp_from_regions(regions: Vec<Region>) -> World {
     world
 } */
 impl Region {
-    pub fn chunk_from_tag(tag: &CompoundTag) -> anyhow::Result<Chunk> {
+    pub fn chunk_from_tag(tag: &CompoundTag) -> anyhow::Result<(Chunk, Vec<CompoundTag>)> {
+        let tile_entities = match tag.get_compound_tag_vec("TileEntities") {
+            Ok(t) => t.into_iter().cloned().collect(),
+            Err(_) => Vec::new(),
+        };
         let val = tag
             .get_i8_vec("Blocks")
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
@@ -282,7 +274,7 @@ impl Region {
             ],
             heightmap: [[0; 16]; 16],
         };
-        return Ok(chunk);
+        return Ok((chunk, tile_entities));
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let mut file = std::fs::File::open(file)?;

@@ -2,6 +2,8 @@ use crate::configuration::CONFIGURATION;
 //use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
 use crate::game::RefContainer;
+use crate::item::item::ItemRegistry;
+use crate::item::item::block::AtomicRegistryBlock;
 use flume::{Receiver, Sender};
 /// The width in blocks of a chunk column.
 pub const CHUNK_WIDTH: usize = 16;
@@ -32,6 +34,24 @@ impl std::default::Default for BlockState {
     }
 }
 impl BlockState {
+    pub fn is_solid(&self) -> bool {
+        if let Ok(t) = self.registry_type() {
+            t.is_solid()
+        } else {
+            false
+        }
+    }
+    pub fn new(id: u8, meta: u8) -> Self {
+        Self {
+            b_type: id,
+            b_metadata: meta,
+            b_light: 0,
+            b_skylight: 15
+        }
+    }
+    pub fn registry_type(&self) -> anyhow::Result<AtomicRegistryBlock> {
+        ItemRegistry::global().get_block((self.b_type, 0)).ok_or(anyhow::anyhow!("Block does not exist in registry"))
+    }
     pub fn from_id(id: u8) -> Self {
         Self {
             b_type: id,

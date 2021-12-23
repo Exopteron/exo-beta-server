@@ -15,18 +15,45 @@
 
 use ahash::AHashMap;
 mod place;
-use crate::{ecs::systems::{SystemExecutor, SysResult}, game::{Game, Position}, server::Server, world::chunks::SECTION_VOLUME, events::block_change::BlockChangeEvent};
+pub mod update;
+use crate::{ecs::{systems::{SystemExecutor, SysResult}, entities::player::Username}, game::{Game, Position}, server::Server, world::chunks::{SECTION_VOLUME, BlockState}, events::block_change::BlockChangeEvent, protocol::packets::Face, item::item::ItemRegistry, block_entity::{BlockEntity, BlockEntityLoader}, entities::EntityInit};
+
+use self::update::BlockUpdateManager;
 
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
     systems
         .group::<Server>()
         .add_system(broadcast_block_changes);
     place::register(game, systems);
+    update::register(game, systems);
 }
 
 fn broadcast_block_changes(game: &mut Game, server: &mut Server) -> SysResult {
+    let mut to_update = Vec::new();
     for (_, event) in game.ecs.query::<&BlockChangeEvent>().iter() {
+        if event.update_neighbors {
+            for block in event.iter_changed_blocks() {
+                to_update.push((block, event.world()));
+            }
+        }
         broadcast_block_change(event, game, server);
+    }
+    for update in to_update.iter() {
+        game.remove_block_entity_at(update.0, update.1)?;
+        if let Some(blockstate) = game.block(update.0, update.1) {
+            if let Ok(block) = blockstate.registry_type() {
+                let mut builder = game.create_entity_builder(Position::from_pos(update.0.x as f64, update.0.y as f64, update.0.z as f64), EntityInit::BlockEntity);
+                builder.add(BlockEntity(update.0, update.1));
+                if block.block_entity(&mut builder, blockstate, update.0.clone()) {
+                    log::info!("Adding block entity");
+                    game.spawn_entity(builder);
+                }
+            }
+        }
+    }
+    let mut manager = game.objects.get_mut::<BlockUpdateManager>()?;
+    for update in to_update {
+        manager.add(update);
     }
     Ok(())
 }
@@ -71,8 +98,11 @@ fn broadcast_block_change_chunk_overwrite(
 
 fn broadcast_block_change_simple(event: &BlockChangeEvent, game: &Game, server: &mut Server) {
     for pos in event.iter_changed_blocks() {
+        //log::info!("UPDATEPROP pos: {:?}", pos);
         let new_block = game.block(pos, event.world());
         if let Some(new_block) = new_block {
+            //let new_block = BlockState::from_id(7);
+            //log::info!("UPDATEPROP Setting {:?} to {:?}", pos, new_block);
             server.broadcast_nearby_with(pos.into(), |client| {
                 client.send_block_change(pos, new_block);
             });

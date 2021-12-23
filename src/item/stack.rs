@@ -1,15 +1,28 @@
 #![forbid(unsafe_code)]
 use std::convert::TryInto;
 
-use super::item::{Item, AtomicRegistryItem, ItemRegistry};
+use super::item::{Item, AtomicRegistryItem, ItemRegistry, block::AtomicRegistryBlock};
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ItemStackType {
+    Item(AtomicRegistryItem),
+    Block(AtomicRegistryBlock),
+}
+impl ItemStackType {
+    pub fn stack_size(&self) -> i8 {
+        match self {
+            ItemStackType::Item(i) => i.stack_size(),
+            ItemStackType::Block(b) => b.item_stack_size()
+        }
+    }
+}
 /// Represents an item stack.
 ///
 /// An item stack includes an item type, an amount and a bunch of properties (enchantments, etc.)
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ItemStack {
     /// The item type of this `ItemStack`.
-    item: AtomicRegistryItem,
+    item: ItemStackType,
 
     /// The number of items in the `ItemStack`.
     count: i8,
@@ -18,9 +31,15 @@ pub struct ItemStack {
 }
 
 impl ItemStack {
+    pub fn id(&self) -> i16 {
+        match &self.item {
+            ItemStackType::Item(i) => i.id(),
+            ItemStackType::Block(b) => b.id().0 as i16,
+        }
+    }
     /// Creates a new `ItemStack` with the default name (title)
     /// no lore, no damage, no repair cost and no enchantments.
-    pub fn new(item: AtomicRegistryItem, count: i8, meta: i16) -> Self {
+    pub fn new(item: ItemStackType, count: i8, meta: i16) -> Self {
         Self { item, count, meta }
     }
 
@@ -28,9 +47,19 @@ impl ItemStack {
     /// the same type as (but not necessarily the same
     /// amount as) `self`.
     pub fn has_same_type(&self, other: &Self) -> bool {
-        self.item.id() == other.item.id()
+        let our_id = match &self.item {
+            ItemStackType::Block(b) => (b.id().0 as i16, b.id().1 as i16),
+            ItemStackType::Item(i) => (i.id(), 0)
+        };
+        let their_id = match &other.item {
+            ItemStackType::Block(b) => (b.id().0 as i16, b.id().1 as i16),
+            ItemStackType::Item(i) => (i.id(), 0)
+        };
+        our_id == their_id
     }
-
+    pub fn set_damage(&mut self, damage: i16) {
+        self.meta = damage;
+    }
     /// Returns whether the given item stack has the same damage
     /// as `self`.
     pub fn has_same_damage(&self, other: &Self) -> bool {
@@ -48,17 +77,17 @@ impl ItemStack {
     /// type and count as (but not necessarily the same meta
     /// as) `self`.
     pub fn has_same_type_and_count(&self, other: &Self) -> bool {
-        self.item.id() == other.item.id() && self.count == other.count
+        self.has_same_type(other) && self.count == other.count
     }
 
     /// Returns whether the given `ItemStack` has
     /// the same type and damage as `self`.
     pub fn has_same_type_and_damage(&self, other: &Self) -> bool {
-        self.item.id() == other.item.id() && self.has_same_damage(other)
+        self.has_same_type(other) && self.has_same_damage(other)
     }
 
     /// Returns the item type for this `ItemStack`.
-    pub fn item(&self) -> AtomicRegistryItem {
+    pub fn item(&self) -> ItemStackType {
         self.item.clone()
     }
 
@@ -95,7 +124,7 @@ impl ItemStack {
     /// Sets the item type for this `ItemStack`. Returns the new
     /// item type or fails if the current item count exceeds the
     /// new item type stack size.
-    pub fn set_item(&mut self, item: AtomicRegistryItem) -> Result<AtomicRegistryItem, ItemStackError> {
+    pub fn set_item(&mut self, item: ItemStackType) -> Result<ItemStackType, ItemStackError> {
         if self.count > item.stack_size() {
             return Err(ItemStackError::ExceedsStackSize);
         }
@@ -114,7 +143,7 @@ impl ItemStack {
     /// Sets the item type for this `ItemStack`. Does not check if
     /// the new item type stack size will be lower than the current
     /// item count. Returns the new item type.
-    pub fn unchecked_set_item(&mut self, item: AtomicRegistryItem) -> AtomicRegistryItem {
+    pub fn unchecked_set_item(&mut self, item: ItemStackType) -> ItemStackType {
         self.item = item;
         self.item.clone()
     }
@@ -227,8 +256,14 @@ impl ItemStack {
     /// Damages the item by the specified amount.
     /// If this function returns `true`, then the item is broken.
     pub fn damage(&mut self, amount: i16) -> bool {
+        let self_durability = match &self.item {
+            ItemStackType::Item(i) => i.durability(),
+            ItemStackType::Block(_) => {
+                return false;
+            }
+        };
         self.meta += amount;
-        if let Some(durability) = self.item.durability() {
+        if let Some(durability) = self_durability {
             // This unwrap would only fail if our generated file contains an erroneous
             // default damage value.
             self.meta >= durability.try_into().unwrap()
@@ -280,7 +315,7 @@ pub struct ItemStackBuilder {
 
 impl Default for ItemStackBuilder {
     fn default() -> Self {
-        let item = ItemRegistry::global().get_item((1, 0)).unwrap();
+        let item = ItemRegistry::global().get_item(1).unwrap();
         Self {
             item: item,
             count: 1,
@@ -292,7 +327,7 @@ impl Default for ItemStackBuilder {
 // Todo: implement all fields.
 impl ItemStackBuilder {
     pub fn new() -> Self {
-        let item = ItemRegistry::global().get_item((1, 0)).unwrap();
+        let item = ItemRegistry::global().get_item(1).unwrap();
         Self {
             item: item,
             count: 1.try_into().unwrap(),
@@ -342,7 +377,7 @@ impl ItemStackBuilder {
 impl From<ItemStackBuilder> for ItemStack {
     fn from(it: ItemStackBuilder) -> Self {
         Self {
-            item: it.item,
+            item: ItemStackType::Item(it.item),
             count: it.count,
             meta: it.meta,
         }

@@ -11,9 +11,9 @@ use hecs::Entity;
 
 use crate::{
     ecs::systems::{SysResult, SystemExecutor},
-    events::{EntityRemoveEvent, ViewUpdateEvent},
-    game::{ChunkCoords, Game},
-    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest},
+    events::{EntityRemoveEvent, ViewUpdateEvent, DeferredSpawnEvent},
+    game::{ChunkCoords, Game, BlockPosition, Position},
+    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest}, block_entity::{BlockEntityNBTLoaders, BlockEntity, BlockEntityLoader, SignData}, entities::EntityInit, server::Server,
 };
 
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
@@ -158,7 +158,7 @@ fn unload_chunks(game: &mut Game, state: &mut ChunkLoadState) -> SysResult {
                 continue;
             }
 
-            world.unload_chunk(&unload.pos)?;
+            world.unload_chunk(&mut game.ecs, &unload.pos)?;
         }
         world.cache.purge_unused();
     }
@@ -177,8 +177,33 @@ fn remove_dead_entities(game: &mut Game, state: &mut ChunkLoadState) -> SysResul
 
 /// System to call `World::load_chunks` each tick
 fn load_chunks(game: &mut Game, chunk_load_state: &mut ChunkLoadState) -> SysResult {
+    let be_nbt = game.objects.get::<BlockEntityNBTLoaders>()?.clone();
+    let mut te_data = Vec::new();
     for (_, world) in game.worlds.iter_mut() {
-        world.load_chunks(&mut game.ecs)?;
+        te_data.append(&mut world.load_chunks(&mut game.ecs)?);
+    }
+    for tag in te_data {
+        let id = tag.get_str("id").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+        let x = tag.get_i32("x").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+        let y = tag.get_i32("y").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+        let z = tag.get_i32("z").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+        let pos = BlockPosition::new(x, y, z);
+        game.remove_block_entity_at(pos, 0)?;
+        let pospos = Position::from_pos(x as f64, y as f64, z as f64);
+        let mut builder = game.create_entity_builder(pospos, EntityInit::BlockEntity);
+        // TODO do multiworld
+        builder.add(BlockEntity(pos, 0));
+        if be_nbt.run(id.clone(), &tag, pos, &mut builder) {
+            game.ecs.insert_event(DeferredSpawnEvent(builder));
+/*             let entity_ref = game.ecs.entity(e)?;
+            let server = game.objects.get::<Server>()?;
+            if let Ok(loader) = entity_ref.get::<BlockEntityLoader>() {
+                log::info!("Syncing {:?}", *entity_ref.get::<SignData>()?);
+                server.sync_block_entity(pospos, (*loader).clone(), &entity_ref);
+            } */
+        } else {
+            log::info!("No parser for type {}", id);
+        }
     }
     Ok(())
 }

@@ -1,6 +1,6 @@
 //! Traits for reading/writing Minecraft-encoded values.
 
-use crate::{entities::metadata::{MetaEntry, EntityMetadata}, network::metadata::Metadata, item::{inventory_slot::InventorySlot, stack::ItemStack, item::{Item, ItemRegistry}}, world::chunks::BlockState, game::BlockPosition};
+use crate::{entities::metadata::{MetaEntry, EntityMetadata}, network::metadata::Metadata, item::{inventory_slot::InventorySlot, stack::{ItemStack, ItemStackType}, item::{Item, ItemRegistry}}, world::chunks::BlockState, game::BlockPosition};
 
 use super::ProtocolVersion;
 use anyhow::{anyhow, bail, Context};
@@ -148,6 +148,41 @@ where
         Ok(())
     }
 }
+#[derive(Debug, Clone)]
+pub struct RotationFraction360(pub f32);
+impl From<f32> for RotationFraction360 {
+    fn from(input: f32) -> Self {
+        Self(input)
+    }
+}
+impl Writeable for RotationFraction360 {
+    fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
+        let num = ff((self.0 * 256.0) / 360.);
+        if (num as i8) < 0 {
+            //log::info!("Num {} Casted {} Modulo {}", num, num as i8, num % i8::MAX as i32);
+        }
+        //num = num.min(0);
+        (num as u8).write(buffer, version)?;
+        Ok(())
+    }
+}
+fn ff(input: f32) -> i32 {
+    let v = input as i32;
+    if input < v as f32 {
+        return v - 1;
+    } else {
+        return v;
+    }
+}
+impl Readable for RotationFraction360 {
+    fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
+    where
+        Self: Sized {
+        let num = i8::read(buffer, version)? as i32;
+        let float = ((num * 360) as f32) / 256.;
+        Ok(Self(float)) 
+    }
+}
 impl Writeable for BlockPosition {
     fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
         self.x.write(buffer, version)?;
@@ -186,17 +221,23 @@ impl Readable for BlockState {
 }
 impl Writeable for Slot {
     fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
-        let id: (i16, i16) = match self.item_kind() {
-            None => (-1, -1),
+        match self.item_kind() {
+            None => (-1i16).write(buffer, version)?,
             Some(v) => {
-                v.id()
+                match v {
+                    ItemStackType::Item(i) => {
+                        (i.id() as i16).write(buffer, version)?;
+                        self.count().write(buffer, version)?;
+                        self.damage().write(buffer, version)?;
+                    }
+                    ItemStackType::Block(b) => {
+                        (b.id().0 as i16).write(buffer, version)?;
+                        self.count().write(buffer, version)?;
+                        (b.id().1 as i16).write(buffer, version)?;
+                    }
+                }
             }
         };
-        id.0.write(buffer, version)?;
-        if id.0 != -1 {
-            self.count().write(buffer, version)?;
-            self.meta().write(buffer, version)?;
-        }
         Ok(())
     }
 }
@@ -205,10 +246,14 @@ impl Readable for Slot {
     where
         Self: Sized {
         let id = i16::read(buffer, version)?;
-        if id != -1 {
+        if id >= 0 {
             let count = i8::read(buffer, version)?;
             let meta = i16::read(buffer, version)?;
-            return Ok(Slot::Filled(ItemStack::new(ItemRegistry::global().get_item((id, meta)).ok_or(anyhow::anyhow!("No such item"))?, count, meta)));
+            if id > 255 {
+                return Ok(Slot::Filled(ItemStack::new(ItemStackType::Item(ItemRegistry::global().get_item(id).ok_or(anyhow::anyhow!("No such item"))?), count, meta)));
+            } else {
+                return Ok(Slot::Filled(ItemStack::new(ItemStackType::Block(ItemRegistry::global().get_block((id as u8, meta as u8)).ok_or(anyhow::anyhow!("No such block"))?), count, meta)));
+            }
         } else {
             return Ok(Slot::Empty);
         }

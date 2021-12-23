@@ -1,3 +1,7 @@
+use crate::block_entity;
+use crate::block_entity::BlockEntity;
+use crate::block_entity::BlockEntityLoader;
+use crate::block_entity::SignData;
 use crate::configuration::CONFIGURATION;
 use crate::ecs::entities::living::Health;
 use crate::ecs::entities::living::Hunger;
@@ -20,7 +24,9 @@ use crate::game::ChunkCoords;
 use crate::game::Game;
 use crate::game::Position;
 use crate::item::inventory_slot::InventorySlot;
+use crate::item::stack::ItemStackType;
 use crate::item::window::Window;
+use crate::network::ids::IDS;
 use crate::network::ids::NetworkID;
 use crate::network::metadata::Metadata;
 use crate::network::Listener;
@@ -51,6 +57,7 @@ use crate::protocol::packets::server::SoundEffect;
 use crate::protocol::packets::server::TimeUpdate;
 use crate::protocol::packets::server::Transaction;
 use crate::protocol::packets::server::UpdateHealth;
+use crate::protocol::packets::server::UpdateSign;
 use crate::protocol::packets::server::WindowItems;
 use crate::protocol::packets::EntityAnimationType;
 use crate::protocol::packets::EntityStatusKind;
@@ -104,10 +111,20 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
-    pub fn notify_time(&self, time: i64) {
-        self.send_packet(TimeUpdate {
-            time,
+    pub fn update_sign(&self, position: BlockPosition, data: SignData) {
+        log::info!("Updating sign at {:?} with {:?}", position, data);
+        self.send_packet(UpdateSign {
+            x: position.x,
+            y: position.y as i16,
+            z: position.z,
+            text1: data.0[0].clone().into(),
+            text2: data.0[1].clone().into(),
+            text3: data.0[2].clone().into(),
+            text4: data.0[3].clone().into(),
         });
+    }
+    pub fn notify_time(&self, time: i64) {
+        self.send_packet(TimeUpdate { time });
     }
     pub fn notify_respawn(&self, us: &EntityRef) -> SysResult {
         let current_world = us.get::<CurrentWorldInfo>()?.world_id as i8;
@@ -166,16 +183,34 @@ impl Client {
         Ok(())
     }
     fn entity_equipment(&self, id: NetworkID, slot: i16, item: &InventorySlot) {
-        let kind = match item.item_kind() {
-            Some(i) => i.id(),
-            None => (-1, 0),
+        match item.item_kind() {
+            Some(i) => match i {
+                ItemStackType::Item(i) => {
+                    self.send_packet(EntityEquipment {
+                        eid: id.0,
+                        slot,
+                        item_id: i.id(),
+                        damage: item.damage(),
+                    });
+                },
+                ItemStackType::Block(i) => {
+                    self.send_packet(EntityEquipment {
+                        eid: id.0,
+                        slot,
+                        item_id: i.id().0 as i16,
+                        damage: i.id().1 as i16,
+                    });
+                },
+            },
+            None => {
+                self.send_packet(EntityEquipment {
+                    eid: id.0,
+                    slot,
+                    item_id: -1,
+                    damage: 0,
+                });
+            }
         };
-        self.send_packet(EntityEquipment {
-            eid: id.0,
-            slot,
-            item_id: kind.0,
-            damage: kind.1,
-        });
     }
     pub fn set_cursor_slot(&self, item: &InventorySlot) {
         log::trace!("Setting cursor slot of {} to {:?}", self.username, item);
@@ -245,8 +280,8 @@ impl Client {
             x: position.x.into(),
             y: position.y.into(),
             z: position.z.into(),
-            yaw: position.yaw as i8,
-            pitch: position.pitch as i8,
+            yaw: position.yaw.into(),
+            pitch: position.pitch.into(),
         });
     }
     pub fn update_entity_position(
@@ -269,19 +304,24 @@ impl Client {
         let no_change_pitch = (position.pitch - prev_position.0.pitch).abs() < 0.001;
 
         // If the entity jumps or falls we should send a teleport packet instead to keep relative movement in sync.
-        if position.on_ground != prev_position.0.on_ground && true {
+        //if position.on_ground != prev_position.0.on_ground && true {
             //log::info!("Sending teleport packet to {}", self.username());
             self.send_packet(EntityTeleport {
                 eid: network_id.0,
                 x: position.x.into(),
                 y: position.y.into(),
                 z: position.z.into(),
-                yaw: position.yaw as i8,
-                pitch: position.pitch as i8,
+                yaw: position.yaw.into(),
+                pitch: position.pitch.into(),
             });
-
+            // Needed for head orientation
+            self.send_packet(EntityLook {
+                eid: network_id.0,
+                yaw: position.yaw.into(),
+                pitch: position.pitch.into(),
+            });
             return;
-        }
+        //}
 
         if no_change_yaw && no_change_pitch {
             self.send_packet(EntityRelativeMove {
@@ -296,16 +336,10 @@ impl Client {
                 delta_x: (position.x * 32.0 - prev_position.0.x * 32.0) as i8,
                 delta_y: (position.y * 32.0 - prev_position.0.y * 32.0) as i8,
                 delta_z: (position.z * 32.0 - prev_position.0.z * 32.0) as i8,
-                yaw: position.yaw as i8,
-                pitch: position.pitch as i8,
+                yaw: position.yaw.into(),
+                pitch: position.pitch.into(),
             });
         }
-        // Needed for head orientation
-        self.send_packet(EntityLook {
-            eid: network_id.0,
-            yaw: position.yaw as i8,
-            pitch: position.pitch as i8,
-        });
     }
 
     pub fn unload_entity(&self, id: NetworkID) {
@@ -470,6 +504,14 @@ pub struct Server {
     pub player_count: PlayerCount,
 }
 impl Server {
+    pub fn sync_block_entity(&self, position: Position, block_entity_loader: BlockEntityLoader, entity: &EntityRef) {
+        self.broadcast_nearby_with(position, |cl| {
+            log::info!("Loading BE to {}", cl.username);
+            if let Err(e) = block_entity_loader.load(cl, entity) {
+                log::error!("Error syncing block entity: {:?}", e);
+            }
+        });
+    }
     pub fn broadcast_entity_status(
         &self,
         position: Position,
@@ -478,6 +520,13 @@ impl Server {
     ) {
         self.broadcast_nearby_with(position, |cl| {
             cl.send_entity_status(id, effect.clone());
+        });
+    }
+    pub fn broadcast_effect_from_entity(&self, id: NetworkID, effect: SoundEffectKind, position: BlockPosition, data: i32) {
+        self.broadcast_nearby_with(position.into(), |c| {
+            if c.id != id {
+                c.send_effect(position, SoundEffectKind::DoorToggle, 0);
+            }
         });
     }
     pub fn broadcast_effect(&self, effect: SoundEffectKind, position: BlockPosition, data: i32) {
@@ -572,6 +621,7 @@ impl Server {
     }
     /// Removes a client.
     pub fn remove_client(&mut self, id: NetworkID) {
+        IDS.lock().unwrap().push(id.0);
         let client = self.clients.remove(&id);
         if let Some(client) = client {
             log::debug!("Removed client for {}", client.username());

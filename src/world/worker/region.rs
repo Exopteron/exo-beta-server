@@ -5,7 +5,7 @@ use ahash::AHashMap;
 use anvil_region::{provider::FolderRegionProvider, position::RegionPosition};
 use flume::{Receiver, Sender};
 
-use crate::game::ChunkCoords;
+use crate::game::{ChunkCoords, Game};
 
 use crate::world::{chunks::Chunk, chunk_lock::ChunkHandle, mcregion::MCRegionLoader};
 
@@ -63,10 +63,28 @@ impl RegionWorker {
             }
         }
     }
-
+    pub fn load_tile_entities(&mut self, game: &mut Game) -> anyhow::Result<()> {
+        /*    for tag in te_data {
+        let id = tag.get_str("id").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+        let x = tag.get_i32("x").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+        let y = tag.get_i32("y").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+        let z = tag.get_i32("z").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+        let pos = BlockPosition::new(x, y, z);
+        game.remove_block_entity_at(pos, 0)?;
+        let mut builder = game.create_entity_builder(Position::from_pos(x as f64, y as f64, z as f64), EntityInit::BlockEntity);
+        // TODO do multiworld
+        builder.add(BlockEntity(pos, 0));
+        if be_nbt.run(id.clone(), &tag, pos, &mut builder) {
+            game.spawn_entity(builder);
+        } else {
+            log::info!("No parser for type {}", id);
+        }
+    } */
+        Ok(())
+    }
     fn save_chunk(&mut self, req: SaveRequest) -> anyhow::Result<()> {
         let reg_pos = RegionPosition::from_chunk_position(req.pos.x, req.pos.z);
-        self.region_provider.save_chunk(req.chunk)?;
+        self.region_provider.save_chunk(req.chunk, req.block_entities)?;
         Ok(())
     }
 

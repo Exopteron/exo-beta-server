@@ -46,4 +46,5 @@ packet_enum!(ClientPlayPacket {
     0x66 = WindowClick,
     0x6A = Transaction,
     0x09 = Respawn,
+    0x82 = UpdateSign,
 });

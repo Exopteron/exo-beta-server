@@ -3,7 +3,7 @@ use core::mem;
 use serde::{Deserialize, Serialize};
 use std::panic;
 
-use super::item::AtomicRegistryItem;
+use super::{item::AtomicRegistryItem, stack::ItemStackType};
 
 /// Represents an Inventory slot. May be empty
 /// or filled (contains an `ItemStack`).
@@ -29,7 +29,7 @@ impl From<Option<ItemStack>> for InventorySlot {
 }
 
 impl InventorySlot {
-    pub fn new(kind: AtomicRegistryItem, count: i8, meta: i16) -> Self {
+    pub fn new(kind: ItemStackType, count: i8, meta: i16) -> Self {
         if count == 0 {
             Self::Empty
         } else {
@@ -109,7 +109,7 @@ impl InventorySlot {
     }
 
     /// Returns the meta
-    pub fn meta(&self) -> i16 {
+    pub fn damage(&self) -> i16 {
         match self {
             InventorySlot::Filled(stack) => stack.damage_taken(),
             InventorySlot::Empty => 0,
@@ -192,7 +192,7 @@ impl InventorySlot {
 
     /// Returns the item kind of the inventory slot if it is filled,
     /// otherwise it returns None.
-    pub fn item_kind(&self) -> Option<AtomicRegistryItem> {
+    pub fn item_kind(&self) -> Option<ItemStackType> {
         match self {
             InventorySlot::Filled(x) => Some(x.item()),
             InventorySlot::Empty => None,

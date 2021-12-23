@@ -2,6 +2,7 @@ use std::{path::PathBuf, sync::{atomic::AtomicBool, Arc}};
 
 use anyhow::bail;
 use flume::{Sender, Receiver};
+use nbt::CompoundTag;
 
 use crate::game::ChunkCoords;
 
@@ -18,6 +19,7 @@ pub struct LoadRequest {
 pub struct LoadedChunk {
     pub pos: ChunkCoords,
     pub chunk: Chunk,
+    pub tile_entity_data: Vec<CompoundTag>,
 }
 
 #[derive(Debug)]
@@ -35,6 +37,7 @@ pub enum ChunkLoadResult {
 pub struct SaveRequest {
     pub pos: ChunkCoords,
     pub chunk: ChunkHandle,
+    pub block_entities: Vec<CompoundTag>, 
 /*     pub entities: Vec<EntityData>,
     pub block_entities: Vec<BlockEntityData>, 
     TODO: entities later */
@@ -100,7 +103,7 @@ impl ChunkWorker {
                         rayon::spawn(move || {
                             // spawn task to generate chunk
                             let chunk = gen.generate_chunk(pos);
-                            send_gen.send(LoadedChunk { pos, chunk }).unwrap()
+                            send_gen.send(LoadedChunk { pos, chunk, tile_entity_data: Vec::new() }).unwrap()
                         });
                         self.try_recv_gen() // check for generated chunks
                     }

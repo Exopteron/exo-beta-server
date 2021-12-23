@@ -52,4 +52,5 @@ packet_enum!(ServerPlayPacket {
     0x09 = Respawn,
     0x26 = EntityStatus,
     0x04 = TimeUpdate,
+    0x82 = UpdateSign,
 });

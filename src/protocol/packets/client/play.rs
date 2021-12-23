@@ -87,6 +87,15 @@ packets! {
         world_height i16;
         map_seed i64;
     }
+    UpdateSign {
+        x i32;
+        y i16;
+        z i32;
+        text1 String16;
+        text2 String16;
+        text3 String16;
+        text4 String16;
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -108,6 +117,7 @@ impl Readable for PlayerBlockPlacement {
 
 impl Writeable for PlayerBlockPlacement {
     fn write(&self, buffer: &mut Vec<u8>, version: crate::protocol::ProtocolVersion) -> anyhow::Result<()> {
+        todo!();
         Ok(())
     }
 }

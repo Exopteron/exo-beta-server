@@ -2,15 +2,16 @@ use std::ops::Deref;
 
 use crate::{
     ecs::{
-        entities::{player::{Player, Username, Chatbox, Gamemode, PreviousGamemode}, living::{PreviousHealth, Hunger, Health, Dead}},
+        entities::{player::{Player, Username, Chatbox, Gamemode, PreviousGamemode, OffgroundHeight, CurrentWorldInfo}, living::{PreviousHealth, Hunger, Health, Dead, PreviousHunger, Regenerator}},
         systems::{SystemExecutor, SysResult},
     },
-    game::{Game, Position},
+    game::{Game, Position, DamageType},
     network::ids::NetworkID,
-    server::Server, protocol::{packets::{server::ChatMessage, EntityStatusKind}, io::String16}, events::{EntityDeathEvent, PlayerSpawnEvent}, item::window::Window, entities::SpawnPacketSender, translation::TranslationManager,
+    server::Server, protocol::{packets::{server::ChatMessage, EntityStatusKind}, io::String16}, events::{EntityDeathEvent, PlayerSpawnEvent}, item::{window::Window, item::ItemRegistry}, entities::SpawnPacketSender, translation::TranslationManager, aabb::AABBSize,
 };
 
 pub fn init_systems(s: &mut SystemExecutor<Game>) {
+    s.add_system(check_fall_damage).add_system(regenerate);
     s.group::<Server>().add_system(|game, server| {
         let mut to_despawn = Vec::new();
         for (p, (_, id, name)) in game.ecs.query::<(&Player, &NetworkID, &Username)>().iter() {
@@ -68,17 +69,35 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
     }
     Ok(())
 }
+fn regenerate(game: &mut Game) -> SysResult {
+    for (e, (health, hunger, regenerator)) in game.ecs.query::<(&mut Health, &mut Hunger, &mut Regenerator)>().iter() {
+        if !game.ecs.get::<Dead>(e).is_ok() {
+            if regenerator.0 == 0 {
+                if health.0 < 20 {
+                    if hunger.get_points(1) {
+                        health.0 += 2;
+                    }
+                }
+                regenerator.0 = 80;
+            } else {
+                regenerator.0 -= 1;
+            }
+        }
+    }
+    Ok(())
+}
 fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
     let mut make_dead = Vec::new();
     let mut hurt = Vec::new();
-    for (entity, (health, prev_health, hunger, id)) in game.ecs.query::<(&Health, &mut PreviousHealth, &Hunger, &NetworkID)>().iter() {
-        if health.0 != prev_health.0.0 {
+    for (entity, (health, prev_health, hunger, prev_hunger, id)) in game.ecs.query::<(&Health, &mut PreviousHealth, &Hunger, &mut PreviousHunger, &NetworkID)>().iter() {
+        if health.0 != prev_health.0.0 || hunger.0 != prev_hunger.0.0 {
             let client = server.clients.get(id).unwrap();
             client.set_health(health, hunger);
             if health.0 < prev_health.0.0 {
                 hurt.push(entity);
             }
             prev_health.0 = health.clone();
+            prev_hunger.0 = hunger.clone();
             if health.0 <= 0 {
                 make_dead.push(entity);
             }
@@ -94,9 +113,47 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         game.ecs.insert_entity_event(dead, EntityDeathEvent)?;
         game.ecs.insert(dead, Dead)?;
         let entity_ref = game.ecs.entity(dead)?;
+        let health = entity_ref.get::<Health>()?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
+        if let Ok(name) = entity_ref.get::<Username>() {
+            game.broadcast_chat(format!("{} {}", name.0, health.1.string()));
+        }
         server.broadcast_entity_status(*pos, *id, EntityStatusKind::EntityDead);
+    }
+    Ok(())
+}
+
+fn check_fall_damage(game: &mut Game) -> SysResult {
+    //log::info!("Running");
+    for (entity, (health, fall_start, pos, world, bounding_box)) in game.ecs.query::<(&mut Health, &OffgroundHeight, &Position, &CurrentWorldInfo, &AABBSize)>().iter() {
+        //log::info!("Found entity");
+        if pos.on_ground {
+            //log::info!("On ground");
+            if fall_start.1 as f64 > pos.y {
+                let height = fall_start.1 as f64 - pos.y;
+                //log::info!("Height: {}", height);
+                let mut do_dmg = true;
+                if let Ok(mode) = game.ecs.get::<Gamemode>(entity) {
+                    if *mode == Gamemode::Creative {
+                        do_dmg = false;
+                    }
+                }
+                if let Some(world) = game.worlds.get(&world.world_id) {
+                    // TODO check if absorbs fall
+                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block((9, 0)).unwrap()) {
+                        do_dmg = false;
+                    }
+                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block((8, 0)).unwrap()) {
+                        do_dmg = false;
+                    }
+                }
+                if height > 0.0 && do_dmg {
+                    let fall_damage = (height - 3.0).max(0.0);
+                    health.damage(fall_damage.round() as i16, DamageType::Fall);
+                }
+            }
+        }
     }
     Ok(())
 }

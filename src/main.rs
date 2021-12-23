@@ -14,6 +14,8 @@ pub mod protocol;
 pub mod server;
 pub mod world;
 pub mod translation;
+pub mod aabb;
+pub mod block_entity;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -51,6 +53,7 @@ async fn main() -> anyhow::Result<()> {
     default::register_items(&mut item_registry);
     item_registry.set();
     let mut game = game::Game::new();
+    game.insert_object(Scheduler::new());
     ecs::systems::default_systems(&mut game, &mut systems);
     let server = server::Server::bind().await?;
     server.register(&mut game);
@@ -58,7 +61,8 @@ async fn main() -> anyhow::Result<()> {
     let systems_list: Vec<&str> = systems.system_names().collect();
     log::info!("---SYSTEMS---\n{:#?}\n", systems_list);
     game.systems = Arc::new(RefCell::new(systems));
-    let obj = game.objects.clone();
+    game.insert_object(BlockUpdateManager::new());
+    game.insert_object(BlockEntityNBTLoaders::default());
     log::info!(
         "Done! ({}ms) For command help, run \"help\".",
         start.elapsed().as_millis()
@@ -93,8 +97,10 @@ use std::sync::atomic::Ordering;
 use std::time::Instant;
 use sysinfo::ProcessorExt;
 
+use crate::block_entity::BlockEntityNBTLoaders;
 use crate::ecs::systems::SystemExecutor;
-use crate::game::Game;
+use crate::ecs::systems::world::block::update::BlockUpdateManager;
+use crate::game::{Game, Scheduler};
 use crate::item::default;
 use crate::item::item::ItemRegistry;
 use crate::server::Server;
@@ -111,6 +117,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
     let mut tick_counter = 0;
     let mut last_tps_check = Instant::now();
     TickLoop::new(move || {
+        game.ticks += 1;
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
             let translation = game.objects.get::<TranslationManager>().unwrap();
@@ -127,7 +134,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
                 log::info!("Unloading DIM-{} ({} chunks)", id, positions.len());
                 for pos in positions {
                     //log::info!("Unloading chunk {} in {}", pos, id);
-                    if let Err(e) = world.unload_chunk(&pos) {
+                    if let Err(e) = world.unload_chunk(&mut game.ecs, &pos) {
                         log::error!("Error saving chunk {}: {:?}", pos, e);
                     }
                 }
@@ -142,7 +149,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
         }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
             if last_tps_check + Duration::from_secs(5) < Instant::now() {
-                //game.tps = tick_counter as f64 / 5.;
+                game.tps = tick_counter as f64 / 5.;
                 tick_counter = 0;
                 last_tps_check = std::time::Instant::now();
             }

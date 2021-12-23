@@ -37,6 +37,14 @@ impl<'a> EntityRef<'a> {
 }
 
 impl Ecs {
+    /// Counts how many entities have this component.
+    pub fn count<T: Component>(&self) -> usize {
+        let mut count = 0;
+        for (_, _) in self.query::<&T>().iter() {
+            count += 1;
+        }
+        count
+    }
     pub fn new() -> Self {
         Self {
             world: World::new(),
@@ -73,6 +81,11 @@ impl Ecs {
         // hecs allows taking out components of a despawned entity
         self.event_tracker.insert_event(entity);
     }
+    /// Removes a component from an entity and returns it.
+    pub fn remove<T: Component>(&mut self, entity: Entity) -> Result<T, ComponentError> {
+        self.world.remove_one(entity)
+    }
+
     /// Adds an event component to an entity and schedules
     /// it to be removed immeditately before the current system
     /// runs again. Thus, all systems have exactly one chance

@@ -2,7 +2,7 @@ use anyhow::bail;
 use crate::item::inventory::reference::BackingWindow as BackingWindow;
 use crate::item::inventory_slot::InventorySlot;
 use crate::item::item::{Item, ItemRegistry};
-use crate::item::stack::ItemStack;
+use crate::item::stack::{ItemStack, ItemStackType};
 use crate::network::ids::NetworkID;
 use crate::protocol::packets::client::WindowClick;
 use crate::{ecs::{entities::player::Gamemode, EntityRef, systems::SysResult}, protocol::packets::client::CreativeInventoryAction, server::Server, item::window::Window};
@@ -12,13 +12,26 @@ pub fn handle_creative_inventory_action(
     packet: CreativeInventoryAction,
     server: &mut Server,
 ) -> SysResult {
-    let clicked_item;
-    match ItemRegistry::global().get_item((packet.item_id, packet.meta)) {
-        Some(i) => {
-            clicked_item = InventorySlot::Filled(ItemStack::new(i, packet.quantity as i8, packet.meta));
+    let mut clicked_item;
+    if packet.item_id > 255 {
+        match ItemRegistry::global().get_item(packet.item_id) {
+            Some(i) => {
+                clicked_item = InventorySlot::Filled(ItemStack::new(ItemStackType::Item(i), packet.quantity as i8, packet.meta));
+            }
+            None => {
+                log::info!("Unknown item {}", packet.item_id);
+                clicked_item = InventorySlot::Empty;
+            }
         }
-        None => {
-            clicked_item = InventorySlot::Empty;
+    } else {
+        match ItemRegistry::global().get_block((packet.item_id as u8, packet.meta as u8)) {
+            Some(i) => {
+                clicked_item = InventorySlot::Filled(ItemStack::new(ItemStackType::Block(i), packet.quantity as i8, packet.meta));
+            }
+            None => {
+                log::info!("Unknown block {}:{}", packet.item_id, packet.meta);
+                clicked_item = InventorySlot::Empty;
+            }
         }
     }
     if *player.get::<Gamemode>()? != Gamemode::Creative {
@@ -50,6 +63,7 @@ pub fn handle_click_window(
     packet: WindowClick,
 ) -> SysResult {
     if packet.slot == -999 {
+        // drop
         return Ok(());
     }
     let result = _handle_click_window(&player, &packet);

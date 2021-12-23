@@ -10,10 +10,10 @@ use crate::{
     entities::{EntityInit, PreviousPosition},
     game::{ChunkCoords, Game, Position, DamageType},
     network::ids::NetworkID,
-    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::CONFIGURATION,
+    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::CONFIGURATION, aabb::AABBSize,
 };
 
-use super::living::{Health, Hunger, PreviousHealth};
+use super::living::{Health, Hunger, PreviousHealth, PreviousHunger, Regenerator};
 
 pub struct Player;
 #[derive(Clone)]
@@ -180,6 +180,9 @@ impl PreviousGamemode {
         }
     }
 }
+
+#[derive(Clone, Debug)]
+pub struct OffgroundHeight(pub f32, pub f32);
 pub struct PlayerBuilder {}
 impl PlayerBuilder {
     pub fn create(
@@ -210,6 +213,10 @@ impl PlayerBuilder {
         builder.add(Health(20, DamageType::None));
         builder.add(PreviousHealth(Health(20, DamageType::None)));
         builder.add(Hunger(20, 0.0));
+        builder.add(PreviousHunger(Hunger(20, 0.0)));
+        builder.add(OffgroundHeight(0., 0.));
+        builder.add(Regenerator(0));
+        builder.add(AABBSize::new(-0.3, 0.05, -0.3, 0.3, 1.6, 0.3));
         builder.add(View::new(position.to_chunk_coords(), CONFIGURATION.chunk_distance));
         builder
     }

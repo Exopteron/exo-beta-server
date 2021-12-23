@@ -233,6 +233,34 @@ def_enum! {
         5 = PositiveX,
     }
 }
+impl Face {
+    pub fn reverse(self) -> Self {
+        match self {
+            Self::NegativeY => Self::PositiveY,
+            Self::PositiveY => Self::NegativeY,
+            Self::PositiveX => Self::NegativeX,
+            Self::NegativeX => Self::PositiveX,
+            Self::PositiveZ => Self::NegativeZ,
+            Self::NegativeZ => Self::PositiveZ,
+            Face::Invalid => Self::Invalid,
+        }
+    }
+    pub fn all_faces() -> impl Iterator<Item = Face> {
+        vec![Face::NegativeY, Face::PositiveY, Face::NegativeZ, Face::PositiveZ, Face::NegativeX, Face::PositiveX].into_iter()
+    }
+    pub fn offset(&self, mut pos: BlockPosition) -> BlockPosition {
+        match self {
+            Face::Invalid => (),
+            Face::NegativeY => pos.y -= 1,
+            Face::PositiveY => pos.y += 1,
+            Face::NegativeZ => pos.z -= 1,
+            Face::PositiveZ => pos.z += 1,
+            Face::NegativeX => pos.x -= 1,
+            Face::PositiveX => pos.x += 1,
+        };
+        pos
+    }
+}
 def_enum! {
     EntityAnimationType (i8) {
         0 = NoAnimation,
@@ -347,7 +375,7 @@ pub trait VariantOf<Enum> {
 
 use std::ops::Deref;
 
-use crate::protocol::io::{LengthInferredVecU8, ShortPrefixedVec};
+use crate::{protocol::io::{LengthInferredVecU8, ShortPrefixedVec}, game::BlockPosition};
 
 use super::Writeable;
 

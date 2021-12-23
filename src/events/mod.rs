@@ -1,3 +1,5 @@
+use hecs::EntityBuilder;
+
 use crate::{world::{view::View, chunk_lock::ChunkHandle}, game::ChunkCoords};
 
 // from feather license in FEATHER_LICENSE.md
@@ -100,3 +102,6 @@ impl SprintEvent {
         }
     }
 }
+
+
+pub struct DeferredSpawnEvent(pub EntityBuilder);

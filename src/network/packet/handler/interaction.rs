@@ -4,19 +4,26 @@ use hecs::Entity;
 
 use crate::{
     ecs::{
-        entities::player::{CurrentWorldInfo, HotbarSlot, SLOT_HOTBAR_OFFSET, Gamemode},
+        entities::player::{CurrentWorldInfo, Gamemode, HotbarSlot, SLOT_HOTBAR_OFFSET},
         systems::SysResult,
         EntityRef,
     },
     events::block_interact::BlockPlacementEvent,
     game::{BlockPosition, Game, Position},
-    item::{inventory::Inventory, inventory_slot::InventorySlot, window::Window},
+    item::{
+        inventory::Inventory,
+        inventory_slot::InventorySlot,
+        item::{block::ActionResult, BlockUseTarget, ItemRegistry},
+        stack::ItemStackType,
+        window::Window,
+    },
     network::ids::NetworkID,
     protocol::packets::{
-        client::{HoldingChange, PlayerBlockPlacement, PlayerDigging},
+        client::{HoldingChange, PlayerBlockPlacement, PlayerDigging, UpdateSign},
         DiggingStatus, Face, SoundEffectKind,
     },
     server::Server,
+    world::chunks::BlockState, aabb::{AABBPool, AABBSize}, block_entity::{SignData, BlockEntity, BlockEntityLoader},
 };
 
 //f eather license in FEATHER_LICENSE.md
@@ -61,8 +68,11 @@ pub fn handle_player_digging(
                         return Ok(());
                     }
                 };
-                let _success = game.break_block(pos, world);
-                server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
+                if let Some(block_type) = ItemRegistry::global().get_block((block, 0)) {
+                    block_type.on_break(game, player, pos, packet.face, world);
+                    let _success = game.break_block(pos, world);
+                    server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
+                }
             }
             Ok(())
         }
@@ -73,8 +83,11 @@ pub fn handle_player_digging(
                     return Ok(());
                 }
             };
-            let _success = game.break_block(pos, world);
-            server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
+            if let Some(block_type) = ItemRegistry::global().get_block((block, 0)) {
+                block_type.on_break(game, player, pos, packet.face, world);
+                let _success = game.break_block(pos, world);
+                server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
+            }
             Ok(())
         }
         _ => Ok(()),
@@ -88,13 +101,25 @@ pub fn handle_player_block_placement(
     player: Entity,
 ) -> SysResult {
     if matches!(packet.direction, Face::Invalid) {
+        let e_ref = game.ecs.entity(player)?;
+        if let Some(i) = packet.block_or_item.item_kind() {
+            if let ItemStackType::Item(i) = i {
+                let window = e_ref.get_mut::<Window>()?;
+                let hotbar_slot = e_ref.get::<HotbarSlot>()?;
+                let slot = SLOT_HOTBAR_OFFSET + hotbar_slot.get();
+                drop(e_ref);
+                drop(window);
+                drop(hotbar_slot);
+                i.on_use(game, server, slot, player, None)?;
+            }
+        }
         return Ok(());
     }
     let world = game.ecs.get::<CurrentWorldInfo>(player).unwrap().world_id;
     let block_kind = {
-        let result = game.block(packet.pos, world);
+        let result = game.block(packet.direction.offset(packet.pos), world);
         match result {
-            Some(block) => block.b_type,
+            Some(block) => block,
             None => {
                 let client_id = game.ecs.get::<NetworkID>(player).unwrap();
 
@@ -109,29 +134,109 @@ pub fn handle_player_block_placement(
             }
         }
     };
-    if let InventorySlot::Filled(item) = packet.block_or_item {
-        // Handle this as a block placement
-        let event = BlockPlacementEvent {
-            held_item: item,
-            location: packet.pos,
-            face: packet.direction,
-            world,
-        };
-
-        let entity_ref = game.ecs.entity(player)?;
-        if entity_ref.get::<Gamemode>()?.id() == Gamemode::Survival.id() {
-            let inventory = entity_ref.get_mut::<Window>()?;
-            let hotbar_slot = entity_ref.get::<HotbarSlot>()?;
-            let client_id = entity_ref.get::<NetworkID>()?;
-            let mut slot = inventory.item(SLOT_HOTBAR_OFFSET + hotbar_slot.get())?;
-            slot.try_take(1);
-            let client = server.clients.get(&client_id).unwrap();
-            drop(slot);
-            client.send_window_items(&inventory);
-            drop(inventory);
-            server.broadcast_equipment_change(&entity_ref)?;
+    if let Some(block) = game.block(packet.pos, world) {
+        if let Some(block_type) = ItemRegistry::global().get_block((block.b_type, 0)) {
+            match block_type.interacted_with(world, game, server, packet.pos, block, player) {
+                ActionResult::SUCCESS => {
+                    return Ok(());
+                }
+                _ => (),
+            }
         }
-        game.ecs.insert_entity_event(player, event)?;
+    }
+    if let InventorySlot::Filled(item) = &packet.block_or_item {
+        // Handle this as a block placement
+        // TODO don't trust the player. But we can for now :D
+        let event = match item.item() {
+            ItemStackType::Item(i) => {
+                let e_ref = game.ecs.entity(player)?;
+                let window = e_ref.get_mut::<Window>()?;
+                let hotbar_slot = e_ref.get::<HotbarSlot>()?;
+                let slot = SLOT_HOTBAR_OFFSET + hotbar_slot.get();
+                drop(e_ref);
+                drop(window);
+                drop(hotbar_slot);
+                i.on_use(
+                    game,
+                    server,
+                    slot,
+                    player,
+                    Some(BlockUseTarget {
+                        position: packet.pos,
+                        face: packet.direction.clone(),
+                        world
+                    }),
+                )?;
+                return Ok(());
+            }
+            ItemStackType::Block(b) => {
+                    if b.can_place_on(world, game, packet.pos, packet.direction.clone()) {
+                        let mut e = b.place(
+                            game,
+                            player,
+                            item.clone(),
+                            packet.pos,
+                            packet.direction.clone(),
+                            world,
+                        );
+                        if let Some(val) = &e {
+                            let mut pool = AABBPool::new();
+                            let block_bounding_box = b.collision_box(BlockState::new(val.held_item.id() as u8, val.held_item.damage_taken() as u8), packet.direction.offset(packet.pos));
+                            for (_, (position, bounding_box)) in game.ecs.query::<(&Position, &AABBSize)>().iter() {
+                                pool.add(bounding_box.get(position));
+                            }
+                            if pool.intersects(&block_bounding_box).len() != 0 {
+                                e = None;
+                            }
+                        }
+                        e
+                    } else {
+                        None
+                    }
+            }
+        };
+        if let Some(event) = event {
+            let entity_ref = game.ecs.entity(player)?;
+            if entity_ref.get::<Gamemode>()?.id() == Gamemode::Survival.id() {
+                let client_id = entity_ref.get::<NetworkID>()?;
+                let client = server.clients.get(&client_id).unwrap();
+                let inventory = entity_ref.get_mut::<Window>()?;
+                let hotbar_slot = entity_ref.get::<HotbarSlot>()?;
+                let mut slot = inventory.item(SLOT_HOTBAR_OFFSET + hotbar_slot.get())?;
+                slot.try_take(1);
+                drop(slot);
+                client.send_window_items(&inventory);
+                drop(inventory);
+                server.broadcast_equipment_change(&entity_ref)?;
+            }
+            game.ecs.insert_entity_event(player, event)?;
+        } else {
+            let entity_ref = game.ecs.entity(player)?;
+            let client_id = entity_ref.get::<NetworkID>()?;
+            let client = server.clients.get(&client_id).unwrap();
+            client.send_block_change(
+                packet.direction.offset(packet.pos),
+                BlockState::new(block_kind.b_type, block_kind.b_metadata),
+            );
+        }
+    }
+    Ok(())
+}
+pub fn handle_update_sign(game: &mut Game, server: &mut Server, player: Entity, packet: UpdateSign) -> SysResult {
+    let pos = BlockPosition::new(packet.x, packet.y as i32, packet.z);
+    let mut to_sync = Vec::new();
+    for (entity, (sign_data, block_entity)) in game.ecs.query::<(&mut SignData, &BlockEntity)>().iter() {
+        if block_entity.0 == pos {
+            sign_data.0[0] = packet.text1.0.clone();
+            sign_data.0[1] = packet.text2.0.clone();
+            sign_data.0[2] = packet.text3.0.clone();
+            sign_data.0[3] = packet.text4.0.clone();
+        }
+        to_sync.push(entity);
+    }
+    for entity in to_sync {
+        let entity_ref = game.ecs.entity(entity)?;
+        server.sync_block_entity(*entity_ref.get::<Position>()?, entity_ref.get::<BlockEntityLoader>()?.deref().clone(), &entity_ref);
     }
     Ok(())
 }
