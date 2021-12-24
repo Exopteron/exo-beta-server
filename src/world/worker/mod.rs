@@ -1,10 +1,10 @@
-use std::{path::PathBuf, sync::{atomic::AtomicBool, Arc}};
+use std::{path::PathBuf, sync::{atomic::AtomicBool, Arc}, time::Instant};
 
 use anyhow::bail;
 use flume::{Sender, Receiver};
 use nbt::CompoundTag;
 
-use crate::game::ChunkCoords;
+use crate::{game::{ChunkCoords, BlockPosition}, ecs::systems::world::light::{LightPropagationManager, LightPropagationRequest}};
 
 use self::region::RegionWorker;
 
@@ -60,14 +60,23 @@ pub struct ChunkWorker {
 impl ChunkWorker {
     /// Helper function for poll_loaded_chunk. Attemts to receive a freshly generated chunk.
     /// Function signature identical to that of poll_loaded_chunk for ease of use.
-    fn try_recv_gen(&mut self) -> Result<Option<LoadedChunk>, anyhow::Error> {
-        match self.recv_gen.try_recv() {
-            Ok(l) => Ok(Some(l)),
+    fn try_recv_gen(&mut self, light: &mut LightPropagationManager) -> Result<Option<LoadedChunk>, anyhow::Error> {
+        let chunk = match self.recv_gen.try_recv() {
+            Ok(l) => l,
             Err(e) => match e {
-                flume::TryRecvError::Empty => Ok(None),
+                flume::TryRecvError::Empty => return Ok(None),
                 flume::TryRecvError::Disconnected => bail!("chunkgen channel died"),
             },
+        };
+        for x in 0..16 {
+            for z in 0..16 {
+                if let Some(y) = chunk.chunk.heightmaps.light_blocking.height(x, z) {
+                    let pos = BlockPosition::new((x + (chunk.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (chunk.pos.z as usize) * 16) as i32);
+                    //light.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
+                }
+            }
         }
+        Ok(Some(chunk))
     }
     pub fn drop_sender(&mut self) {
         let (send_req, _) = flume::unbounded();
@@ -91,7 +100,7 @@ impl ChunkWorker {
     pub fn queue_load(&mut self, request: LoadRequest) {
         self.send_req.send(WorkerRequest::Load(request)).unwrap()
     }
-    pub fn poll_loaded_chunk(&mut self) -> Result<Option<LoadedChunk>, anyhow::Error> {
+    pub fn poll_loaded_chunk(&mut self, light: &mut LightPropagationManager) -> Result<Option<LoadedChunk>, anyhow::Error> {
         match self.recv_load.try_recv() {
             Ok(answer) => {
                 match answer {
@@ -102,17 +111,25 @@ impl ChunkWorker {
                         let gen = self.generator.clone();
                         rayon::spawn(move || {
                             // spawn task to generate chunk
-                            let chunk = gen.generate_chunk(pos);
+                            let mut chunk = gen.generate_chunk(pos);
+                            chunk.heightmaps.recalculate(Chunk::block_at_fn(&chunk.data));
+                            //chunk.calculate_full_skylight();
                             send_gen.send(LoadedChunk { pos, chunk, tile_entity_data: Vec::new() }).unwrap()
                         });
-                        self.try_recv_gen() // check for generated chunks
+                        self.try_recv_gen(light) // check for generated chunks
                     }
                     ChunkLoadResult::Error(e) => Err(e),
-                    ChunkLoadResult::Loaded(l) => Ok(Some(l)),
+                    ChunkLoadResult::Loaded(mut l) => {
+                        //log::info!("Starting");
+                        //let start = Instant::now();
+                        //l.chunk.heightmaps.recalculate(Chunk::block_at_fn(&l.chunk.data));
+                        //log::info!("Recalculation took {}ms", start.elapsed().as_millis());
+                        Ok(Some(l))
+                    },
                 }
             }
             Err(e) => match e {
-                flume::TryRecvError::Empty => self.try_recv_gen(), // check for generated chunks
+                flume::TryRecvError::Empty => self.try_recv_gen(light), // check for generated chunks
                 flume::TryRecvError::Disconnected => panic!("RegionWorker died"),
             },
         }

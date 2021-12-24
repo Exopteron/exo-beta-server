@@ -20,7 +20,7 @@ fn tick_clients(_game: &mut Game, server: &mut Server) -> SysResult {
 fn deferred_spawn(game: &mut Game) -> SysResult {
     let mut deferred = Vec::new();
     for (_, event) in game.ecs.query::<&mut DeferredSpawnEvent>().iter() {
-        log::info!("Got deferred spawn event");
+        //log::info!("Got deferred spawn event");
         deferred.push(mem::take(&mut event.0));
     }
     for builder in deferred {

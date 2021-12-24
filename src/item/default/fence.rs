@@ -10,8 +10,24 @@ use crate::{
 };
 
 use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
+pub struct FenceBlock;
+impl Block for FenceBlock {
+    fn id(&self) -> BlockIdentifier {
+        85
+    }
+
+    fn item_stack_size(&self) -> i8 {
+        64
+    }
+    fn opaque(&self) -> bool {
+        false
+    }
+}
 pub struct FenceGateBlock {}
 impl Block for FenceGateBlock {
+    fn opaque(&self) -> bool {
+        false
+    }
     fn place(
         &self,
         game: &mut Game,
@@ -60,7 +76,7 @@ impl Block for FenceGateBlock {
     }
 
     fn id(&self) -> BlockIdentifier {
-        (107, 0)
+        107
     }
 
     fn item_stack_size(&self) -> i8 {

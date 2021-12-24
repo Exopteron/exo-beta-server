@@ -11,6 +11,7 @@ use crate::game::ChunkCoords;
 use crate::game::Position;
 use crate::world;
 use crate::world::chunks::*;
+use crate::world::heightmap::HeightmapStore;
 use anvil_region::*;
 pub struct MCRegionLoader {
     pub world_dir: String,
@@ -26,7 +27,11 @@ impl MCRegionLoader {
             cheating: FolderRegionProvider::new(&format!("{}/region", path.to_string())),
         })
     }
-    pub fn save_chunk(&mut self, chunk: ChunkHandle, tile_entities: Vec<CompoundTag>) -> anyhow::Result<()> {
+    pub fn save_chunk(
+        &mut self,
+        chunk: ChunkHandle,
+        tile_entities: Vec<CompoundTag>,
+    ) -> anyhow::Result<()> {
         let coords = chunk.read().pos;
         let mut region = self
             .cheating
@@ -39,7 +44,11 @@ impl MCRegionLoader {
             .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
     }
-    pub fn set_chunk(&mut self, chunk: ChunkHandle, tile_entities: Vec<CompoundTag>) -> anyhow::Result<()> {
+    pub fn set_chunk(
+        &mut self,
+        chunk: ChunkHandle,
+        tile_entities: Vec<CompoundTag>,
+    ) -> anyhow::Result<()> {
         let pos = chunk.read().pos;
         let mut region = self
             .cheating
@@ -52,7 +61,10 @@ impl MCRegionLoader {
             .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
     }
-    pub fn chunk_to_nbt(chunk: ChunkHandle, tile_entities: Vec<CompoundTag>) -> anyhow::Result<CompoundTag> {
+    pub fn chunk_to_nbt(
+        chunk: ChunkHandle,
+        tile_entities: Vec<CompoundTag>,
+    ) -> anyhow::Result<CompoundTag> {
         let mut root_tag = CompoundTag::new();
         let mut level_tag = CompoundTag::new();
         level_tag.insert_compound_tag_vec("TileEntities", tile_entities);
@@ -64,15 +76,25 @@ impl MCRegionLoader {
         };
         let mut block_data = Vec::with_capacity(chunk.data.len());
         let mut metadata = Vec::with_capacity(chunk.data.len() / 2);
+        let mut skylight = Vec::with_capacity(chunk.data.len() / 2);
+        let mut blocklight = Vec::with_capacity(chunk.data.len() / 2);
         for x in 0..16 {
             for z in 0..16 {
                 for y in 0..128 {
                     // TODO: write this stuff here
                     block_data.push(chunk.block_at(x, y, z).unwrap().b_type as i8);
                     metadata.push(chunk.block_at(x, y, z).unwrap().b_metadata);
+                    skylight.push(chunk.block_at(x, y, z).unwrap().b_skylight);
+                    blocklight.push(chunk.block_at(x, y, z).unwrap().b_light);
                 }
             }
         }
+        let v = crate::world::chunks::compress_to_nibble(skylight).unwrap_or(Vec::new());
+        let v = vec_u8_into_i8(v);
+        level_tag.insert_i8_vec("SkyLight", v);
+        let v = crate::world::chunks::compress_to_nibble(blocklight).unwrap_or(Vec::new());
+        let v = vec_u8_into_i8(v);
+        level_tag.insert_i8_vec("BlockLight", v);
         //log::info!("Block len: {:?}", block_data.len());
         let metadata = crate::world::chunks::compress_to_nibble(metadata).unwrap_or(Vec::new());
         let metadata = vec_u8_into_i8(metadata);
@@ -216,8 +238,16 @@ impl Region {
             .or(Err(anyhow::anyhow!("Does not exist!")))?;
         //log::info!("Got to here!");
         let block_metadata = vec_i8_into_u8(val.clone());
+
+        //log::info!("Got to here!");
         use super::chunks::*;
         let metadata = super::chunks::decompress_vec(block_metadata);
+        let mut skylight: Option<Vec<u8>> = None;
+        if let Ok(val) = tag
+        .get_i8_vec("SkyLight") {
+            let block_skylight = vec_i8_into_u8(val.clone());
+            skylight = super::chunks::decompress_vec(block_skylight);
+        }
         let mut blocks = Vec::new();
         let mut i = 0;
         for block in block_ids {
@@ -226,11 +256,16 @@ impl Region {
             } else {
                 0
             };
+            let sky = if let Some(ref sky) = skylight {
+                sky[i]
+            } else {
+                0
+            };
             blocks.push(BlockState {
                 b_type: block,
                 b_metadata: meta,
                 b_light: 0,
-                b_skylight: 15,
+                b_skylight: sky,
             });
             i += 1;
         }
@@ -272,9 +307,33 @@ impl Region {
                 Some(chunksections[6].clone()),
                 Some(chunksections[7].clone()),
             ],
-            heightmap: [[0; 16]; 16],
+            heightmaps: HeightmapStore::new(),
         };
+        let heightmap = tag.get_i8_vec("HeightMap");
+        match heightmap {
+            Ok(heightmap) => {
+                for x in 0..16 {
+                    for z in 0..16 {
+                        chunk.heightmaps.light_blocking.set_height(
+                            x,
+                            z,
+                            heightmap[Self::index_hm_vec(x, z)] as usize,
+                        );
+                    }
+                }
+            }
+            Err(_) => {
+                //log::info!("Current thread: {:?}", std::thread::current().name());
+                chunk
+                    .heightmaps
+                    .recalculate(Chunk::block_at_fn(&chunk.data));
+            }
+        }
+        //chunk.calculate_full_skylight();
         return Ok((chunk, tile_entities));
+    }
+    fn index_hm_vec(x: usize, z: usize) -> usize {
+        z << 4 | x
     }
     pub fn from_file(file: &str) -> anyhow::Result<Self> {
         let mut file = std::fs::File::open(file)?;
@@ -419,7 +478,7 @@ impl Region {
                     Some(chunksections[6].clone()),
                     Some(chunksections[7].clone()),
                 ],
-                heightmap: [[0; 16]; 16],
+                heightmaps: HeightmapStore::new(),
             };
             chunks.push(chunk);
         }

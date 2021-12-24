@@ -101,7 +101,7 @@ impl Block for SignBlock {
     ) -> SysResult {
         if !matches!(offset, Face::Invalid) {
             let mut f = false;
-            if self.id.0 == 63 {
+            if self.id == 63 {
                 if !game.is_solid_block(Face::NegativeY.offset(position), world)
                 {
                     f = true;
@@ -136,7 +136,7 @@ impl Block for SignBlock {
         let component = BlockEntityLoader::new(|client, entity| {
             let data = entity.get::<SignData>()?;
             let pos = entity.get::<BlockEntity>()?.0;
-            log::info!("Sign loader sending {:?} to {}", *data, client.username());
+            //log::info!("Sign loader sending {:?} to {}", *data, client.username());
             client.update_sign(pos, data.deref().clone());
             Ok(())
         });
@@ -151,5 +151,22 @@ impl Block for SignBlock {
         }, "Sign".to_string()));
         entity_builder.add(component);
         true
+    }
+    fn block_entity_loader(&self, loaders: &mut crate::block_entity::BlockEntityNBTLoaders) {
+        loaders.insert("Sign", Box::new(|tag, blockpos, builder| {
+            //log::info!("Sign loader called");
+            let mut sign_data = SignData::default();
+            sign_data.0[0] = tag.get_str("Text1").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+            sign_data.0[1] = tag.get_str("Text2").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+            sign_data.0[2] = tag.get_str("Text3").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+            sign_data.0[3] = tag.get_str("Text4").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+            //log::info!("Sign data: {:?}", sign_data);
+            ItemRegistry::global().get_block(63).unwrap().block_entity(builder, BlockState::new(63, 0), blockpos);
+            builder.add(sign_data);
+            Ok(())
+        }));
+    }
+    fn opaque(&self) -> bool {
+        false
     }
 }

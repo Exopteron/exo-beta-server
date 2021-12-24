@@ -16,6 +16,8 @@ use crate::{
     world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest}, block_entity::{BlockEntityNBTLoaders, BlockEntity, BlockEntityLoader, SignData}, entities::EntityInit, server::Server,
 };
 
+use super::light::LightPropagationManager;
+
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
     game.insert_object(ChunkLoadState::default());
     systems
@@ -179,9 +181,11 @@ fn remove_dead_entities(game: &mut Game, state: &mut ChunkLoadState) -> SysResul
 fn load_chunks(game: &mut Game, chunk_load_state: &mut ChunkLoadState) -> SysResult {
     let be_nbt = game.objects.get::<BlockEntityNBTLoaders>()?.clone();
     let mut te_data = Vec::new();
+    let mut light = game.objects.get_mut::<LightPropagationManager>()?;
     for (_, world) in game.worlds.iter_mut() {
-        te_data.append(&mut world.load_chunks(&mut game.ecs)?);
+        te_data.append(&mut world.load_chunks(&mut game.ecs, &mut light)?);
     }
+    drop(light);
     for tag in te_data {
         let id = tag.get_str("id").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
         let x = tag.get_i32("x").or_else(|_| Err(anyhow::anyhow!("No tag")))?;

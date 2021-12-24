@@ -3,6 +3,8 @@ use std::ops::Deref;
 use hecs::Entity;
 
 use crate::{
+    aabb::{AABBPool, AABBSize},
+    block_entity::{BlockEntity, BlockEntityLoader, SignData},
     ecs::{
         entities::player::{CurrentWorldInfo, Gamemode, HotbarSlot, SLOT_HOTBAR_OFFSET},
         systems::SysResult,
@@ -23,7 +25,7 @@ use crate::{
         DiggingStatus, Face, SoundEffectKind,
     },
     server::Server,
-    world::chunks::BlockState, aabb::{AABBPool, AABBSize}, block_entity::{SignData, BlockEntity, BlockEntityLoader},
+    world::chunks::BlockState,
 };
 
 //f eather license in FEATHER_LICENSE.md
@@ -68,8 +70,8 @@ pub fn handle_player_digging(
                         return Ok(());
                     }
                 };
-                if let Some(block_type) = ItemRegistry::global().get_block((block, 0)) {
-                    block_type.on_break(game, player, pos, packet.face, world);
+                if let Some(block_type) = ItemRegistry::global().get_block(block) {
+                    block_type.on_break(game, server, player, pos, packet.face, world);
                     let _success = game.break_block(pos, world);
                     server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
                 }
@@ -83,8 +85,8 @@ pub fn handle_player_digging(
                     return Ok(());
                 }
             };
-            if let Some(block_type) = ItemRegistry::global().get_block((block, 0)) {
-                block_type.on_break(game, player, pos, packet.face, world);
+            if let Some(block_type) = ItemRegistry::global().get_block(block) {
+                block_type.on_break(game, server, player, pos, packet.face, world);
                 let _success = game.break_block(pos, world);
                 server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
             }
@@ -135,7 +137,7 @@ pub fn handle_player_block_placement(
         }
     };
     if let Some(block) = game.block(packet.pos, world) {
-        if let Some(block_type) = ItemRegistry::global().get_block((block.b_type, 0)) {
+        if let Some(block_type) = ItemRegistry::global().get_block(block.b_type) {
             match block_type.interacted_with(world, game, server, packet.pos, block, player) {
                 ActionResult::SUCCESS => {
                     return Ok(());
@@ -164,35 +166,53 @@ pub fn handle_player_block_placement(
                     Some(BlockUseTarget {
                         position: packet.pos,
                         face: packet.direction.clone(),
-                        world
+                        world,
                     }),
                 )?;
                 return Ok(());
             }
             ItemStackType::Block(b) => {
-                    if b.can_place_on(world, game, packet.pos, packet.direction.clone()) {
-                        let mut e = b.place(
-                            game,
-                            player,
-                            item.clone(),
-                            packet.pos,
-                            packet.direction.clone(),
-                            world,
-                        );
-                        if let Some(val) = &e {
-                            let mut pool = AABBPool::new();
-                            let block_bounding_box = b.collision_box(BlockState::new(val.held_item.id() as u8, val.held_item.damage_taken() as u8), packet.direction.offset(packet.pos));
-                            for (_, (position, bounding_box)) in game.ecs.query::<(&Position, &AABBSize)>().iter() {
-                                pool.add(bounding_box.get(position));
+                if let Some(blk) = game.block(packet.direction.offset(packet.pos), world) {
+                    if blk.registry_type()?.can_place_over() {
+                        if b.can_place_on(world, game, packet.pos, packet.direction.clone()) {
+                            let mut e = b.place(
+                                game,
+                                player,
+                                item.clone(),
+                                packet.pos,
+                                packet.direction.clone(),
+                                world,
+                            );
+                            if let Some(val) = &e {
+                                let mut pool = AABBPool::new();
+                                let block_bounding_box = b.collision_box(
+                                    BlockState::new(
+                                        val.held_item.id() as u8,
+                                        val.held_item.damage_taken() as u8,
+                                    ),
+                                    packet.direction.offset(packet.pos),
+                                );
+                                for (_, (position, bounding_box)) in
+                                    game.ecs.query::<(&Position, &AABBSize)>().iter()
+                                {
+                                    pool.add(bounding_box.get(position));
+                                }
+                                if let Some(block_bounding_box) = block_bounding_box {
+                                    if pool.intersects(&block_bounding_box).len() != 0 {
+                                        e = None;
+                                    }
+                                }
                             }
-                            if pool.intersects(&block_bounding_box).len() != 0 {
-                                e = None;
-                            }
+                            e
+                        } else {
+                            None
                         }
-                        e
                     } else {
                         None
                     }
+                } else {
+                    None
+                }
             }
         };
         if let Some(event) = event {
@@ -222,10 +242,17 @@ pub fn handle_player_block_placement(
     }
     Ok(())
 }
-pub fn handle_update_sign(game: &mut Game, server: &mut Server, player: Entity, packet: UpdateSign) -> SysResult {
+pub fn handle_update_sign(
+    game: &mut Game,
+    server: &mut Server,
+    player: Entity,
+    packet: UpdateSign,
+) -> SysResult {
     let pos = BlockPosition::new(packet.x, packet.y as i32, packet.z);
     let mut to_sync = Vec::new();
-    for (entity, (sign_data, block_entity)) in game.ecs.query::<(&mut SignData, &BlockEntity)>().iter() {
+    for (entity, (sign_data, block_entity)) in
+        game.ecs.query::<(&mut SignData, &BlockEntity)>().iter()
+    {
         if block_entity.0 == pos {
             sign_data.0[0] = packet.text1.0.clone();
             sign_data.0[1] = packet.text2.0.clone();
@@ -236,7 +263,11 @@ pub fn handle_update_sign(game: &mut Game, server: &mut Server, player: Entity, 
     }
     for entity in to_sync {
         let entity_ref = game.ecs.entity(entity)?;
-        server.sync_block_entity(*entity_ref.get::<Position>()?, entity_ref.get::<BlockEntityLoader>()?.deref().clone(), &entity_ref);
+        server.sync_block_entity(
+            *entity_ref.get::<Position>()?,
+            entity_ref.get::<BlockEntityLoader>()?.deref().clone(),
+            &entity_ref,
+        );
     }
     Ok(())
 }

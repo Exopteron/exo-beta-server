@@ -15,7 +15,7 @@ fn do_block_placement(game: &mut Game) -> SysResult {
                 b.id()
             }
         };
-        let block = BlockState { b_type: id.0, b_metadata: event.held_item.damage_taken() as u8, b_light: 0, b_skylight: 15 };
+        let block = BlockState { b_type: id, b_metadata: event.held_item.damage_taken() as u8, b_light: 0, b_skylight: 15 };
         blocks.push((event.location, block, event.world));
     }
     for (pos, block, world) in blocks.iter() {

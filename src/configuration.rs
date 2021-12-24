@@ -1,3 +1,6 @@
+use std::collections::HashSet;
+
+use ahash::AHashSet;
 use once_cell::sync::Lazy;
 #[derive(serde_derive::Serialize, serde_derive::Deserialize)]
 struct SerializeOPS {
@@ -12,7 +15,9 @@ pub struct ServerConfig {
     pub level_name: String,
     pub chunk_distance: u32,
     pub chunk_generator: String,
+    pub light_prop_per_tick: usize,
     pub translation_file: String,
+    pub default_gamemode: u8,
     pub tps: i32,
     pub world_seed: Option<u64>,
     pub autosave_interval: i64,
@@ -50,8 +55,14 @@ chunk_distance = 8
 # Chunk generator, can be: (flat, noise, mountain). Noise is quite slow (working on it). CURRENTLY HAS NO EFFECT.
 chunk_generator = "noise"
 
+# How many requests should the light propagator propagate per tick?
+light_prop_per_tick = 256
+
 # Translation file path.
 translation_file = "translation.json"
+
+# Default gamemode.
+default_gamemode = 0
 
 # Server TPS (Ticks Per Second), probably shouldn't change it. But who's stopping you?
 tps = 20
@@ -102,7 +113,30 @@ pub fn get_options() -> ServerConfig {
     };
     config
 }
-
+pub struct OpManager {
+    ops: AHashSet<String>,
+}
+impl OpManager {
+    pub fn new() -> Self {
+        let ops = get_ops();
+        let mut set = AHashSet::new();
+        for op in ops {
+            set.insert(op);
+        }
+        Self { ops: set }
+    }
+    pub fn is_op(&self, name: &str) -> bool {
+        self.ops.contains(name)
+    }
+    pub fn add_op(&mut self, name: String) {
+        add_op(&name);
+        self.ops.insert(name);
+    }
+    pub fn remove_op(&mut self, name: &str) {
+        remove_op(name);
+        self.ops.remove(name);
+    }
+}
 pub fn get_ops() -> Vec<String> {
     let file = if let Ok(f) = std::fs::read_to_string("ops.toml") {
         f

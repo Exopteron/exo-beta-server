@@ -28,6 +28,7 @@ async fn main() -> anyhow::Result<()> {
     logging::setup_logging();
     let start = Instant::now();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
+    rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
     let _ = &configuration::CONFIGURATION.max_players;
     let translation = TranslationManager::initialize()?;
     let mut systems = SystemExecutor::<Game>::new();
@@ -49,11 +50,14 @@ async fn main() -> anyhow::Result<()> {
         }
         Ok(())
     }); */
+    let mut loaders = BlockEntityNBTLoaders::default();
     let mut item_registry = ItemRegistry::new();
     default::register_items(&mut item_registry);
+    item_registry.apply_loaders(&mut loaders);
     item_registry.set();
     let mut game = game::Game::new();
     game.insert_object(Scheduler::new());
+    game.insert_object(OpManager::new());
     ecs::systems::default_systems(&mut game, &mut systems);
     let server = server::Server::bind().await?;
     server.register(&mut game);
@@ -62,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
     log::info!("---SYSTEMS---\n{:#?}\n", systems_list);
     game.systems = Arc::new(RefCell::new(systems));
     game.insert_object(BlockUpdateManager::new());
-    game.insert_object(BlockEntityNBTLoaders::default());
+    game.insert_object(loaders);
     log::info!(
         "Done! ({}ms) For command help, run \"help\".",
         start.elapsed().as_millis()
@@ -98,6 +102,7 @@ use std::time::Instant;
 use sysinfo::ProcessorExt;
 
 use crate::block_entity::BlockEntityNBTLoaders;
+use crate::configuration::OpManager;
 use crate::ecs::systems::SystemExecutor;
 use crate::ecs::systems::world::block::update::BlockUpdateManager;
 use crate::game::{Game, Scheduler};
@@ -153,9 +158,13 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
                 tick_counter = 0;
                 last_tps_check = std::time::Instant::now();
             }
+            //let mut start = Instant::now();
             let systems = game.systems.clone();
             systems.borrow_mut().run(&mut game);
+            //log::info!("Time taken: {}ms", start.elapsed().as_millis());
             tick_counter += 1;
+            let scheduler = game.scheduler.clone();
+            scheduler.borrow_mut().run_tasks(&mut game);
         })) {
             //game.save_playerdata().unwrap();
             //game.world.get_world().to_file(&CONFIGURATION.level_name);

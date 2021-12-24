@@ -32,7 +32,6 @@ pub fn update_visible_entities(game: &mut Game, server: &mut Server) -> SysResul
             for &entity_id in game.chunk_entities.entities_in_chunk(new_chunk) {
                 if entity_id != player {
                     let entity_ref = game.ecs.entity(entity_id)?;
-                    log::info!("Sending new vis");
                     if let Ok(spawn_packet) = entity_ref.get::<SpawnPacketSender>() {
                         spawn_packet
                             .send(&entity_ref, client)

@@ -34,15 +34,16 @@ fn add_tablist_players(game: &mut Game, server: &mut Server) -> SysResult {
         )>()
         .iter()
     {
+        log::info!("Called for {}", name.0);
         // Add this player to other players' tablists
         server.broadcast_with(|client| {
             client.add_tablist_player(name.0.to_string(), 0);
         });
 
         // Add other players to this player's tablist
-        for (other_player, name) in game
+        for (other_player, (name, _)) in game
             .ecs
-            .query::<&Username>()
+            .query::<(&Username, &Player)>()
             .iter()
         {
             if let Some(client) = server.clients.get(&network_id) {

@@ -1,9 +1,9 @@
-use crate::{item::{item::{block::{Block, ActionResult}, ItemRegistry, Item}, stack::ItemStackType, window::Window}, protocol::packets::{Face, SoundEffectKind}, events::block_interact::BlockPlacementEvent, world::chunks::BlockState, ecs::{systems::SysResult, entities::player::Gamemode}, game::{Position, BlockPosition}, network::ids::NetworkID, server::Server};
+use crate::{item::{item::{block::{Block, ActionResult}, ItemRegistry, Item, ItemIdentifier}, stack::ItemStackType, window::Window}, protocol::packets::{Face, SoundEffectKind}, events::block_interact::BlockPlacementEvent, world::chunks::BlockState, ecs::{systems::SysResult, entities::player::Gamemode}, game::{Position, BlockPosition}, network::ids::NetworkID, server::Server};
 
-pub struct DoorItem {}
+pub struct DoorItem(pub ItemIdentifier);
 impl Item for DoorItem {
     fn id(&self) -> crate::item::item::ItemIdentifier {
-        324
+        self.0
     }
 
     fn stack_size(&self) -> i8 {
@@ -87,18 +87,21 @@ impl Item for DoorItem {
 
 pub struct DoorBlock {}
 impl Block for DoorBlock {
+    fn opaque(&self) -> bool {
+        false
+    }
     fn neighbor_update(&self, world: i32, game: &mut crate::game::Game, position: BlockPosition, state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
         if !matches!(offset, Face::Invalid) {
             if (state.b_metadata & 8) != 0 {
                 if let Some(b) = game.block(Face::NegativeY.offset(position), world) {
-                    if b.b_type != self.id().0 {
+                    if b.b_type != self.id() {
                         game.break_block(position, world);
                     }
                 }
             } else {
                 let mut f = false;
                 if let Some(b) = game.block(Face::PositiveY.offset(position), world) {
-                    if b.b_type != self.id().0 {
+                    if b.b_type != self.id() {
                         game.break_block(position, world);
                         f = true;
                     }
@@ -106,7 +109,7 @@ impl Block for DoorBlock {
                 if !game.is_solid_block(Face::NegativeY.offset(position), world) {
                     game.break_block(position, world);
                     f = true;
-                    if game.block_id_at(Face::PositiveY.offset(position), world) == self.id().0 {
+                    if game.block_id_at(Face::PositiveY.offset(position), world) == self.id() {
                         game.break_block(Face::PositiveY.offset(position), world);   
                     }
                 }
@@ -118,7 +121,7 @@ impl Block for DoorBlock {
         Ok(())
     }
     fn id(&self) -> crate::item::item::BlockIdentifier {
-        (64, 0)
+        64
     }
 
     fn item_stack_size(&self) -> i8 {
@@ -127,18 +130,18 @@ impl Block for DoorBlock {
     fn interacted_with(&self, world: i32, game: &mut crate::game::Game, server: &mut crate::server::Server, position: BlockPosition, state: BlockState, player: hecs::Entity) -> crate::item::item::block::ActionResult {
         if (state.b_metadata & 8) != 0 {
             if let Some(b) = game.block(Face::NegativeY.offset(position), world) {
-                if b.b_type == self.id().0 {
+                if b.b_type == self.id() {
                     self.interacted_with(world, game, server, Face::NegativeY.offset(position), b, player);
                 }
             }
             return ActionResult::SUCCESS;
         }
         if let Some(b) = game.block(Face::PositiveY.offset(position), world) {
-            if b.b_type == self.id().0 {
-                game.set_block(Face::PositiveY.offset(position), BlockState::new(self.id().0, (state.b_metadata ^ 4) + 8), world);
+            if b.b_type == self.id() {
+                game.set_block(Face::PositiveY.offset(position), BlockState::new(self.id(), (state.b_metadata ^ 4) + 8), world);
             }
         }
-        game.set_block(position, BlockState::new(self.id().0, state.b_metadata ^ 4), world);
+        game.set_block(position, BlockState::new(self.id(), state.b_metadata ^ 4), world);
         let id = game.ecs.get::<NetworkID>(player).unwrap();
         server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, 0);
         ActionResult::SUCCESS

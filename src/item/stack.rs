@@ -15,6 +15,12 @@ impl ItemStackType {
             ItemStackType::Block(b) => b.item_stack_size()
         }
     }
+    pub fn id(&self) -> i16 {
+        match self {
+            ItemStackType::Item(i) => i.id(),
+            ItemStackType::Block(b) => b.id() as i16
+        }
+    }
 }
 /// Represents an item stack.
 ///
@@ -34,7 +40,7 @@ impl ItemStack {
     pub fn id(&self) -> i16 {
         match &self.item {
             ItemStackType::Item(i) => i.id(),
-            ItemStackType::Block(b) => b.id().0 as i16,
+            ItemStackType::Block(b) => b.id() as i16,
         }
     }
     /// Creates a new `ItemStack` with the default name (title)
@@ -47,15 +53,7 @@ impl ItemStack {
     /// the same type as (but not necessarily the same
     /// amount as) `self`.
     pub fn has_same_type(&self, other: &Self) -> bool {
-        let our_id = match &self.item {
-            ItemStackType::Block(b) => (b.id().0 as i16, b.id().1 as i16),
-            ItemStackType::Item(i) => (i.id(), 0)
-        };
-        let their_id = match &other.item {
-            ItemStackType::Block(b) => (b.id().0 as i16, b.id().1 as i16),
-            ItemStackType::Item(i) => (i.id(), 0)
-        };
-        our_id == their_id
+        self.id() == other.id()
     }
     pub fn set_damage(&mut self, damage: i16) {
         self.meta = damage;

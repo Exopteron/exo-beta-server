@@ -47,8 +47,8 @@ pub struct BlockEntity(pub BlockPosition, pub i32);
 
 #[derive(Default, Debug, Clone)]
 pub struct SignData(pub [String; 4]);
-
-type BlockEntityNBTLoader = Box<dyn Fn(&CompoundTag, BlockPosition, &mut EntityBuilder) -> SysResult>;
+pub struct NoteblockData(pub i8);
+pub type BlockEntityNBTLoader = Box<dyn Fn(&CompoundTag, BlockPosition, &mut EntityBuilder) -> SysResult>;
 #[derive(Clone)]
 pub struct BlockEntityNBTLoaders {
     loaders: AHashMap<String, Arc<BlockEntityNBTLoader>>,   
@@ -56,19 +56,7 @@ pub struct BlockEntityNBTLoaders {
 impl Default for BlockEntityNBTLoaders {
     fn default() -> Self {
         let loaders = AHashMap::new();
-        let mut this = Self { loaders };
-        this.insert("Sign", Box::new(|tag, blockpos, builder| {
-            log::info!("Sign loader called");
-            let mut sign_data = SignData::default();
-            sign_data.0[0] = tag.get_str("Text1").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            sign_data.0[1] = tag.get_str("Text2").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            sign_data.0[2] = tag.get_str("Text3").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            sign_data.0[3] = tag.get_str("Text4").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            log::info!("Sign data: {:?}", sign_data);
-            ItemRegistry::global().get_block((63, 0)).unwrap().block_entity(builder, BlockState::new(63, 0), blockpos);
-            builder.add(sign_data);
-            Ok(())
-        }));
+        let this = Self { loaders };
         this
     }
 }
@@ -82,7 +70,7 @@ impl BlockEntityNBTLoaders {
         }
         false
     }
-    fn insert(&mut self, name: &str, loader: BlockEntityNBTLoader) {
+    pub fn insert(&mut self, name: &str, loader: BlockEntityNBTLoader) {
         self.loaders.insert(name.to_string(), Arc::new(loader));
     }
 }

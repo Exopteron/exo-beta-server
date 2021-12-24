@@ -4,6 +4,23 @@ mod trapdoor;
 mod door;
 mod ladder;
 mod sign;
+mod furnace;
+mod sugar_cane;
+mod glass;
+mod slab;
+mod dispenser;
+mod cobweb;
+mod bush;
+mod note_block;
+mod music_disc;
+mod jukebox;
+mod water_bucket;
+mod grass_block;
+mod ice;
+mod vines;
+mod pumpkin;
+mod chest;
+mod lever;
 use crate::{
     ecs::{entities::player::Chatbox, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
@@ -13,14 +30,14 @@ use crate::{
     world::chunks::BlockState,
 };
 
-use self::{fence::FenceGateBlock, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}};
+use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock};
 
-use super::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
+use super::item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
 
 pub struct RedstoneTorchBlock {}
 impl Block for RedstoneTorchBlock {
     fn id(&self) -> BlockIdentifier {
-        (76, 0)
+        76
     }
 
     fn item_stack_size(&self) -> i8 {
@@ -53,6 +70,9 @@ impl Block for RedstoneTorchBlock {
         neighbor_state: BlockState,
     ) -> SysResult {
         (TorchBlock {}).neighbor_update(world, game, position, state, offset, neighbor_state)
+    }
+    fn opaque(&self) -> bool {
+        false
     }
 }
 pub struct StairBlock {
@@ -93,7 +113,7 @@ impl Block for StairBlock {
 pub struct TorchBlock {}
 impl Block for TorchBlock {
     fn id(&self) -> super::item::BlockIdentifier {
-        (50, 0)
+        50
     }
 
     fn item_stack_size(&self) -> i8 {
@@ -141,7 +161,7 @@ impl Block for TorchBlock {
         };
         if !solid {
             //log::info!("Setting {:?} to air", stood_on);
-            let success = game.set_block_nb(position, BlockState::air(), world, true);
+            let success = game.set_block_nb(position, BlockState::air(), world, true, false);
             //log::info!("Success? {}", success);
         }
         Ok(())
@@ -165,6 +185,9 @@ impl Block for TorchBlock {
                 }
             }
         }
+        false
+    }
+    fn opaque(&self) -> bool {
         false
     }
 }
@@ -205,6 +228,22 @@ fn torch_orient(pos: &mut BlockPosition, face: &Face) -> u8 {
         _ => 0,
     }
 }
+pub struct GenericNonSolidBlock {
+    id: BlockIdentifier,
+}
+impl Block for GenericNonSolidBlock {
+    fn id(&self) -> super::item::BlockIdentifier {
+        self.id.clone()
+    }
+
+    fn item_stack_size(&self) -> i8 {
+        64
+    }
+
+    fn is_solid(&self) -> bool {
+        false
+    }
+}
 pub struct GenericSolidBlock {
     id: BlockIdentifier,
 }
@@ -220,7 +259,7 @@ impl Block for GenericSolidBlock {
 pub struct AirBlock {}
 impl Block for AirBlock {
     fn id(&self) -> BlockIdentifier {
-        (0, 0)
+        0
     }
 
     fn item_stack_size(&self) -> i8 {
@@ -229,29 +268,65 @@ impl Block for AirBlock {
     fn is_solid(&self) -> bool {
         false
     }
+    fn can_place_over(&self) -> bool {
+        true
+    }
+    fn opaque(&self) -> bool {
+        false
+    }
 }
 pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_block(TorchBlock {});
     registry.register_block(AirBlock {});
     registry.register_block(RedstoneTorchBlock {});
-    registry.register_block(GenericSolidBlock { id: (7, 0) });
-    registry.register_block(StairBlock { id: (53, 0) });
-    registry.register_block(StairBlock { id: (67, 0) });
-    registry.register_block(StairBlock { id: (108, 0) });
-    registry.register_block(StairBlock { id: (109, 0) });
+    registry.register_block(GenericSolidBlock { id: 7 });
+    registry.register_block(StairBlock { id: 53 });
+    registry.register_block(StairBlock { id: 67 });
+    registry.register_block(StairBlock { id: 108 });
+    registry.register_block(StairBlock { id: 109 });
     registry.register_block(FenceGateBlock {});
     registry.register_block(TrapdoorBlock {});
-    registry.register_item(DoorItem {});
+    registry.register_item(DoorItem(324));
+    registry.register_item(DoorItem(330));
     registry.register_block(DoorBlock {});
     registry.register_block(LadderBlock {});
     registry.register_item(SignItem {});
-    registry.register_block(SignBlock { id: (63, 0) });
-    registry.register_block(SignBlock { id: (68, 0) });
+    registry.register_block(SignBlock { id: 63 });
+    registry.register_block(SignBlock { id: 68 });
+    registry.register_block(FurnaceBlock(61));
+    registry.register_block(FurnaceBlock(62));
+    registry.register_block(SugarCane);
+    registry.register_block(GlassBlock);
+    registry.register_block(SlabBlock);
+    registry.register_block(DispenserBlock);
+    registry.register_block(CobwebBlock);
+    registry.register_block(GenericBush(6));
+    registry.register_block(GenericBush(31));
+    registry.register_block(GenericBush(32));
+    registry.register_block(GenericBush(37));
+    registry.register_block(GenericBush(38));
+    registry.register_block(GenericBush(39));
+    registry.register_block(GenericBush(40));
+    registry.register_block(NoteBlock);
+    registry.register_item(MusicDiscItem(2256));
+    registry.register_item(MusicDiscItem(2257));
+    registry.register_block(JukeboxBlock);
+    registry.register_block(GrassBlock);
+    registry.register_block(FenceBlock);
+    registry.register_block(IceBlock);
+    registry.register_block(VinesBlock);
+    registry.register_block(PumpkinBlock(86));
+    registry.register_block(PumpkinBlock(91));
+    registry.register_block(ChestBlock);
+    registry.register_block(LeverBlock);
+    //registry.register_block(MovingWaterBlock(8));
+    //registry.register_block(NotFlowingWaterBlock);
+    //registry.register_item(WaterBucketItem);
     for i in 1..255 {
         if i == 50 || i == 7 {
             continue;
         }
-        registry.register_block(GenericSolidBlock { id: (i, 0) });
+        registry.register_block(GenericSolidBlock { id: i });
     }
     /*     for i in 0..111 {
         registry.register_item(Box::new(GenericBlock { id: (i, 0) }));

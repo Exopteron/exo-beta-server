@@ -1,14 +1,14 @@
 // Feather license at FEATHER_LICENSE.md
 use hecs::EntityBuilder;
 
-use crate::{ecs::{systems::SystemExecutor, entities::player::Chatbox}, game::Game, server::Server, network::ids::NetworkID, commands::PermissionLevel};
+use crate::{ecs::{systems::SystemExecutor, entities::player::{Chatbox, Username}}, game::Game, server::Server, network::ids::NetworkID, commands::PermissionLevel};
 
 use super::SysResult;
 
-struct Console;
+pub struct Console;
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
     let mut console = EntityBuilder::new();
-    console.add(Console).add(Chatbox::new()).add(PermissionLevel(5));
+    console.add(Console).add(Chatbox::new()).add(PermissionLevel(5)).add(Username(String::from("Server")));
     game.console_entity = game.ecs.spawn(console.build());
     systems.add_system(flush_console_chat_box);
     systems.group::<Server>().add_system(flush_chat_boxes);

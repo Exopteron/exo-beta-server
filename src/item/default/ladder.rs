@@ -19,13 +19,13 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 pub struct LadderBlock {}
 impl Block for LadderBlock {
     fn id(&self) -> BlockIdentifier {
-        (65, 0)
+        65
     }
 
     fn item_stack_size(&self) -> i8 {
         64
     }
-    fn collision_box(&self, state: BlockState, position: BlockPosition) -> AABB {
+    fn collision_box(&self, state: BlockState, position: BlockPosition) -> Option<AABB> {
         let f = 0.125;
         let mut aabbsize = AABBSize::new(
             position.x as f64,
@@ -47,7 +47,7 @@ impl Block for LadderBlock {
         if state.b_metadata == 5 {
             aabbsize.set_bounds(0., 0., 0., f, 1., 1.);
         }
-        aabbsize.get_from_block(&position)
+        Some(aabbsize.get_from_block(&position))
     }
     fn place(
         &self,
@@ -142,5 +142,8 @@ impl Block for LadderBlock {
             return true;
         }
         return game.is_solid_block(Face::PositiveZ.offset(position), world);
+    }
+    fn opaque(&self) -> bool {
+        false
     }
 }

@@ -173,4 +173,12 @@ packets! {
         text3 String16;
         text4 String16;
     }
+
+    BlockAction {
+        x i32;
+        y i16;
+        z i32;
+        byte1 i8;
+        byte2 i8; 
+    }
 }

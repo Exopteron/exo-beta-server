@@ -2,6 +2,7 @@ use crate::block_entity;
 use crate::block_entity::BlockEntity;
 use crate::block_entity::BlockEntityLoader;
 use crate::commands::*;
+use crate::configuration::OpManager;
 use crate::configuration::CONFIGURATION;
 use crate::ecs::entities::living::Health;
 use crate::ecs::entities::player::ChatMessage;
@@ -11,6 +12,7 @@ use crate::ecs::entities::player::Gamemode;
 use crate::ecs::entities::player::Player;
 use crate::ecs::entities::player::PlayerBuilder;
 use crate::ecs::entities::player::Username;
+use crate::ecs::systems::world::light::LightPropagationManager;
 use crate::ecs::systems::SysResult;
 use crate::ecs::systems::SystemExecutor;
 use crate::ecs::Ecs;
@@ -39,6 +41,7 @@ use crate::server::Client;
 use crate::server::Server;
 use crate::translation::TranslationManager;
 use crate::world::chunk_entities::ChunkEntities;
+use crate::world::chunk_map::chunk_relative_pos;
 use crate::world::chunks::BlockState;
 use crate::world::mcregion::MCRegionLoader;
 use crate::world::World;
@@ -49,7 +52,10 @@ use flume::{Receiver, Sender};
 use hecs::Entity;
 use hecs::EntityBuilder;
 use hecs::NoSuchEntity;
+use itertools::Itertools;
 use once_cell::sync::Lazy;
+use rand::SeedableRng;
+use rand_chacha::ChaCha8Rng;
 use std::any::Any;
 use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
@@ -70,6 +76,13 @@ pub struct BlockPosition {
 }
 impl Eq for BlockPosition {}
 impl BlockPosition {
+    pub fn offset(&self, x: i32, y: i32, z: i32) -> Self {
+        Self {
+            x: self.x + x,
+            y: self.y + y,
+            z: self.z + z,
+        }
+    }
     pub fn new(x: i32, y: i32, z: i32) -> Self {
         Self { x, y, z }
     }
@@ -167,6 +180,15 @@ pub struct Position {
     pub yaw: f32,
     pub pitch: f32,
     pub on_ground: bool,
+}
+impl From<Position> for BlockPosition {
+    fn from(other: Position) -> Self {
+        Self {
+            x: other.x.floor() as i32,
+            y: other.y.floor() as i32,
+            z: other.z.floor() as i32,
+        }
+    }
 }
 impl From<BlockPosition> for Position {
     fn from(bpos: BlockPosition) -> Self {
@@ -315,7 +337,8 @@ impl DamageType {
             DamageType::Void => "fell into the void.",
             DamageType::Fall => "fell to their doom.",
             _ => "died",
-        }.to_string()
+        }
+        .to_string()
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]
@@ -398,9 +421,9 @@ impl Scheduler {
     pub fn schedule_task(
         &mut self,
         ticks: u128,
-        func: Arc<Box<dyn Fn(&mut Game) -> Option<u128>>>,
+        func: impl Fn(&mut Game) -> Option<u128> + 'static,
     ) {
-        self.tasks.push((ticks, func));
+        self.tasks.push((ticks, Arc::new(Box::new(func))));
     }
     pub fn run_tasks(&mut self, game: &mut Game) {
         let ticks = game.ticks;
@@ -437,8 +460,9 @@ pub struct Game {
     pub commands: Rc<RefCell<CommandSystem>>,
     pub time: i64,
     pub console_entity: Entity,
-    pub scheduler: Scheduler,
+    pub scheduler: Rc<RefCell<Scheduler>>,
     pub tps: f64,
+    pub rng: ChaCha8Rng,
 }
 use nbt::*;
 use rand::Rng;
@@ -457,12 +481,20 @@ impl HasEcs for Game {
     }
 }
 impl Game {
+    pub fn block_entity_at(&self, position: BlockPosition, world: i32) -> Option<Entity> {
+        for (entity, block_entity) in self.ecs.query::<&BlockEntity>().iter() {
+            if block_entity.0 == position && block_entity.1 == world {
+                return Some(entity);
+            }
+        }
+        None
+    }
     pub fn is_block_entity_at(&self, position: BlockPosition, world: i32) -> bool {
         for (_, block_entity) in self.ecs.query::<&BlockEntity>().iter() {
             if block_entity.0 == position && block_entity.1 == world {
                 return true;
             }
-        } 
+        }
         false
     }
     pub fn remove_block_entity_at(&mut self, position: BlockPosition, world: i32) -> SysResult {
@@ -471,7 +503,7 @@ impl Game {
             if block_entity.0 == position && block_entity.1 == world {
                 to_remove.push(entity);
             }
-        } 
+        }
         for entity in to_remove {
             //log::info!("Removing block entity");
             self.remove_entity(entity)?;
@@ -488,7 +520,12 @@ impl Game {
             }
         }
     }
-    pub fn execute_command(&mut self, server: &mut Server, command: &str, executor: Entity) -> anyhow::Result<usize> {
+    pub fn execute_command(
+        &mut self,
+        server: &mut Server,
+        command: &str,
+        executor: Entity,
+    ) -> anyhow::Result<usize> {
         let commands = self.commands.clone();
         let mut commands = commands.borrow_mut();
         commands.execute(self, server, executor, command)
@@ -501,6 +538,13 @@ impl Game {
             }
         }
         false
+    }
+    pub fn block_meta_at(&self, pos: BlockPosition, world: i32) -> u8 {
+        if let Some(state) = self.block(pos, world) {
+            state.b_metadata
+        } else {
+            0
+        }
     }
     pub fn block_id_at(&self, pos: BlockPosition, world: i32) -> u8 {
         if let Some(state) = self.block(pos, world) {
@@ -522,6 +566,7 @@ impl Game {
         block: BlockState,
         world_id: i32,
         update_neighbors: bool,
+        nlh: bool,
     ) -> bool {
         let world = match self.worlds.get_mut(&world_id) {
             Some(w) => w,
@@ -529,20 +574,23 @@ impl Game {
                 return false;
             }
         };
-        let was_successful = world.set_block_at(pos, block);
-        let mut event = BlockChangeEvent::single(pos, world_id);
-        event.update_neighbors = update_neighbors;
-        if was_successful {
-            //log::info!("Propagating event for {:?}", pos);
-            self.ecs.insert_event(event);
+        if let Ok(mut light) = self.objects.get_mut::<LightPropagationManager>() {
+            let was_successful = world.set_block_at(&mut light, pos, block, nlh);
+            let mut event = BlockChangeEvent::single(pos, world_id);
+            event.update_neighbors = update_neighbors;
+            if was_successful {
+                //log::info!("Propagating event for {:?}", pos);
+                self.ecs.insert_event(event);
+            }
+            return was_successful;
         }
-        was_successful
+        false
     }
     /// Sets the block at the given position.
     ///
     /// Triggers necessary `BlockChangeEvent`s.
     pub fn set_block(&mut self, pos: BlockPosition, block: BlockState, world_id: i32) -> bool {
-        self.set_block_nb(pos, block, world_id, true)
+        self.set_block_nb(pos, block, world_id, true, false)
     }
     /// Breaks the block at the given position, propagating any
     /// necessary block updates.
@@ -653,6 +701,46 @@ impl Game {
         );
         let mut commands = CommandSystem::new();
         commands.register(Command::new(
+            "deop",
+            "deop a player",
+            4,
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, server, executor, args| {
+                let string = args.get::<String>(0)?.to_string();
+                let name = game.ecs.get::<Username>(executor)?.deref().clone();
+                game.objects.get_mut::<OpManager>()?.remove_op(&string);
+                for (_, (username, perm_level)) in
+                    game.ecs.query::<(&Username, &mut PermissionLevel)>().iter()
+                {
+                    if username.0 == string {
+                        perm_level.0 = 1;
+                    }
+                }
+                game.broadcast_to_ops(&name.0, &format!("De-opped {}", string));
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "op",
+            "op a player",
+            4,
+            vec![CommandArgumentTypes::String],
+            Box::new(|game, server, executor, args| {
+                let string = args.get::<String>(0)?.to_string();
+                let name = game.ecs.get::<Username>(executor)?.deref().clone();
+                game.objects.get_mut::<OpManager>()?.add_op(string.clone());
+                for (_, (username, perm_level)) in
+                    game.ecs.query::<(&Username, &mut PermissionLevel)>().iter()
+                {
+                    if username.0 == string {
+                        perm_level.0 = 4;
+                    }
+                }
+                game.broadcast_to_ops(&name.0, &format!("Opped {}", string));
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
             "reload",
             "reload",
             4,
@@ -663,16 +751,77 @@ impl Game {
             }),
         ));
         commands.register(Command::new(
+            "say",
+            "say message",
+            4,
+            vec![CommandArgumentTypes::StringRest],
+            Box::new(|game, server, executor, args| {
+                let executor = game.ecs.entity(executor)?;
+                let name = executor.get::<Username>()?.0.clone();
+                let msg = args.get::<Vec<String>>(0)?;
+                game.broadcast_chat(format!("[{}] {}", name, msg.iter().join(" ")));
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
             "time",
             "set time",
             4,
             vec![CommandArgumentTypes::Int],
             Box::new(|game, server, executor, mut args| {
                 let executor = game.ecs.entity(executor)?;
-                let time: i32 = args[0].as_int();
-                game.time = time as i64;
+                let time = args.get::<i32>(0)?;
+                game.time = *time as i64;
                 let name = executor.get::<Username>()?.0.clone();
                 game.broadcast_to_ops(&name, &format!("Set the game time to {}", time));
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "skylight",
+            "skylight at pos",
+            4,
+            vec![],
+            Box::new(|game, server, executor, mut args| {
+                let executor = game.ecs.entity(executor)?;
+                let world = executor.get::<CurrentWorldInfo>()?;
+                let pos = executor.get::<Position>()?;
+                let pos: BlockPosition = pos.deref().clone().into();
+                if let Some(state) = game.block(pos, world.world_id) {
+                    let mut chatbox = executor.get_mut::<Chatbox>()?;
+                    chatbox.send_message(format!("Light: {}", state.b_skylight).into());
+                }
+                if let Some(world) = game.worlds.get(&world.world_id) {
+                    let mut chatbox = executor.get_mut::<Chatbox>()?;
+                    let posoff = chunk_relative_pos(pos);
+                    chatbox.send_message(
+                        format!(
+                            "Heightmap for {:?}: {:?}",
+                            pos,
+                            world
+                                .chunk_map
+                                .chunk_at(pos.to_chunk_coords())
+                                .unwrap()
+                                .heightmaps
+                                .light_blocking
+                                .height(posoff.0 as usize, posoff.2 as usize)
+                        )
+                        .into(),
+                    );
+                }
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "help",
+            "help",
+            1,
+            vec![],
+            Box::new(|game, server, executor, mut args| {
+                let executor = game.ecs.entity(executor)?;
+                let mut chatbox = executor.get_mut::<Chatbox>()?;
+                chatbox.send_message("Help -- TODO".into());
+                chatbox.send_message("Op yourself with `op`.".into());
                 Ok(0)
             }),
         ));
@@ -683,10 +832,10 @@ impl Game {
             vec![CommandArgumentTypes::Int],
             Box::new(|game, server, executor, mut args| {
                 let executor = game.ecs.entity(executor)?;
-                let arg: i32 = args[0].as_int();
+                let arg = args.get::<i32>(0)?;
                 executor
                     .get_mut::<Health>()?
-                    .damage(arg as i16, DamageType::Void);
+                    .damage(*arg as i16, DamageType::Void);
 
                 Ok(0)
             }),
@@ -699,8 +848,8 @@ impl Game {
             Box::new(|game, server, executor, mut args| {
                 let executor = game.ecs.entity(executor)?;
                 let name = executor.get::<Username>()?.0.clone();
-                let arg: i32 = args[0].as_int();
-                let id = Gamemode::from_id(arg as u8);
+                let arg = args.get::<i32>(0)?;
+                let id = Gamemode::from_id(*arg as u8);
                 if let Some(gamemode) = id {
                     *executor.get_mut::<Gamemode>()? = gamemode;
                     game.broadcast_to_ops(&name, &format!("Set own game mode to {:?}", gamemode));
@@ -724,14 +873,34 @@ impl Game {
                 chatbox.send_message(format!("TPS: {}", game.tps).into());
                 chatbox.send_message(format!("Game time: {}", game.time).into());
                 chatbox.send_message(format!("Game tick count: {}", game.ticks).into());
-                chatbox.send_message(format!("Block entities: {}", game.ecs.count::<BlockEntity>()).into());
-                chatbox.send_message(format!("Player entities: {}", game.ecs.count::<Player>()).into());
-                chatbox.send_message(format!("Players: {}/{}", server.player_count.get(), server.player_count.get_max()).into());
+                chatbox.send_message(
+                    format!("Block entities: {}", game.ecs.count::<BlockEntity>()).into(),
+                );
+                chatbox.send_message(
+                    format!("Player entities: {}", game.ecs.count::<Player>()).into(),
+                );
+                chatbox.send_message(
+                    format!(
+                        "Players: {}/{}",
+                        server.player_count.get(),
+                        server.player_count.get_max()
+                    )
+                    .into(),
+                );
                 chatbox.send_message(format!("MOTD: {}", CONFIGURATION.server_motd).into());
-                chatbox.send_message(format!("View distance: {}", CONFIGURATION.chunk_distance).into());
+                chatbox.send_message(
+                    format!("View distance: {}", CONFIGURATION.chunk_distance).into(),
+                );
                 chatbox.send_message(format!("Worlds:").into());
                 for (id, world) in game.worlds.iter() {
-                    chatbox.send_message(format!("World {} - {} loaded chunks", id, world.loaded_chunks().len()).into());
+                    chatbox.send_message(
+                        format!(
+                            "World {} - {} loaded chunks",
+                            id,
+                            world.loaded_chunks().len()
+                        )
+                        .into(),
+                    );
                 }
                 drop(chatbox);
                 game.broadcast_to_ops(&name, &format!("Acquired debug info"));
@@ -750,14 +919,15 @@ impl Game {
             commands: Rc::new(RefCell::new(commands)),
             time: 0,
             console_entity: Entity::from_bits(0),
-            scheduler: Scheduler::new(),
+            scheduler: Rc::new(RefCell::new(Scheduler::new())),
             tps: 0.0,
+            rng: ChaCha8Rng::from_entropy(),
         };
         //let mut game_globals = GameGlobals { time: 0 };
         //GAME_GLOBAL.set(game_globals);
         game
     }
-        /// Creates an entity builder with the default components
+    /// Creates an entity builder with the default components
     /// for an entity of type `init`.
     pub fn create_entity_builder_posless(&mut self, init: EntityInit) -> EntityBuilder {
         let mut builder = mem::take(&mut self.entity_builder);
@@ -863,7 +1033,7 @@ impl Game {
             entity_id: id.0,
             not_used: String16("".to_owned()),
             map_seed: 0,
-            server_mode: 1,
+            server_mode: CONFIGURATION.default_gamemode as i32,
             dimension: 0,
             difficulty: 0,
             world_height: 128,
@@ -880,6 +1050,7 @@ impl Game {
             pos,
             id,
             CurrentWorldInfo::new(0),
+            Gamemode::from_id(CONFIGURATION.default_gamemode).unwrap(),
         );
         self.spawn_entity(player);
         broadcast_player_join(self, client.username());

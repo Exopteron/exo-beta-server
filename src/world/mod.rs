@@ -5,6 +5,7 @@ use std::{
     collections::{HashMap, HashSet},
     mem::{replace, take},
     sync::{atomic::AtomicBool, Arc},
+    time::Instant,
 };
 pub mod worker;
 use ahash::AHashMap;
@@ -16,12 +17,12 @@ use crate::{
     block_entity::{BlockEntity, BlockEntityNBTLoaders, BlockEntitySaver},
     ecs::{
         entities::player::{ChunkLoadQueue, Player},
-        systems::SysResult,
+        systems::{world::light::LightPropagationManager, SysResult},
         Ecs,
     },
     events::ChunkLoadEvent,
     game::{BlockPosition, ChunkCoords, Game, Position},
-    item::item::block::AtomicRegistryBlock,
+    item::item::{block::AtomicRegistryBlock, ItemRegistry},
     world::worker::SaveRequest,
 };
 
@@ -30,7 +31,10 @@ pub mod chunk_lock;
 pub mod chunk_map;
 pub mod chunk_subscriptions;
 pub mod chunks;
+pub mod heightmap;
+pub mod light;
 pub mod mcregion;
+pub mod packed_array;
 use self::{
     cache::ChunkCache,
     chunk_lock::{ChunkHandle, ChunkLock},
@@ -41,6 +45,7 @@ use self::{
 use chunks::*;
 use mcregion::*;
 pub struct World {
+    pub id: i32,
     pub chunk_map: ChunkMap,
     pub cache: ChunkCache,
     chunk_worker: ChunkWorker,
@@ -49,7 +54,12 @@ pub struct World {
     shutdown: Arc<AtomicBool>,
 }
 impl World {
-    pub fn collides_with(&self, aabb: &AABBSize, position: &Position, predicate: AtomicRegistryBlock) -> bool {
+    pub fn collides_with(
+        &self,
+        aabb: &AABBSize,
+        position: &Position,
+        predicate: AtomicRegistryBlock,
+    ) -> bool {
         for (check, _, _) in self.get_collisions(aabb, position) {
             if check == predicate {
                 return true;
@@ -64,12 +74,19 @@ impl World {
     ) -> Vec<(AtomicRegistryBlock, BlockState, BlockPosition)> {
         let mut blocks = Vec::new();
         //log::info!("Called get col");
-        for x in (position.x - 3.0 + aabb.minx).floor() as i32..(position.x + 3.0 + aabb.maxx).floor() as i32 {
-            for y in (position.y - 3.0 + aabb.miny).floor() as i32..(position.y + 3.0 + aabb.maxy).floor() as i32 {
-                for z in (position.z - 3.0 + aabb.minz).floor() as i32..(position.z + 3.0 + aabb.maxz).floor() as i32 {
+        let mut registry = ItemRegistry::global();
+        for x in (position.x - 3.0 + aabb.minx).floor() as i32
+            ..(position.x + 3.0 + aabb.maxx).floor() as i32
+        {
+            for y in (position.y - 3.0 + aabb.miny).floor() as i32
+                ..(position.y + 3.0 + aabb.maxy).floor() as i32
+            {
+                for z in (position.z - 3.0 + aabb.minz).floor() as i32
+                    ..(position.z + 3.0 + aabb.maxz).floor() as i32
+                {
                     let p = BlockPosition::new(x, y, z);
                     if let Some(state) = self.block_at(p) {
-                        if let Ok(block) = state.registry_type() {
+                        if let Some(block) = registry.get_block(state.b_type) {
                             blocks.push((block, state, p));
                         }
                     }
@@ -78,8 +95,10 @@ impl World {
         }
         let aabb = aabb.get(position);
         blocks.retain(|(block, state, pos)| {
-            if block.collision_box(*state, *pos).intersects(&aabb) {
-                return true;
+            if let Some(bounding_box) = block.collision_box(*state, *pos) {
+                if bounding_box.intersects(&aabb) {
+                    return true;
+                }
             }
             false
         });
@@ -104,12 +123,22 @@ impl World {
     /// if its chunk was not loaded or the coordinates
     /// are out of bounds and thus no operation
     /// was performed.
-    pub fn set_block_at(&self, pos: BlockPosition, block: BlockState) -> bool {
-        self.chunk_map.set_block_at(pos, block)
+    pub fn set_block_at(
+        &self,
+        light: &mut LightPropagationManager,
+        pos: BlockPosition,
+        block: BlockState,
+        nlh: bool,
+    ) -> bool {
+        self.chunk_map.set_block_at(self.id, light, pos, block, nlh)
     }
-    pub fn load_chunks(&mut self, ecs: &mut Ecs) -> anyhow::Result<Vec<CompoundTag>> {
+    pub fn load_chunks(
+        &mut self,
+        ecs: &mut Ecs,
+        light: &mut LightPropagationManager,
+    ) -> anyhow::Result<Vec<CompoundTag>> {
         let mut tes = Vec::new();
-        while let Some(mut loaded) = self.chunk_worker.poll_loaded_chunk()? {
+        while let Some(mut loaded) = self.chunk_worker.poll_loaded_chunk(light)? {
             self.loading_chunks.remove(&loaded.pos);
             if self.canceled_chunk_loads.remove(&loaded.pos) {
                 continue;
@@ -173,16 +202,13 @@ impl World {
     pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
         let shutdown = Arc::new(AtomicBool::new(false));
         let world = Self {
-            chunk_worker: ChunkWorker::new(
-                dir,
-                Arc::new(TerrainWorldGenerator {}),
-                shutdown.clone(),
-            ),
+            chunk_worker: ChunkWorker::new(dir, Arc::new(FlatWorldGenerator {}), shutdown.clone()),
             chunk_map: ChunkMap::new(),
             loading_chunks: HashSet::new(),
             canceled_chunk_loads: HashSet::new(),
             shutdown,
             cache: ChunkCache::new(),
+            id: 0,
         };
         Ok(world)
     }

@@ -24,7 +24,7 @@ pub fn handle_creative_inventory_action(
             }
         }
     } else {
-        match ItemRegistry::global().get_block((packet.item_id as u8, packet.meta as u8)) {
+        match ItemRegistry::global().get_block(packet.item_id as u8) {
             Some(i) => {
                 clicked_item = InventorySlot::Filled(ItemStack::new(ItemStackType::Block(i), packet.quantity as i8, packet.meta));
             }

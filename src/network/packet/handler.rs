@@ -106,16 +106,18 @@ fn handle_chat_message(
         let mut message = packet.message.0.clone();
         log::info!("{} issued server command {}", name, message);
         message.remove(0);
-        if let Ok(c) = game.execute_command(server, &message, player) {
+        let res = game.execute_command(server, &message, player);
+        if let Ok(c) = res {
             let player = game.ecs.entity(player)?;
             let mut chatbox = player.get_mut::<Chatbox>()?;
             if let Some(message) = crate::commands::code_to_message(c) {
                 chatbox.send_message(message.into());
             }
-        } else {
+        } else if let Err(e) = res {
             let player = game.ecs.entity(player)?;
             let mut chatbox = player.get_mut::<Chatbox>()?;
             chatbox.send_message("§cAn internal error occured.".into());
+            log::error!("Command error: {:?}", e);
         }
     } else {
         let player = game.ecs.entity(player)?;

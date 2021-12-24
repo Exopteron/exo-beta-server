@@ -19,7 +19,7 @@ pub enum CommandArgumentTypes {
 }
 pub struct PermissionLevel(pub u8);
 pub trait CommandArgument {
-    fn as_any(&mut self) -> &mut dyn Any;
+    fn as_any(&self) -> &dyn Any;
     fn display(&self) -> String;
     fn as_int(&mut self) -> i32 {
         match self.as_any().downcast_ref() {
@@ -34,7 +34,7 @@ impl CommandArgument for String {
     fn display(&self) -> String {
         format!("{}", self)
     }
-    fn as_any(&mut self) -> &mut dyn Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
@@ -42,7 +42,7 @@ impl CommandArgument for i32 {
     fn display(&self) -> String {
         format!("{}", self)
     }
-    fn as_any(&mut self) -> &mut dyn Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
@@ -50,7 +50,7 @@ impl CommandArgument for Vec<String> {
     fn display(&self) -> String {
         format!("{:?}", self)
     }
-    fn as_any(&mut self) -> &mut dyn Any {
+    fn as_any(&self) -> &dyn Any {
         self
     }
 }
@@ -66,10 +66,16 @@ pub struct Command {
                 &mut Game,
                 &mut Server,
                 Entity,
-                Vec<Box<dyn CommandArgument>>,
+                CommandArgs,
             ) -> anyhow::Result<usize>,
         >,
     >,
+}
+pub struct CommandArgs(Vec<Arc<Box<dyn CommandArgument>>>);
+impl CommandArgs {
+    pub fn get<T: 'static + CommandArgument>(&self, idx: usize) -> anyhow::Result<&T> {
+        Ok(self.0.get(idx).ok_or(anyhow::anyhow!("Arg does not exist"))?.as_any().downcast_ref::<T>().ok_or(anyhow::anyhow!("Wrong type"))?)
+    }
 }
 pub struct CommandSystem {
     pub commands: Vec<Command>,
@@ -85,7 +91,7 @@ impl Command {
                 &mut Game,
                 &mut Server,
                 Entity,
-                Vec<Box<dyn CommandArgument>>,
+                CommandArgs,
             ) -> anyhow::Result<usize>,
         >,
     ) -> Self {
@@ -161,7 +167,7 @@ impl CommandSystem {
         if game.ecs.get::<PermissionLevel>(executor)?.0 < cmd.perm_level {
             return Ok(5);
         }
-        let mut args: Vec<Box<dyn CommandArgument>> = Vec::new();
+        let mut args: Vec<Arc<Box<dyn CommandArgument>>> = Vec::new();
         for argument in &cmd.arguments {
             match argument {
                 CommandArgumentTypes::StringRest => {
@@ -174,11 +180,11 @@ impl CommandSystem {
                             break;
                         }
                     }
-                    args.push(Box::new(epic_args));
+                    args.push(Arc::new(Box::new(epic_args)));
                 }
                 CommandArgumentTypes::String => {
                     if let Some(arg) = command.get(argselect) {
-                        args.push(Box::new(arg.to_string()));
+                        args.push(Arc::new(Box::new(arg.to_string())));
                         argselect += 1;
                     } else {
                         return Ok(1);
@@ -186,12 +192,12 @@ impl CommandSystem {
                 }
                 CommandArgumentTypes::Int => {
                     if let Some(arg) = command.get(argselect) {
-                        args.push(Box::new(match i32::from_str_radix(arg, 10) {
+                        args.push(Arc::new(Box::new(match i32::from_str_radix(arg, 10) {
                             Ok(int) => int,
                             Err(_) => {
                                 return Ok(3);
                             }
-                        }));
+                        })));
                         argselect += 1;
                     } else {
                         return Ok(1);
@@ -199,6 +205,6 @@ impl CommandSystem {
                 }
             }
         }
-        (cmd.function)(game, server, executor, args)
+        (cmd.function)(game, server, executor, CommandArgs(args))
     }
 }

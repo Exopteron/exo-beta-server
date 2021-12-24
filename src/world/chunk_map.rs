@@ -4,10 +4,10 @@ use std::{collections::HashMap, sync::Arc};
 use ahash::AHashMap;
 use parking_lot::{RwLockWriteGuard, RwLockReadGuard};
 
-use crate::game::{BlockPosition, ChunkCoords};
+use crate::{game::{BlockPosition, ChunkCoords}, ecs::systems::world::light::{LightPropagationManager, LightPropagationRequest}};
 
 use super::{chunk_lock::{ChunkHandle, ChunkLock}, BlockState, chunks::Chunk};
-const CHUNK_HEIGHT: i32 = 128;
+pub const CHUNK_HEIGHT: i32 = 128;
 pub type ChunkMapInner = AHashMap<ChunkCoords, ChunkHandle>;
 
 /// This struct stores all the chunks on the server,
@@ -53,15 +53,25 @@ impl ChunkMap {
             .flatten()
     }
 
-    pub fn set_block_at(&self, pos: BlockPosition, block: BlockState) -> bool {
+    pub fn set_block_at(&self, world: i32, light: &mut LightPropagationManager, pos: BlockPosition, block: BlockState, nlh: bool) -> bool {
         if check_coords(pos).is_none() {
             return false;
         }
-
         let (x, y, z) = chunk_relative_pos(pos.into());
-        self.chunk_at_mut(pos.to_chunk_coords())
-            .map(|mut chunk| chunk.set_block_at(x, y, z, block))
-            .is_some()
+        if let Some(mut chunk) = self.chunk_at_mut(pos.to_chunk_coords()) {
+            if nlh {
+                chunk.set_block_at_nlh(x, y, z, block);
+            } else {
+                chunk.set_block_at(x, y, z, block);
+            }
+            if !nlh {
+                for request in chunk.global_skylight_requests() {
+                    light.push(request);
+                }
+            }
+            return true;
+        }
+        false
     }
 
     /// Returns an iterator over chunks.
@@ -89,7 +99,7 @@ fn check_coords(pos: BlockPosition) -> Option<()> {
     }
 }
 
-fn chunk_relative_pos(block_pos: BlockPosition) -> (usize, usize, usize) {
+pub fn chunk_relative_pos(block_pos: BlockPosition) -> (usize, usize, usize) {
     (
         block_pos.x as usize & 0xf,
         block_pos.y as usize,

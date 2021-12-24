@@ -37,6 +37,7 @@ fn send_new_chunks(game: &mut Game, server: &mut Server) -> SysResult {
         .query::<(&NetworkID, &ViewUpdateEvent, &Position, &CurrentWorldInfo)>()
         .iter()
     {
+        log::info!("Position: {:?}", position);
         // As ecs removes the client one tick after it gets removed here, it can
         // happen that a client is still listed in the ecs but actually removed here so
         // we need to check if the client is actually still there.
@@ -80,7 +81,7 @@ fn update_chunks(
     for &pos in &event.old_chunks {
         client.unload_chunk(pos);
     }
-
+    //log::info!("Spawning from here at {:?}!", position);
     spawn_client_if_needed(client, position);
 
     Ok(())
@@ -97,7 +98,10 @@ fn send_loaded_chunks(game: &mut Game, server: &mut Server) -> SysResult {
             if let Ok(client_id) = game.ecs.get::<NetworkID>(player) {
                 if let Some(client) = server.clients.get(&client_id) {
                     client.send_chunk(&event.chunk);
-                    spawn_client_if_needed(client, *game.ecs.get::<Position>(player)?);
+                    let possy = *game.ecs.get::<Position>(player)?;
+                    //log::info!("Spawning at {:?}!", possy);
+
+                    spawn_client_if_needed(client, possy);
                 }
             }
         }
@@ -107,7 +111,7 @@ fn send_loaded_chunks(game: &mut Game, server: &mut Server) -> SysResult {
 
 fn spawn_client_if_needed(client: &Client, pos: Position) {
     if !client.knows_own_position() && client.known_chunks() >= 9 * 9 {
-        log::info!("Sent all chunks to {}; now spawning", client.username());
+        log::info!("Sent all chunks to {}; now spawning at {:?}", client.username(), pos);
         client.update_own_position(pos);
     }
 }

@@ -2,19 +2,20 @@ use std::{sync::Arc, fmt::Debug};
 
 use ahash::AHashMap;
 use hecs::Entity;
-use once_cell::sync::OnceCell;
+use once_cell::unsync::OnceCell;
 use parking_lot::{RawMutex, MutexGuard};
+use rustc_hash::FxHashMap;
 
-use crate::{game::{BlockPosition, Game}, protocol::packets::Face, ecs::systems::SysResult, server::Server};
+use crate::{game::{BlockPosition, Game}, protocol::packets::Face, ecs::systems::SysResult, server::Server, block_entity::BlockEntityNBTLoaders};
 
 use self::block::{AtomicRegistryBlock, RegistryBlock, Block};
 
 use super::{stack::ItemStack, inventory_slot::InventorySlot};
 pub mod block;
 // featerlicense in FEATHER_LICENSE.md
-static ITEM_REGISTRY: OnceCell<ItemRegistry> = OnceCell::new();
+static mut ITEM_REGISTRY: Option<Arc<ItemRegistry>> = None;
 pub type ItemIdentifier = i16;
-pub type BlockIdentifier = (u8, u8);
+pub type BlockIdentifier = u8;
 pub struct BlockUseTarget {
     pub position: BlockPosition,
     pub world: i32,
@@ -47,16 +48,20 @@ pub struct ItemRegistry {
 }
 
 impl ItemRegistry {
-    pub fn global() -> &'static ItemRegistry {
-        ITEM_REGISTRY.get().expect("Attempted to get item registry before init")
+    pub fn global() -> Arc<ItemRegistry> {
+        unsafe {
+            Arc::clone(ITEM_REGISTRY.as_ref().unwrap())
+        }
     }
     pub fn set(self) {
-        ITEM_REGISTRY.set(self).ok().expect("Already set item registry!");
+        unsafe {
+            ITEM_REGISTRY = Some(Arc::new(self));
+        }
     }
     pub fn new() -> Self {
         Self {
             items: AHashMap::new(),
-            blocks: AHashMap::new(),
+            blocks: AHashMap::default(),
         }
     }
     pub fn register_block(&mut self, block: impl Block + Sync + Send + 'static) {
@@ -73,5 +78,10 @@ impl ItemRegistry {
     }
     pub fn get_item(&self, id: ItemIdentifier) -> Option<AtomicRegistryItem> {
         self.items.get(&id).cloned()
+    }
+    pub fn apply_loaders(&self, loaders: &mut BlockEntityNBTLoaders) {
+        for (_, block) in self.blocks.iter() {
+            block.block_entity_loader(loaders);
+        }
     }
 }

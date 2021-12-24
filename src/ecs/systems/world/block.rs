@@ -30,13 +30,24 @@ pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
 
 fn broadcast_block_changes(game: &mut Game, server: &mut Server) -> SysResult {
     let mut to_update = Vec::new();
+    let mut to_add_new = Vec::new();
     for (_, event) in game.ecs.query::<&BlockChangeEvent>().iter() {
         if event.update_neighbors {
             for block in event.iter_changed_blocks() {
                 to_update.push((block, event.world()));
             }
         }
+        for update in event.iter_changed_blocks() {
+            to_add_new.push((update, event.world()));
+        }
         broadcast_block_change(event, game, server);
+    }
+    for update in to_add_new.iter() {
+        if let Some(blockstate) = game.block(update.0, update.1) {
+            if let Ok(block) = blockstate.registry_type() {
+                block.added(update.1, game, server, update.0, blockstate);
+            }
+        }
     }
     for update in to_update.iter() {
         game.remove_block_entity_at(update.0, update.1)?;
@@ -45,7 +56,6 @@ fn broadcast_block_changes(game: &mut Game, server: &mut Server) -> SysResult {
                 let mut builder = game.create_entity_builder(Position::from_pos(update.0.x as f64, update.0.y as f64, update.0.z as f64), EntityInit::BlockEntity);
                 builder.add(BlockEntity(update.0, update.1));
                 if block.block_entity(&mut builder, blockstate, update.0.clone()) {
-                    log::info!("Adding block entity");
                     game.spawn_entity(builder);
                 }
             }

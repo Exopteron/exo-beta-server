@@ -5,6 +5,7 @@ mod entities;
 pub mod world;
 pub mod chat;
 pub mod tablist;
+pub mod stdin;
 use super::{HasEcs, HasResources};
 
 // Derived from feather-rs. License can be found in FEATHER_LICENSE.md
@@ -124,7 +125,6 @@ impl<Input> SystemExecutor<Input> {
             if !self.is_first_run {
                 input.ecs_mut().remove_old_events();
             }
-
             let result = (system.function)(input);
             if let Err(e) = result {
                 log::error!(
@@ -195,6 +195,7 @@ pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) {
     crate::entities::register(g, s);
     crate::world::chunk_entities::register(s);
     tablist::register(s);
+    stdin::register(g, s);
 }
 /// Sends out keepalive packets at an interval.
 fn send_keepalives(_game: &mut Game, server: &mut Server) -> SysResult {

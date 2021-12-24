@@ -231,9 +231,9 @@ impl Writeable for Slot {
                         self.damage().write(buffer, version)?;
                     }
                     ItemStackType::Block(b) => {
-                        (b.id().0 as i16).write(buffer, version)?;
+                        (b.id() as i16).write(buffer, version)?;
                         self.count().write(buffer, version)?;
-                        (b.id().1 as i16).write(buffer, version)?;
+                        self.damage().write(buffer, version)?;
                     }
                 }
             }
@@ -252,7 +252,7 @@ impl Readable for Slot {
             if id > 255 {
                 return Ok(Slot::Filled(ItemStack::new(ItemStackType::Item(ItemRegistry::global().get_item(id).ok_or(anyhow::anyhow!("No such item"))?), count, meta)));
             } else {
-                return Ok(Slot::Filled(ItemStack::new(ItemStackType::Block(ItemRegistry::global().get_block((id as u8, meta as u8)).ok_or(anyhow::anyhow!("No such block"))?), count, meta)));
+                return Ok(Slot::Filled(ItemStack::new(ItemStackType::Block(ItemRegistry::global().get_block(id as u8).ok_or(anyhow::anyhow!("No such block"))?), count, meta)));
             }
         } else {
             return Ok(Slot::Empty);

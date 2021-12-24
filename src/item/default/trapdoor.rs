@@ -13,6 +13,9 @@ use crate::{
 use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
 pub struct TrapdoorBlock {}
 impl Block for TrapdoorBlock {
+    fn opaque(&self) -> bool {
+        false
+    }
     fn place(
         &self,
         game: &mut Game,
@@ -61,7 +64,7 @@ impl Block for TrapdoorBlock {
     }
 
     fn id(&self) -> BlockIdentifier {
-        (96, 0)
+        96
     }
 
     fn item_stack_size(&self) -> i8 {

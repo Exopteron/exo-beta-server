@@ -1,9 +1,12 @@
 use crate::configuration::CONFIGURATION;
+use crate::ecs::systems::world::light::LightPropagationManager;
+use crate::ecs::systems::world::light::LightPropagationRequest;
 //use crate::game::items::ItemRegistry;
 use crate::game::ChunkCoords;
 use crate::game::RefContainer;
-use crate::item::item::ItemRegistry;
 use crate::item::item::block::AtomicRegistryBlock;
+use crate::item::item::ItemRegistry;
+use crate::world::chunk_map::CHUNK_HEIGHT;
 use flume::{Receiver, Sender};
 /// The width in blocks of a chunk column.
 pub const CHUNK_WIDTH: usize = 16;
@@ -46,11 +49,13 @@ impl BlockState {
             b_type: id,
             b_metadata: meta,
             b_light: 0,
-            b_skylight: 15
+            b_skylight: 15,
         }
     }
     pub fn registry_type(&self) -> anyhow::Result<AtomicRegistryBlock> {
-        ItemRegistry::global().get_block((self.b_type, 0)).ok_or(anyhow::anyhow!("Block does not exist in registry"))
+        ItemRegistry::global()
+            .get_block(self.b_type)
+            .ok_or(anyhow::anyhow!("Block does not exist in registry"))
     }
     pub fn from_id(id: u8) -> Self {
         Self {
@@ -183,7 +188,7 @@ impl ChunkSection {
 pub struct Chunk {
     pub pos: ChunkCoords,
     pub data: [Option<ChunkSection>; 8],
-    pub heightmap: [[i8; 16]; 16],
+    pub heightmaps: HeightmapStore,
 }
 impl Chunk {
     pub fn fill_layer(&mut self, level: usize, block: BlockState) {
@@ -218,17 +223,84 @@ impl Chunk {
         Self {
             pos: coords,
             data,
-            heightmap: [[0; 16]; 16],
+            heightmaps: HeightmapStore::new(),
+        }
+    }
+    pub fn block_at_fn(
+        sections: &[Option<ChunkSection>],
+    ) -> impl Fn(usize, usize, usize) -> BlockState + '_ {
+        move |x, y, z| {
+            let section = &sections[y / SECTION_HEIGHT];
+            match section {
+                Some(section) => section.block_at(x, y % SECTION_HEIGHT, z).unwrap(),
+                None => BlockState::air(),
+            }
         }
     }
     /// Sets the section at index `y`.
     pub fn set_section_at(&mut self, y: isize, section: Option<ChunkSection>) {
         self.data[y as usize] = section;
     }
-    /// Sets the block at the given position within this chunk.
+    pub fn calculate_full_skylight(&mut self) {
+        for x in 0..16 {
+            for z in 0..16 {
+                self.calculate_skylight(x, z);
+            }
+        }
+    }
+    pub fn global_skylight_requests(&mut self) -> Vec<LightPropagationRequest> {
+        let mut requests = Vec::new();
+        for x in 0..16 {
+            for z in 0..16 {
+                for y in 0..CHUNK_HEIGHT {
+                    if let Some(mut b) = self.block_at(x, y as usize, z) {
+                        b.b_skylight = 0;
+                        self.set_block_at_nlh(x, y as usize, z, b);
+                    }
+                }
+                if let Some(y) = self.heightmaps.light_blocking.height(x, z) {
+                    for y in y..128 {
+                        if let Some(mut b) = self.block_at(x, y, z) {
+                            b.b_skylight = 15;
+                            self.set_block_at_nlh(x, y, z, b);
+                        }
+                    }
+                    let pos = BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, y as i32, (z + (self.pos.z as usize) * 16) as i32);
+                    requests.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
+                }
+            }
+        }
+        requests
+    }
+    pub fn calculate_skylight(&mut self, x: usize, z: usize) -> Option<BlockPosition> {
+        if let Some(y) = self.heightmaps.light_blocking.height(x, z) {
+            for y in y..128 {
+                if let Some(mut b) = self.block_at(x, y, z) {
+                    b.b_skylight = 15;
+                    self.set_block_at_nlh(x, y, z, b);
+                }
+            }
+            for y in 0..y {
+                if let Some(mut b) = self.block_at(x, y, z) {
+                    b.b_skylight = 0;
+                    self.set_block_at_nlh(x, y, z, b);
+                }
+            }
+            return Some(BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (self.pos.z as usize) * 16) as i32));
+        } else {
+            for y in 0..128 {
+                if let Some(mut b) = self.block_at(x, y, z) {
+                    b.b_skylight = 15;
+                    self.set_block_at_nlh(x, y, z, b);
+                }
+            }
+        }
+        None
+    }
+    /// Sets the block at the given position within this chunk without updating the heightmap/skylight.
     ///
     /// Returns `None` if the coordinates are out of bounds.
-    pub fn set_block_at(&mut self, x: usize, y: usize, z: usize, block: BlockState) -> Option<()> {
+    pub fn set_block_at_nlh(&mut self, x: usize, y: usize, z: usize, block: BlockState) -> Option<()> {
         let old_block = self.block_at(x, y, z)?;
         let section = self.section_for_y_mut(y)?;
         let result = match section {
@@ -252,6 +324,17 @@ impl Chunk {
                 }
             }
         };
+        result
+    }
+    /// Sets the block at the given position within this chunk.
+    ///
+    /// Returns `None` if the coordinates are out of bounds.
+    pub fn set_block_at(&mut self, x: usize, y: usize, z: usize, block: BlockState) -> Option<()> {
+        let old_block = self.block_at(x, y, z)?;
+        let result = self.set_block_at_nlh(x, y, z, block);
+        //log::info!("Updating heightmap at {}, {}, {}", x, y, z);
+        self.heightmaps
+            .update(x, y, z, old_block, block, Self::block_at_fn(&self.data));
         result
     }
     /// Gets the block at the given position within this chunk.
@@ -281,13 +364,17 @@ impl Chunk {
         let mut v = Self {
             pos: ChunkCoords { x, z },
             data: [None, None, None, None, None, None, None, None],
-            heightmap: [[0; 16]; 16],
+            heightmaps: HeightmapStore::new(),
         };
         v
     }
 }
 use crate::game::{BlockPosition, Position};
 use std::collections::VecDeque;
+use std::time::Instant;
+
+use super::heightmap::HeightmapStore;
+use super::light;
 fn make_nibble_byte(mut a: u8, mut b: u8) -> Option<u8> {
     if a > 15 || b > 15 {
         return None;

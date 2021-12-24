@@ -32,6 +32,7 @@ use crate::network::metadata::Metadata;
 use crate::network::Listener;
 use crate::player_count::PlayerCount;
 use crate::protocol::io::String16;
+use crate::protocol::packets::server::BlockAction;
 use crate::protocol::packets::server::BlockChange;
 use crate::protocol::packets::server::ChunkData;
 use crate::protocol::packets::server::ChunkDataKind;
@@ -111,8 +112,17 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
+    pub fn send_block_action(&self, position: BlockPosition, byte1: i8, byte2: i8) {
+        self.send_packet(BlockAction {
+            x: position.x,
+            y: position.y as i16,
+            z: position.z,
+            byte1,
+            byte2,
+        });
+    }
     pub fn update_sign(&self, position: BlockPosition, data: SignData) {
-        log::info!("Updating sign at {:?} with {:?}", position, data);
+        //log::info!("Updating sign at {:?} with {:?}", position, data);
         self.send_packet(UpdateSign {
             x: position.x,
             y: position.y as i16,
@@ -197,8 +207,8 @@ impl Client {
                     self.send_packet(EntityEquipment {
                         eid: id.0,
                         slot,
-                        item_id: i.id().0 as i16,
-                        damage: i.id().1 as i16,
+                        item_id: i.id() as i16,
+                        damage: item.damage(),
                     });
                 },
             },
@@ -384,7 +394,7 @@ impl Client {
         self.send_packet(KeepAlive { id: 0 });
     }
     pub fn update_own_position(&self, new_position: Position) {
-        log::trace!(
+        log::info!(
             "Updating position of {} to {:?}",
             self.username,
             new_position

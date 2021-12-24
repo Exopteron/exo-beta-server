@@ -56,6 +56,7 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
         let pref = game.ecs.entity(entity)?;
         let netid = pref.get::<NetworkID>()?.deref().clone();
         pref.get_mut::<Health>()?.0 = 20;
+        //         *pref.get_mut::<Position>()? = Position::from_pos(324., 75., -472.);
         *pref.get_mut::<Position>()? = Position::from_pos(0., 75., 0.);
         let spawnpacket = pref.get::<SpawnPacketSender>()?;
         server.broadcast_nearby_with(*pref.get::<Position>()?, |cl| {
@@ -141,11 +142,16 @@ fn check_fall_damage(game: &mut Game) -> SysResult {
                 }
                 if let Some(world) = game.worlds.get(&world.world_id) {
                     // TODO check if absorbs fall
-                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block((9, 0)).unwrap()) {
+                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block(9).unwrap()) {
                         do_dmg = false;
                     }
-                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block((8, 0)).unwrap()) {
+                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block(8).unwrap()) {
                         do_dmg = false;
+                    }
+                    for block in world.get_collisions(bounding_box, pos) {
+                        if block.0.absorbs_fall() {
+                            do_dmg = false;
+                        }
                     }
                 }
                 if height > 0.0 && do_dmg {

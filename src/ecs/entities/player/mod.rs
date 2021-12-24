@@ -10,7 +10,7 @@ use crate::{
     entities::{EntityInit, PreviousPosition},
     game::{ChunkCoords, Game, Position, DamageType},
     network::ids::NetworkID,
-    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::CONFIGURATION, aabb::AABBSize,
+    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::{CONFIGURATION, OpManager}, aabb::AABBSize,
 };
 
 use super::living::{Health, Hunger, PreviousHealth, PreviousHunger, Regenerator};
@@ -191,7 +191,14 @@ impl PlayerBuilder {
         position: Position,
         id: NetworkID,
         world_info: CurrentWorldInfo,
+        gamemode: Gamemode,
     ) -> EntityBuilder {
+        let op_manager = game.objects.get::<OpManager>().unwrap();
+        let perm_level = match op_manager.is_op(&username.0) {
+            true => 4,
+            false => 1,
+        };
+        drop(op_manager);
         let inventory = Inventory::player();
         let window = Window::new(BackingWindow::Player {
             player: inventory.new_handle(),
@@ -206,10 +213,10 @@ impl PlayerBuilder {
         builder.add(Sneaking(false));
         builder.add(Sprinting::new(false));
         builder.add(HotbarSlot::new(0));
-        builder.add(Gamemode::Creative);
-        builder.add(PreviousGamemode::from_id(1));
+        builder.add(PreviousGamemode::from_id(gamemode.id()));
+        builder.add(gamemode);
         builder.add(window);
-        builder.add(PermissionLevel(4));
+        builder.add(PermissionLevel(perm_level));
         builder.add(Health(20, DamageType::None));
         builder.add(PreviousHealth(Health(20, DamageType::None)));
         builder.add(Hunger(20, 0.0));
