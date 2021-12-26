@@ -34,7 +34,6 @@ fn add_tablist_players(game: &mut Game, server: &mut Server) -> SysResult {
         )>()
         .iter()
     {
-        log::info!("Called for {}", name.0);
         // Add this player to other players' tablists
         server.broadcast_with(|client| {
             client.add_tablist_player(name.0.to_string(), 0);

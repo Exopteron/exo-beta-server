@@ -79,8 +79,10 @@ impl Worker {
     }
     async fn do_main(self, username: String) {
         let Self { reader, writer, .. } = self;
-        let reader = tokio::task::spawn(async move { reader.run().await });
-        let writer = tokio::task::spawn(async move { writer.run().await });
+        let u = username.clone();
+        let reader = tokio::task::spawn(async move { reader.run(u).await });
+        let u = username.clone();
+        let writer = tokio::task::spawn(async move { writer.run(u).await });
         tokio::task::spawn(async move {
             let result = tokio::select! {
                 a = reader => a,
@@ -117,9 +119,15 @@ impl Reader {
         }
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(mut self, name: String) -> anyhow::Result<()> {
         loop {
             let packet = self.read::<ClientPlayPacket>().await?;
+            if CONFIGURATION.logging.packet_transfer {
+                let packet_name = packet.name();
+                if !CONFIGURATION.logging.packet_transfer_exclusion.contains(&packet_name) {
+                    log::info!(target: "C2S Packet Logger", "{} to Server {:#04X} {:?}\n", name, packet.id() as usize, packet);
+                }
+            }
             let result = self.received_packets.send_async(packet).await;
             if result.is_err() {
                 // server dropped connection
@@ -164,8 +172,14 @@ impl Writer {
         }
     }
 
-    pub async fn run(mut self) -> anyhow::Result<()> {
+    pub async fn run(mut self, name: String) -> anyhow::Result<()> {
         while let Ok(packet) = self.packets_to_send.recv_async().await {
+            if CONFIGURATION.logging.packet_transfer {
+                let packet_name = packet.name();
+                if !CONFIGURATION.logging.packet_transfer_exclusion.contains(&packet_name) {
+                    log::info!(target: "S2C Packet Logger", "Server to {} {:#04X} {:?}\n", name, packet.id() as usize, packet);
+                }
+            }
             self.write(packet).await?;
         }
         Ok(())

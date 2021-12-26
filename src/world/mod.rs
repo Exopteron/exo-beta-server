@@ -5,12 +5,12 @@ use std::{
     collections::{HashMap, HashSet},
     mem::{replace, take},
     sync::{atomic::AtomicBool, Arc},
-    time::Instant,
+    time::Instant, path::PathBuf, fs::File,
 };
 pub mod worker;
 use ahash::AHashMap;
 use hecs::Entity;
-use nbt::{decode::read_compound_tag, CompoundTag};
+use nbt::{decode::read_compound_tag, CompoundTag, encode::write_compound_tag};
 
 use crate::{
     aabb::{AABBSize, AABB},
@@ -23,7 +23,7 @@ use crate::{
     events::ChunkLoadEvent,
     game::{BlockPosition, ChunkCoords, Game, Position},
     item::item::{block::AtomicRegistryBlock, ItemRegistry},
-    world::worker::SaveRequest,
+    world::worker::SaveRequest, configuration::CONFIGURATION,
 };
 
 pub mod chunk_entities;
@@ -52,6 +52,8 @@ pub struct World {
     pub loading_chunks: HashSet<ChunkCoords>,
     canceled_chunk_loads: HashSet<ChunkCoords>,
     shutdown: Arc<AtomicBool>,
+    pub level_dat: LevelDat,
+    pub world_dir: PathBuf,
 }
 impl World {
     pub fn collides_with(
@@ -130,7 +132,10 @@ impl World {
         block: BlockState,
         nlh: bool,
     ) -> bool {
-        self.chunk_map.set_block_at(self.id, light, pos, block, nlh)
+        if pos.within_border(CONFIGURATION.world_border) {
+            return self.chunk_map.set_block_at(self.id, light, pos, block, nlh);
+        }
+        false
     }
     pub fn load_chunks(
         &mut self,
@@ -156,6 +161,9 @@ impl World {
     /// Unloads the given chunk.
     pub fn unload_chunk(&mut self, ecs: &mut Ecs, pos: &ChunkCoords) -> anyhow::Result<()> {
         if let Some((pos, handle)) = self.chunk_map.0.remove_entry(&pos) {
+            if CONFIGURATION.logging.chunk_unload {
+                log::info!("Unloading chunk at {}", pos);
+            }
             handle.set_unloaded()?;
             let mut block_entity_data = Vec::new();
             for (entity, (saver, be)) in ecs.query::<(&BlockEntitySaver, &BlockEntity)>().iter() {
@@ -200,16 +208,23 @@ impl World {
         }
     }
     pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
+        log::info!("Loading world from {:?}", dir);
+        let dir = PathBuf::from(dir);
+        let mut level_dat = dir.clone();
+        level_dat.push("level.dat");
         let shutdown = Arc::new(AtomicBool::new(false));
         let world = Self {
-            chunk_worker: ChunkWorker::new(dir, Arc::new(FlatWorldGenerator {}), shutdown.clone()),
+            chunk_worker: ChunkWorker::new(dir.clone(), CONFIGURATION.chunk_generator.get(), shutdown.clone()),
             chunk_map: ChunkMap::new(),
             loading_chunks: HashSet::new(),
             canceled_chunk_loads: HashSet::new(),
             shutdown,
             cache: ChunkCache::new(),
             id: 0,
+            level_dat: LevelDat::from_file(level_dat).ok_or(anyhow::anyhow!("Couldn't read level.dat"))?,
+            world_dir: dir
         };
+        log::info!("Using world generator {:?}", CONFIGURATION.chunk_generator.name());
         Ok(world)
     }
     pub fn pos_to_index(x: i32, y: i32, z: i32) -> Option<(i32, i32, i32)> {
@@ -254,5 +269,36 @@ impl ChunkLoadManager {
         } else {
             self.chunks.insert(*coords, ChunkLoadData::new(false));
         }
+    }
+}
+
+
+pub struct LevelDat {
+    pub spawn_point: BlockPosition,
+}
+impl LevelDat {
+    pub fn from_file(input: impl Into<PathBuf>) -> Option<Self> {
+        if let Ok(mut input) = File::open(input.into()) {
+            let tag = read_compound_tag(&mut input).ok()?;
+            let tag = tag.get_compound_tag("Data").ok()?;
+            let spawn_x = tag.get_i32("SpawnX").ok()?;
+            let spawn_y = tag.get_i32("SpawnY").ok()?;
+            let spawn_z = tag.get_i32("SpawnZ").ok()?;
+            Some(Self { spawn_point: BlockPosition::new(spawn_x, spawn_y, spawn_z) })
+        } else {
+            Some(Self { spawn_point: BlockPosition::new(0, 75, 0) })
+        }
+    }
+    pub fn to_file(&self, file: impl Into<PathBuf>) -> anyhow::Result<()> {
+        let file = file.into();
+        let mut file = File::create(file)?;
+        let mut tag = CompoundTag::new();
+        let mut data = CompoundTag::new();
+        data.insert_i32("SpawnX", self.spawn_point.x);
+        data.insert_i32("SpawnY", self.spawn_point.y);
+        data.insert_i32("SpawnZ", self.spawn_point.z);
+        tag.insert("Data", data);
+        write_compound_tag(&mut file, &tag)?;
+        Ok(())
     }
 }

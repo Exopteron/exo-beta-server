@@ -246,7 +246,15 @@ impl Face {
         }
     }
     pub fn all_faces() -> impl Iterator<Item = Face> {
-        vec![Face::NegativeY, Face::PositiveY, Face::NegativeZ, Face::PositiveZ, Face::NegativeX, Face::PositiveX].into_iter()
+        vec![
+            Face::NegativeY,
+            Face::PositiveY,
+            Face::NegativeZ,
+            Face::PositiveZ,
+            Face::NegativeX,
+            Face::PositiveX,
+        ]
+        .into_iter()
     }
     pub fn offset(&self, mut pos: BlockPosition) -> BlockPosition {
         match self {
@@ -303,6 +311,14 @@ macro_rules! packet_enum {
                     )*
                 }
             }
+                        /// Returns the packet ID of this packet.
+                        pub fn name(&self) -> String {
+                            match self {
+                                $(
+                                    $ident::$packet(_) => stringify!($packet).to_string(),
+                                )*
+                            }
+                        }
         }
 
         impl crate::protocol::Readable for $ident {
@@ -375,7 +391,10 @@ pub trait VariantOf<Enum> {
 
 use std::ops::Deref;
 
-use crate::{protocol::io::{LengthInferredVecU8, ShortPrefixedVec}, game::BlockPosition};
+use crate::{
+    game::BlockPosition,
+    protocol::io::{LengthInferredVecU8, ShortPrefixedVec},
+};
 
 use super::Writeable;
 

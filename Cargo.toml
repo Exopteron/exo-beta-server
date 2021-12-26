@@ -1,6 +1,6 @@
 [package]
 name = "exo_beta_server"
-version = "0.2.0-alpha"
+version = "0.3.0-alpha"
 authors = ["Exopteron <exopteron@protonmail.com>"]
 edition = "2018"
 

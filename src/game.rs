@@ -75,7 +75,29 @@ pub struct BlockPosition {
     pub z: i32,
 }
 impl Eq for BlockPosition {}
+impl Display for BlockPosition {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}, {}, {})", self.x, self.y, self.z)
+    }
+}
 impl BlockPosition {
+    pub fn within_border(&self, border: i32) -> bool {
+        let x = self.x;
+        let z = self.z;
+        if x > border {
+            return false;
+        }
+        if x < -border {
+            return false;
+        }
+        if z > border {
+            return false;
+        }
+        if z < -border {
+            return false;
+        }
+        true
+    }
     pub fn offset(&self, x: i32, y: i32, z: i32) -> Self {
         Self {
             x: self.x + x,
@@ -732,7 +754,7 @@ impl Game {
                 for (_, (username, perm_level)) in
                     game.ecs.query::<(&Username, &mut PermissionLevel)>().iter()
                 {
-                    if username.0 == string {
+                    if username.0.to_lowercase() == string.to_lowercase() {
                         perm_level.0 = 4;
                     }
                 }
@@ -841,6 +863,25 @@ impl Game {
             }),
         ));
         commands.register(Command::new(
+            "setworldspawn",
+            "set spawn",
+            4,
+            vec![],
+            Box::new(|game, server, executor, mut args| {
+                let entity_ref = game.ecs.entity(executor)?;
+                let position = entity_ref.get::<Position>()?;
+                let world = entity_ref.get::<CurrentWorldInfo>()?.deref().clone();
+                let blockpos: BlockPosition = position.deref().clone().into();
+                game.worlds.get_mut(&world.world_id).ok_or(anyhow::anyhow!("No such world"))?.level_dat.spawn_point = blockpos;
+                let name = entity_ref.get::<Username>()?.0.clone();
+                drop(entity_ref);
+                drop(position);
+                drop(world);
+                game.broadcast_to_ops(&name, &format!("Set spawn point for world {} to {}", world.world_id, blockpos));
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
             "gamemode",
             "change gamemode",
             4,
@@ -907,6 +948,7 @@ impl Game {
                 Ok(0)
             }),
         ));
+        //let temp_highest_point = 65;
         let game = Self {
             objects: objects,
             systems: Arc::new(RefCell::new(SystemExecutor::new())),
@@ -997,6 +1039,8 @@ impl Game {
                         player.get::<Username>().unwrap().0, /*borrow().username*/
                         e
                     );
+                    let client = server.clients.get(&player.get::<NetworkID>().unwrap()).unwrap();
+                    client.disconnect("Bad packet error");
                 }
             })) {
                 //log::info!("Critical error handling packet from user {}.", player.clone().get_username());
@@ -1022,7 +1066,7 @@ impl Game {
         let client = clients
             .get_mut(&id)
             .ok_or(anyhow::anyhow!("Client does not exist"))?;
-        let pos = Position::from_pos(0., 75., 0.);
+        let mut pos: Position = self.worlds.get(&0).unwrap().level_dat.spawn_point.into();
         log::info!(
             "{} logging in with entity ID {} at {}",
             client.username(),
@@ -1032,7 +1076,7 @@ impl Game {
         client.write(ServerPlayPacket::LoginRequest(LoginRequest {
             entity_id: id.0,
             not_used: String16("".to_owned()),
-            map_seed: 0,
+            map_seed: CONFIGURATION.world_seed.unwrap_or(0) as i64, // TODO get seed from world
             server_mode: CONFIGURATION.default_gamemode as i32,
             dimension: 0,
             difficulty: 0,

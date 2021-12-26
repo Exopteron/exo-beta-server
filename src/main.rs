@@ -20,12 +20,13 @@ use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
 use anyhow::anyhow;
+use logging::file::LogManager;
 use std::cell::RefCell;
 use std::io::Read;
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    logging::setup_logging();
+    let appender = logging::setup_logging();
     let start = Instant::now();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
     rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
@@ -71,7 +72,7 @@ async fn main() -> anyhow::Result<()> {
         "Done! ({}ms) For command help, run \"help\".",
         start.elapsed().as_millis()
     );
-    run(game);
+    run(game, appender);
     loop {}
     println!("Hello, world!");
     Ok(())
@@ -112,7 +113,7 @@ use crate::server::Server;
 use crate::translation::TranslationManager;
 
 //use plugins::PluginManager;
-fn setup_tick_loop(mut game: game::Game) -> TickLoop {
+fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
     std::env::set_var("RUST_BACKTRACE", "1");
     use std::sync::mpsc::channel;
     let (tx, rx) = channel();
@@ -130,6 +131,9 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
                 client.disconnect(&translation.translate("multiplayer.disconnect.server_shutdown", None));
             }
             for (id, world) in game.worlds.iter_mut() {
+                let mut path = world.world_dir.clone();
+                path.push("level.dat");
+                world.level_dat.to_file(path).unwrap();
                 let mut positions = Vec::new();
                 for chunk in world.chunk_map.iter_chunks() {
                     let pos = chunk.read().pos.clone();
@@ -150,6 +154,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
                     }
                 }
             }
+            appender.close();
             std::process::exit(0);
         }
         if let Err(_) = panic::catch_unwind(AssertUnwindSafe(|| {
@@ -190,7 +195,7 @@ fn setup_tick_loop(mut game: game::Game) -> TickLoop {
         false
     })
 }
-fn run(game: game::Game) {
-    let tick_loop = setup_tick_loop(game);
+fn run(game: game::Game, appender: LogManager) {
+    let tick_loop = setup_tick_loop(game, appender);
     tick_loop.run();
 }

@@ -5,7 +5,7 @@ use ahash::AHashMap;
 use anvil_region::{provider::FolderRegionProvider, position::RegionPosition};
 use flume::{Receiver, Sender};
 
-use crate::game::{ChunkCoords, Game};
+use crate::{game::{ChunkCoords, Game}, configuration::CONFIGURATION};
 
 use crate::world::{chunks::Chunk, chunk_lock::ChunkHandle, mcregion::MCRegionLoader};
 
@@ -89,6 +89,9 @@ impl RegionWorker {
     }
 
     fn load_chunk(&mut self, req: LoadRequest) {
+        if CONFIGURATION.logging.chunk_load {
+            log::info!("Loading chunk at {}", req.pos);
+        }
         let result = self.get_chunk_load_result(req);
         let _ = self.result_sender.send(result);
     }

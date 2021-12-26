@@ -4,7 +4,7 @@ use anyhow::bail;
 use flume::{Sender, Receiver};
 use nbt::CompoundTag;
 
-use crate::{game::{ChunkCoords, BlockPosition}, ecs::systems::world::light::{LightPropagationManager, LightPropagationRequest}};
+use crate::{game::{ChunkCoords, BlockPosition}, ecs::systems::world::light::{LightPropagationManager, LightPropagationRequest}, configuration::CONFIGURATION};
 
 use self::region::RegionWorker;
 
@@ -111,6 +111,9 @@ impl ChunkWorker {
                         let gen = self.generator.clone();
                         rayon::spawn(move || {
                             // spawn task to generate chunk
+                            if CONFIGURATION.logging.chunk_gen {
+                                log::info!("Generating chunk at {}", pos);
+                            }
                             let mut chunk = gen.generate_chunk(pos);
                             chunk.heightmaps.recalculate(Chunk::block_at_fn(&chunk.data));
                             //chunk.calculate_full_skylight();

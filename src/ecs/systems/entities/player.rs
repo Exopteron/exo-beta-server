@@ -54,10 +54,11 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
     }
     for entity in entities_respawned {
         let pref = game.ecs.entity(entity)?;
+        let current_world = pref.get::<CurrentWorldInfo>()?;
+        let mut spawn_point = game.worlds.get(&current_world.world_id).unwrap().level_dat.spawn_point;
         let netid = pref.get::<NetworkID>()?.deref().clone();
         pref.get_mut::<Health>()?.0 = 20;
-        //         *pref.get_mut::<Position>()? = Position::from_pos(324., 75., -472.);
-        *pref.get_mut::<Position>()? = Position::from_pos(0., 75., 0.);
+        *pref.get_mut::<Position>()? = spawn_point.into();
         let spawnpacket = pref.get::<SpawnPacketSender>()?;
         server.broadcast_nearby_with(*pref.get::<Position>()?, |cl| {
             if cl.id != netid {

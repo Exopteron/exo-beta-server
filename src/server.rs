@@ -144,7 +144,7 @@ impl Client {
             difficulty: 0,
             gamemode,
             world_height: 128,
-            map_seed: 0,
+            map_seed: CONFIGURATION.world_seed.unwrap() as i64,
         });
         Ok(())
     }
@@ -394,14 +394,14 @@ impl Client {
         self.send_packet(KeepAlive { id: 0 });
     }
     pub fn update_own_position(&self, new_position: Position) {
-        log::info!(
+        log::trace!(
             "Updating position of {} to {:?}",
             self.username,
             new_position
         );
         self.send_packet(PlayerPositionAndLook {
             x: new_position.x,
-            y: new_position.y,
+            y: new_position.y + 1.620000004768372,
             z: new_position.z,
             yaw: new_position.yaw,
             pitch: new_position.pitch,

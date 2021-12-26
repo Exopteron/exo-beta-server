@@ -37,7 +37,6 @@ fn send_new_chunks(game: &mut Game, server: &mut Server) -> SysResult {
         .query::<(&NetworkID, &ViewUpdateEvent, &Position, &CurrentWorldInfo)>()
         .iter()
     {
-        log::info!("Position: {:?}", position);
         // As ecs removes the client one tick after it gets removed here, it can
         // happen that a client is still listed in the ecs but actually removed here so
         // we need to check if the client is actually still there.

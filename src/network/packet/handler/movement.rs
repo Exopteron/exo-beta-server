@@ -5,7 +5,7 @@ use crate::{
     protocol::packets::client::{
         PlayerLook, PlayerMovement, PlayerPosition, PlayerPositionAndLook,
     },
-    server::Server,
+    server::Server, configuration::CONFIGURATION,
 };
 
 // Feather license in FEATHER_LICENSE.md
@@ -28,7 +28,7 @@ fn should_skip_movement(server: &Server, player: &EntityRef) -> SysResult<bool> 
     }
     Ok(false)
 }
-fn update_client_position(server: &Server, player: EntityRef, pos: Position) -> SysResult {
+fn update_client_position(server: &Server, player: &EntityRef, pos: Position) -> SysResult {
     if let Some(client) = server.clients.get(&*player.get::<NetworkID>()?) {
         client.set_client_known_position(pos);
     }
@@ -64,7 +64,8 @@ pub fn handle_player_position(
     pos.stance = packet.stance;
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
-    update_client_position(server, player, *pos)?;
+    update_client_position(server, &player, *pos)?;
+    on_movement(&player, &mut pos)?;
     Ok(())
 }
 pub fn handle_player_position_and_look(
@@ -83,7 +84,8 @@ pub fn handle_player_position_and_look(
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
-    update_client_position(server, player, *pos)?;
+    update_client_position(server, &player, *pos)?;
+    on_movement(&player, &mut pos)?;
     Ok(())
 }
 pub fn handle_player_look(server: &Server, player: EntityRef, packet: PlayerLook) -> SysResult {
@@ -95,12 +97,32 @@ pub fn handle_player_look(server: &Server, player: EntityRef, packet: PlayerLook
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
-    update_client_position(server, player, *pos)?;
+    update_client_position(server, &player, *pos)?;
+    on_movement(&player, &mut pos)?;
     Ok(())
 }
 pub fn handle_player_movement(player: EntityRef, packet: PlayerMovement) -> SysResult {
     let mut pos = player.get_mut::<Position>()?;
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
+    on_movement(&player, &mut pos)?;
+    Ok(())
+}
+
+fn on_movement(player: &EntityRef, pos: &mut Position) -> SysResult {
+    let border = CONFIGURATION.world_border;
+    if pos.x > border as f64 {
+        pos.x = border as f64;
+    }
+    if pos.x < -(border as f64) {
+        pos.x = -(border as f64);
+    }
+
+    if pos.z > border as f64 {
+        pos.z = border as f64;
+    }
+    if pos.z < -(border as f64) {
+        pos.z = -(border as f64);
+    }
     Ok(())
 }
