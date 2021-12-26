@@ -65,7 +65,7 @@ pub fn handle_player_digging(
     let res = match packet.status {
         DiggingStatus::StartedDigging => {
             if gamemode.id() == Gamemode::Creative.id() {
-                if pos.within_border(CONFIGURATION.world_border) {
+                if pos.within_border(CONFIGURATION.world_border) && game.ecs.get::<Position>(player)?.distance(&(pos.into())) < 6.0 {
                     let block = match game.block(pos, world) {
                         Some(b) => b.b_type,
                         None => {
@@ -79,14 +79,14 @@ pub fn handle_player_digging(
                     }
                     Ok(())
                 } else {
-                    Err(anyhow::anyhow!("Outside of border"))
+                    Err(anyhow::anyhow!("Err"))
                 }
             } else {
                 Ok(())
             }
         }
         DiggingStatus::FinishedDigging => {
-            if pos.within_border(CONFIGURATION.world_border) {
+            if pos.within_border(CONFIGURATION.world_border) && game.ecs.get::<Position>(player)?.distance(&(pos.into())) < 6.0 {
                 let block = match game.block(pos, world) {
                     Some(b) => b.b_type,
                     None => {
