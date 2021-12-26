@@ -9,3 +9,5 @@ A lot of code was ~~inspired by~~ completely nicked from feather-rs. I'm reasona
 * region file format
 * chunk loading
 * see other people!
+
+Test server: `beta-test.exopteron.com`
