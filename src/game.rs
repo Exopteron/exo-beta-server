@@ -1,3 +1,4 @@
+use crate::VERSION;
 use crate::block_entity;
 use crate::block_entity::BlockEntity;
 use crate::block_entity::BlockEntityLoader;
@@ -844,6 +845,18 @@ impl Game {
                 let mut chatbox = executor.get_mut::<Chatbox>()?;
                 chatbox.send_message("Help -- TODO".into());
                 chatbox.send_message("Op yourself with `op`.".into());
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "ver",
+            "ver",
+            1,
+            vec![],
+            Box::new(|game, server, executor, mut args| {
+                let executor = game.ecs.entity(executor)?;
+                let mut chatbox = executor.get_mut::<Chatbox>()?;
+                chatbox.send_message(format!("exo-beta-server-v{}", VERSION).into());
                 Ok(0)
             }),
         ));
