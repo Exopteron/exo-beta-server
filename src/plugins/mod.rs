@@ -1,35 +1,40 @@
 use std::{any::Any, ffi::OsStr};
 
-use libloading::{Library, Symbol};
+pub use libloading::{Library, Symbol};
+pub use vtable as vtable;
+use vtable::{vtable as vtable_macro, VRef, VBox};
+pub use hecs;
+use crate::{ecs::entities::player::{Player, Chatbox}, server::Client, item::item::ItemRegistry, game::Game, commands::CommandSystem};
 
-use crate::{ecs::entities::player::{Player, Chatbox}, server::Client, item::item::ItemRegistry, game::Game};
-
-pub trait Plugin: Any + Send + Sync {
-    fn name(&self) -> &'static str;
-
-    fn on_load(&self, _game: &mut Game) {}
-    fn on_unload(&self) {}
-    fn register_items(&self, _item_registry: &mut ItemRegistry) {}
+#[vtable_macro]
+#[repr(C)]
+pub struct PluginVTable {
+    name: fn(VRef<PluginVTable>) -> &'static str,
+    on_load: fn(VRef<PluginVTable>, &mut Game),
+    on_unload: fn(VRef<PluginVTable>),
+    register_items: fn(VRef<PluginVTable>, &mut ItemRegistry),
+    register_commands: fn(VRef<PluginVTable>, &mut CommandSystem),
+    drop: fn(VRefMut<PluginVTable>),
 }
-
 #[macro_export]
 macro_rules! declare_plugin {
     ($plugin_type:ty, $constructor:path) => {
+        use $crate::game::Game;
+        use $crate::item::item::ItemRegistry;
+        use $crate::commands::CommandSystem;
+        use $crate::plugins::vtable::*;
         #[no_mangle]
-        pub extern "C" fn _plugin_create() -> *mut $crate::plugins::Plugin {
+        pub extern "C" fn _plugin_create() -> VBox<exo_beta_server::plugins::PluginVTable> {
             // make sure the constructor is the correct type.
             let constructor: fn() -> $plugin_type = $constructor;
-
-            let object = constructor();
-            let boxed: Box<$crate::plugins::Plugin> = Box::new(object);
-            Box::into_raw(boxed)
+            PluginVTable_static!(static PL_VT for $plugin_type);
+            VBox::<PluginVTable>::new(constructor())
         }
     };
 }
 
-
 pub struct PluginManager {
-    plugins: Vec<Box<dyn Plugin>>,
+    plugins: Vec<VBox<PluginVTable>>,
     loaded_libraries: Vec<Library>,
 }
 
@@ -38,6 +43,11 @@ impl PluginManager {
         PluginManager {
             plugins: Vec::new(),
             loaded_libraries: Vec::new(),
+        }
+    }
+    pub fn register_commands(&mut self, registry: &mut CommandSystem) {
+        for plugin in &mut self.plugins {
+            plugin.register_commands(registry);
         }
     }
     pub fn register_items(&mut self, registry: &mut ItemRegistry) {
@@ -51,7 +61,7 @@ impl PluginManager {
         }
     }
     pub unsafe fn load_plugin<P: AsRef<OsStr>>(&mut self, filename: P) -> anyhow::Result<()> {
-        type PluginCreate = unsafe fn() -> *mut Plugin;
+        type PluginCreate = unsafe fn() -> VBox<PluginVTable>;
 
         let lib = Library::new(filename.as_ref()).or_else(|_| Err(anyhow::anyhow!("Unable to load the plugin")))?;
 
@@ -64,9 +74,7 @@ impl PluginManager {
 
         let constructor: Symbol<PluginCreate> = lib.get(b"_plugin_create")
         .or_else(|_| Err(anyhow::anyhow!("The `_plugin_create` symbol wasn't found.")))?;
-        let boxed_raw = constructor();
-
-        let plugin = Box::from_raw(boxed_raw);
+        let plugin = constructor();
         log::info!("Loaded plugin: {}", plugin.name());
         self.plugins.push(plugin);
 

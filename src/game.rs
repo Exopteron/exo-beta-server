@@ -653,7 +653,7 @@ impl Game {
                 .unwrap();
         }
     }
-    pub fn new(plugins: PluginManager) -> Self {
+    pub fn new(mut plugins: PluginManager) -> Self {
         let mut objects = Arc::new(Resources::new());
         let mut perm_level_map = HashMap::new();
         let ops = crate::configuration::get_ops();
@@ -910,6 +910,7 @@ impl Game {
                 Ok(0)
             }),
         ));
+        plugins.register_commands(&mut commands);
         //let temp_highest_point = 65;
         let mut game = Self {
             objects: objects,

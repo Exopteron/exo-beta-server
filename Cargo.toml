@@ -49,7 +49,7 @@ libdeflater = "0.7.3"
 reqwest = "0.11"
 hex = "0.4.3"
 anvil-region = { version = "0.8.0", path = "src/anvil-region" }
-hecs = "0.6.5"
+hecs = { path = "src/hecs" }
 thiserror = "1"
 byteorder = "1"
 parking_lot = "0.11.2"
@@ -69,6 +69,6 @@ zip = "0.5"
 zip-extract = "0.1.0"
 tempfile = "3.2.0"
 error-chain = "0.12.4"
-
+vtable = "0.1.4"
 [profile.dev.package.worldgen]
 opt-level = 3

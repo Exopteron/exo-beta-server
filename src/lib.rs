@@ -32,7 +32,7 @@ pub async fn main() -> anyhow::Result<()> {
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
     let mut manager = PluginManager::new();
     unsafe {
-        manager.load_plugin("test_plugins/test_plugin_1/target/debug/libtest_plugin_1.so")?;
+        manager.load_plugin("test_plugins/test_plugin_1/target/release/libtest_plugin_1.so")?;
     }
     rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
     let _ = &configuration::CONFIGURATION.max_players;
