@@ -30,6 +30,7 @@ use crate::events::PlayerSpawnEvent;
 use crate::network::ids::NetworkID;
 use crate::network::ids::IDS;
 use crate::objects::Resources;
+use crate::plugins::PluginManager;
 use crate::protocol::io::String16;
 use crate::protocol::packets::server::LoginRequest;
 use crate::protocol::packets::server::PlayerPositionAndLook;
@@ -486,6 +487,7 @@ pub struct Game {
     pub scheduler: Rc<RefCell<Scheduler>>,
     pub tps: f64,
     pub rng: ChaCha8Rng,
+    pub plugins: Rc<RefCell<PluginManager>>,
 }
 use nbt::*;
 use rand::Rng;
@@ -651,60 +653,7 @@ impl Game {
                 .unwrap();
         }
     }
-    pub fn new() -> Self {
-        use rand::RngCore;
-        //let generator = crate::temp_chunks::FlatWorldGenerator::new(64, 1,1, 1);
-        use crate::world::chunks::*;
-        /*         let mut world: crate::world::chunks::World;
-        if let Ok(w) = crate::world::chunks::World::from_file_mcr(&CONFIGURATION.level_name) {
-            log::info!("LOading world!");
-            world = w;
-        } else {
-            /*match CONFIGURATION.chunk_generator.as_str() {
-                "noise" => {
-                    let mut seed = rand::thread_rng().next_u64();
-                    if let Some(s) = CONFIGURATION.world_seed {
-                        seed = s as u64;
-                    }
-                    log::info!(
-                        "Initializing world with chunk generator \"noise\" with seed ({})",
-                        seed
-                    );
-                    Box::new(FunnyChunkGenerator::new(seed, FunnyChunkPreset::MOUNTAIN))
-                        as Box<dyn ChunkGenerator>
-                }
-                "flat" => {
-                    log::info!("Initializing world with chunk generator \"flat\"");
-                    Box::new(FlatChunkGenerator {}) as Box<dyn ChunkGenerator>
-                }
-                "mountain" => {
-                    let mut seed = rand::thread_rng().next_u64();
-                    if let Some(s) = CONFIGURATION.world_seed {
-                        seed = s as u64;
-                    }
-                    //seed = 14686157966026215583;
-                    log::info!(
-                        "Initializing world with chunk generator \"mountain\" with seed ({})",
-                        seed
-                    );
-                    Box::new(MountainChunkGenerator::new(seed)) as Box<dyn ChunkGenerator>
-                }
-                unknown => {
-                    log::info!("Unknown chunk generator \"{}\", using \"flat\"", unknown);
-                    Box::new(FlatChunkGenerator {}) as Box<dyn ChunkGenerator>
-                }
-            } */
-            let mut seed = rand::thread_rng().next_u64();
-            if let Some(s) = CONFIGURATION.world_seed {
-                seed = s as u64;
-            }
-            world = crate::world::chunks::World::new(
-                Box::new(MountainWorldGenerator::new(seed)),
-                MCRegionLoader::new(&CONFIGURATION.level_name).unwrap(),
-            );
-            world.generate_spawn_chunks();
-        } */
-        //world = crate::world::mcregion::temp_from_dir("New World").unwrap();
+    pub fn new(plugins: PluginManager) -> Self {
         let mut objects = Arc::new(Resources::new());
         let mut perm_level_map = HashMap::new();
         let ops = crate::configuration::get_ops();
@@ -962,7 +911,7 @@ impl Game {
             }),
         ));
         //let temp_highest_point = 65;
-        let game = Self {
+        let mut game = Self {
             objects: objects,
             systems: Arc::new(RefCell::new(SystemExecutor::new())),
             worlds,
@@ -977,7 +926,11 @@ impl Game {
             scheduler: Rc::new(RefCell::new(Scheduler::new())),
             tps: 0.0,
             rng: ChaCha8Rng::from_entropy(),
+            plugins: Rc::new(RefCell::new(plugins))
         };
+        let plugins = game.plugins.clone();
+        let mut plugins = plugins.borrow_mut();
+        plugins.load_all(&mut game);
         //let mut game_globals = GameGlobals { time: 0 };
         //GAME_GLOBAL.set(game_globals);
         game

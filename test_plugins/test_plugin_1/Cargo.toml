@@ -1,11 +1,13 @@
 [package]
-name = "plugins"
+name = "test_plugin_1"
 version = "0.1.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-libloading = "0.7"
+exo_beta_server = { path = "../../" }
 log = "0.4.1"
-anyhow = { version = "1.0.43", features = ["backtrace"] }
+hecs = "0.6.5"
+[lib]
+crate-type = ["cdylib", "rlib"]

@@ -16,6 +16,7 @@ pub mod world;
 pub mod translation;
 pub mod aabb;
 pub mod block_entity;
+pub mod plugins;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -24,11 +25,15 @@ use logging::file::LogManager;
 use std::cell::RefCell;
 use std::io::Read;
 const VERSION: &'static str = env!("CARGO_PKG_VERSION");
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+
+pub async fn main() -> anyhow::Result<()> {
     let appender = logging::setup_logging();
     let start = Instant::now();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
+    let mut manager = PluginManager::new();
+    unsafe {
+        manager.load_plugin("test_plugins/test_plugin_1/target/debug/libtest_plugin_1.so")?;
+    }
     rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
     let _ = &configuration::CONFIGURATION.max_players;
     let translation = TranslationManager::initialize()?;
@@ -53,10 +58,11 @@ async fn main() -> anyhow::Result<()> {
     }); */
     let mut loaders = BlockEntityNBTLoaders::default();
     let mut item_registry = ItemRegistry::new();
+    manager.register_items(&mut item_registry);
     default::register_items(&mut item_registry);
     item_registry.apply_loaders(&mut loaders);
     item_registry.set();
-    let mut game = game::Game::new();
+    let mut game = game::Game::new(manager);
     game.insert_object(Scheduler::new());
     game.insert_object(OpManager::new());
     ecs::systems::default_systems(&mut game, &mut systems);
@@ -109,6 +115,7 @@ use crate::ecs::systems::world::block::update::BlockUpdateManager;
 use crate::game::{Game, Scheduler};
 use crate::item::default;
 use crate::item::item::ItemRegistry;
+use crate::plugins::PluginManager;
 use crate::server::Server;
 use crate::translation::TranslationManager;
 

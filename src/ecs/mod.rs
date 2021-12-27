@@ -6,7 +6,7 @@ use hecs::{
 pub mod entities;
 pub mod event;
 pub mod systems;
-use std::{any::type_name, io::BufRead, marker::PhantomData, sync::Arc};
+use std::{any::{type_name, TypeId}, io::BufRead, marker::PhantomData, sync::Arc};
 
 use crate::objects::Resources;
 
@@ -18,6 +18,9 @@ pub struct Ecs {
 pub struct EntityRef<'a>(hecs::EntityRef<'a>);
 
 impl<'a> EntityRef<'a> {
+    pub fn component_types(&self) -> impl Iterator<Item = TypeId> + 'a {
+        self.0.component_types()
+    }
     /// Borrows the component of type `T` from this entity.
     pub fn get<T: Component>(&self) -> Result<Ref<'a, T>, ComponentError> {
         self.0
