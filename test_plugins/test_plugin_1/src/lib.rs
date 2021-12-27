@@ -27,9 +27,8 @@ impl Block for CactusBlock {
     }
     fn place(&self, game: &mut exo_beta_server::game::Game, placer: Entity, item: exo_beta_server::item::stack::ItemStack, mut position: exo_beta_server::game::BlockPosition, face: exo_beta_server::protocol::packets::Face, world: i32) -> Option<exo_beta_server::events::block_interact::BlockPlacementEvent> {
         println!("Placement");
-        log::info!("Yoo!");
-        //game.ecs.get_mut::<Chatbox>(placer).unwrap().send_message("Balls".into());
-        game.broadcast_chat("Sup losers!");
+        log::info!("Test!");
+        game.broadcast_chat("Sup!");
         position = face.offset(position);
         Some(BlockPlacementEvent {
             held_item: item,
