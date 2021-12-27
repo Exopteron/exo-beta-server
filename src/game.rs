@@ -929,9 +929,6 @@ impl Game {
             rng: ChaCha8Rng::from_entropy(),
             plugins: Rc::new(RefCell::new(plugins))
         };
-        let plugins = game.plugins.clone();
-        let mut plugins = plugins.borrow_mut();
-        plugins.load_all(&mut game);
         //let mut game_globals = GameGlobals { time: 0 };
         //GAME_GLOBAL.set(game_globals);
         game

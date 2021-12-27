@@ -5,12 +5,13 @@ pub use vtable as vtable;
 use vtable::{vtable as vtable_macro, VRef, VBox};
 pub use hecs;
 use crate::{ecs::entities::player::{Player, Chatbox}, server::Client, item::item::ItemRegistry, game::Game, commands::CommandSystem};
-
+use crate::ecs::systems::SystemExecutor;
+use crate::server::Server;
 #[vtable_macro]
 #[repr(C)]
 pub struct PluginVTable {
     name: fn(VRef<PluginVTable>) -> &'static str,
-    on_load: fn(VRef<PluginVTable>, &mut Game),
+    on_load: fn(VRef<PluginVTable>, &mut Game, &mut SystemExecutor<Game>),
     on_unload: fn(VRef<PluginVTable>),
     register_items: fn(VRef<PluginVTable>, &mut ItemRegistry),
     register_commands: fn(VRef<PluginVTable>, &mut CommandSystem),
@@ -23,6 +24,7 @@ macro_rules! declare_plugin {
         use $crate::item::item::ItemRegistry;
         use $crate::commands::CommandSystem;
         use $crate::plugins::vtable::*;
+        use $crate::ecs::systems::SystemExecutor;
         #[no_mangle]
         pub extern "C" fn _plugin_create() -> VBox<exo_beta_server::plugins::PluginVTable> {
             // make sure the constructor is the correct type.
@@ -55,9 +57,9 @@ impl PluginManager {
             plugin.register_items(registry);
         }
     }
-    pub fn load_all(&mut self, game: &mut Game) {
+    pub fn load_all(&mut self, game: &mut Game, systems: &mut SystemExecutor<Game>) {
         for plugin in &mut self.plugins {
-            plugin.on_load(game);
+            plugin.on_load(game, systems);
         }
     }
     pub unsafe fn load_plugin<P: AsRef<OsStr>>(&mut self, filename: P) -> anyhow::Result<()> {

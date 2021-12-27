@@ -1,4 +1,6 @@
+pub mod aabb;
 pub mod api;
+pub mod block_entity;
 pub mod configuration;
 pub mod ecs;
 pub mod entities;
@@ -10,13 +12,11 @@ pub mod logging;
 pub mod network;
 pub mod objects;
 pub mod player_count;
+pub mod plugins;
 pub mod protocol;
 pub mod server;
-pub mod world;
 pub mod translation;
-pub mod aabb;
-pub mod block_entity;
-pub mod plugins;
+pub mod world;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -34,7 +34,10 @@ pub async fn main() -> anyhow::Result<()> {
     unsafe {
         manager.load_plugin("test_plugins/test_plugin_1/target/release/libtest_plugin_1.so")?;
     }
-    rayon::ThreadPoolBuilder::new().num_threads(8).build_global().unwrap();
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(8)
+        .build_global()
+        .unwrap();
     let _ = &configuration::CONFIGURATION.max_players;
     let translation = TranslationManager::initialize()?;
     let mut systems = SystemExecutor::<Game>::new();
@@ -66,6 +69,9 @@ pub async fn main() -> anyhow::Result<()> {
     game.insert_object(Scheduler::new());
     game.insert_object(OpManager::new());
     ecs::systems::default_systems(&mut game, &mut systems);
+    let plugins = game.plugins.clone();
+    let mut plugins = plugins.borrow_mut();
+    plugins.load_all(&mut game, &mut systems);
     let server = server::Server::bind().await?;
     server.register(&mut game);
     game.insert_object(translation);
@@ -80,7 +86,6 @@ pub async fn main() -> anyhow::Result<()> {
     );
     run(game, appender);
     loop {}
-    println!("Hello, world!");
     Ok(())
 }
 /* fn load_plugins(manager: &mut PluginManager) {
@@ -103,15 +108,15 @@ pub async fn main() -> anyhow::Result<()> {
     }
 } */
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Instant;
 use sysinfo::ProcessorExt;
 
 use crate::block_entity::BlockEntityNBTLoaders;
 use crate::configuration::OpManager;
-use crate::ecs::systems::SystemExecutor;
 use crate::ecs::systems::world::block::update::BlockUpdateManager;
+use crate::ecs::systems::SystemExecutor;
 use crate::game::{Game, Scheduler};
 use crate::item::default;
 use crate::item::item::ItemRegistry;
@@ -134,8 +139,16 @@ fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
         if rx.try_recv().is_ok() {
             log::info!("Shutting down.");
             let translation = game.objects.get::<TranslationManager>().unwrap();
-            for (_, client) in game.objects.get::<Server>().expect("No server").clients.iter() {
-                client.disconnect(&translation.translate("multiplayer.disconnect.server_shutdown", None));
+            for (_, client) in game
+                .objects
+                .get::<Server>()
+                .expect("No server")
+                .clients
+                .iter()
+            {
+                client.disconnect(
+                    &translation.translate("multiplayer.disconnect.server_shutdown", None),
+                );
             }
             for (id, world) in game.worlds.iter_mut() {
                 let mut path = world.world_dir.clone();
