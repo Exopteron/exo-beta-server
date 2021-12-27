@@ -5,23 +5,19 @@ use exo_beta_server::{
     events::block_interact::BlockPlacementEvent,
     game::{BlockPosition, Position},
     item::item::block::Block,
-    plugins::{hecs::Entity, Plugin, PluginVTable},
+    plugins::{hecs::Entity, RustPlugin},
     server::Client,
     world::chunks::BlockState,
-    PluginVTable_static,
 };
 #[derive(Debug, Default)]
 pub struct TestPlugin1;
-impl Plugin for TestPlugin1 {
+impl RustPlugin for TestPlugin1 {
     fn name(&self) -> &'static str {
         "TestPlugin1"
     }
     fn register_items(&self, item_registry: &mut exo_beta_server::item::item::ItemRegistry) {
         item_registry.register_block(CactusBlock);
     }
-
-    fn on_unload(&self) {}
-
     fn register_commands(&self, command_registry: &mut exo_beta_server::commands::CommandSystem) {
         command_registry.register(Command::new(
             "testcommand",
@@ -36,6 +32,7 @@ impl Plugin for TestPlugin1 {
     }
 
     fn on_load(&self, game: &mut Game, systems: &mut SystemExecutor<Game>) {
+        panic!("Ahh!");
         systems.add_system(|game| {
             let mut positions = Vec::new();
             let mut q = game.ecs.query::<(&Position, &Player)>();

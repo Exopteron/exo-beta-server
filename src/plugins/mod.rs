@@ -1,4 +1,4 @@
-use std::{any::Any, ffi::OsStr};
+use std::{any::Any, ffi::OsStr, panic::AssertUnwindSafe};
 
 pub use libloading::{Library, Symbol};
 pub use vtable as vtable;
@@ -7,15 +7,80 @@ pub use hecs;
 use crate::{ecs::entities::player::{Player, Chatbox}, server::Client, item::item::ItemRegistry, game::Game, commands::CommandSystem};
 use crate::ecs::systems::SystemExecutor;
 use crate::server::Server;
+
+
+pub trait RustPlugin {
+    fn name(&self) -> &'static str;
+    fn on_load(&self, game: &mut Game, systems: &mut SystemExecutor<Game>) {
+
+    }
+    fn on_unload(&self) {
+
+    }
+    fn register_items(&self, registry: &mut ItemRegistry) {
+
+    }
+    fn register_commands(&self, registry: &mut CommandSystem) {
+
+    }
+}
+
+impl<T> InnerPlugin for T
+where T: RustPlugin {
+    fn name(&self) ->  & 'static str {
+        RustPlugin::name(self)
+    }
+
+
+    fn on_load(&self,_1: &mut Game,_2: &mut SystemExecutor<Game>) {
+        let e = std::panic::catch_unwind(AssertUnwindSafe(move || {
+            RustPlugin::on_load(self, _1, _2);
+        }));
+        if let Err(e) = e {
+            eprintln!("Error: {:?}", e);
+        }
+    }
+
+
+    fn on_unload(&self) {
+        let e = std::panic::catch_unwind(AssertUnwindSafe(move || {
+            RustPlugin::on_unload(self);
+        }));
+        if let Err(e) = e {
+            eprintln!("Error: {:?}", e);
+        }
+    }
+
+
+    fn register_items(&self,_1: &mut ItemRegistry) {
+        let e = std::panic::catch_unwind(AssertUnwindSafe(move || {
+            RustPlugin::register_items(self, _1);
+        }));
+        if let Err(e) = e {
+            eprintln!("Error: {:?}", e);
+        }
+    }
+
+
+    fn register_commands(&self,_1: &mut CommandSystem) {
+        let e = std::panic::catch_unwind(AssertUnwindSafe(move || {
+            RustPlugin::register_commands(self, _1);
+        }));
+        if let Err(e) = e {
+            eprintln!("Error: {:?}", e);
+        }
+    }
+
+}
 #[vtable_macro]
 #[repr(C)]
-pub struct PluginVTable {
-    name: fn(VRef<PluginVTable>) -> &'static str,
-    on_load: fn(VRef<PluginVTable>, &mut Game, &mut SystemExecutor<Game>),
-    on_unload: fn(VRef<PluginVTable>),
-    register_items: fn(VRef<PluginVTable>, &mut ItemRegistry),
-    register_commands: fn(VRef<PluginVTable>, &mut CommandSystem),
-    drop: fn(VRefMut<PluginVTable>),
+pub struct InnerPluginVTable {
+    name: fn(VRef<InnerPluginVTable>) -> &'static str,
+    on_load: fn(VRef<InnerPluginVTable>, &mut Game, &mut SystemExecutor<Game>),
+    on_unload: fn(VRef<InnerPluginVTable>),
+    register_items: fn(VRef<InnerPluginVTable>, &mut ItemRegistry),
+    register_commands: fn(VRef<InnerPluginVTable>, &mut CommandSystem),
+    drop: fn(VRefMut<InnerPluginVTable>),
 }
 #[macro_export]
 macro_rules! declare_plugin {
@@ -25,18 +90,20 @@ macro_rules! declare_plugin {
         use $crate::commands::CommandSystem;
         use $crate::plugins::vtable::*;
         use $crate::ecs::systems::SystemExecutor;
+        use $crate::plugins::InnerPluginVTable;
+        use $crate::plugins::InnerPlugin;
         #[no_mangle]
-        pub extern "C" fn _plugin_create() -> VBox<exo_beta_server::plugins::PluginVTable> {
+        pub extern "C" fn _plugin_create() -> VBox<$crate::plugins::InnerPluginVTable> {
             // make sure the constructor is the correct type.
             let constructor: fn() -> $plugin_type = $constructor;
-            PluginVTable_static!(static PL_VT for $plugin_type);
-            VBox::<PluginVTable>::new(constructor())
+            $crate::InnerPluginVTable_static!(static PL_VT for $plugin_type);
+            VBox::<InnerPluginVTable>::new(constructor())
         }
     };
 }
 
 pub struct PluginManager {
-    plugins: Vec<VBox<PluginVTable>>,
+    plugins: Vec<VBox<InnerPluginVTable>>,
     loaded_libraries: Vec<Library>,
 }
 
@@ -63,7 +130,7 @@ impl PluginManager {
         }
     }
     pub unsafe fn load_plugin<P: AsRef<OsStr>>(&mut self, filename: P) -> anyhow::Result<()> {
-        type PluginCreate = unsafe fn() -> VBox<PluginVTable>;
+        type PluginCreate = unsafe fn() -> VBox<InnerPluginVTable>;
 
         let lib = Library::new(filename.as_ref()).or_else(|_| Err(anyhow::anyhow!("Unable to load the plugin")))?;
 
