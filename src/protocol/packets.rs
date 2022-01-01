@@ -88,7 +88,7 @@ macro_rules! packets {
 impl Writeable for &Vec<u8> {
     fn write(&self, buffer: &mut Vec<u8>, version: super::ProtocolVersion) -> anyhow::Result<()> {
         (self.len() as i16).write(buffer, version)?;
-        buffer.append(&mut self.clone().to_owned());
+        buffer.append(&mut (*self).to_owned());
         Ok(())
     }
 }

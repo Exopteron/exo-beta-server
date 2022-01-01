@@ -392,7 +392,7 @@ fn decompress_nibble(input: u8) -> (u8, u8) {
 }
 pub fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
     let mut output = vec![];
-    if input.len() <= 0 {
+    if input.len() == 0 {
         return None;
     }
     for i in 0..input.len() {
@@ -404,7 +404,7 @@ pub fn decompress_vec(input: Vec<u8>) -> Option<Vec<u8>> {
 }
 pub fn compress_to_nibble(input: Vec<u8>) -> Option<Vec<u8>> {
     let mut output = vec![];
-    if input.len() <= 0 {
+    if input.len() == 0 {
         return None;
     }
     let mut i = 0;

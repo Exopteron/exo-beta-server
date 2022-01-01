@@ -158,7 +158,7 @@ fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
                 for chunk in world.chunk_map.iter_chunks() {
                     let pos = chunk.read().pos.clone();
                     positions.push(pos);
-                    drop(chunk);
+                    //drop(chunk);
                 }
                 log::info!("Unloading DIM-{} ({} chunks)", id, positions.len());
                 for pos in positions {

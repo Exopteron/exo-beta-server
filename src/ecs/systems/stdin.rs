@@ -31,10 +31,8 @@ pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
 pub fn accept_stdin(game: &mut Game, server: &mut Server) -> SysResult {
     let stdin = game.objects.get::<AsyncStdinAcceptor>()?;
     let mut console = None;
-    for (entity, _) in game.ecs.query::<&Console>().iter() {
-        console = Some(entity);
-        break;
-    }
+    let (entity, _) = game.ecs.query::<&Console>().iter().next().ok_or(anyhow::anyhow!("No console"))?;
+    console = Some(entity);
     let recieved = stdin.receiver.try_iter().collect::<Vec<String>>();
     drop(stdin);
     for string in recieved {

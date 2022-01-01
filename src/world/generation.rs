@@ -70,7 +70,7 @@ impl WorldGenerator for TerrainWorldGenerator {
         }
         for x in 0..16 {
             for z in 0..16 {
-                if noisevec.len() <= 0 {
+                if noisevec.len() == 0 {
                     break;
                 }
                 let mut num = noisevec.pop().unwrap() as i32;
@@ -126,7 +126,7 @@ impl WorldGenerator for CustomWorldGenerator {
         }
         for x in 0..16 {
             for z in 0..16 {
-                if noisevec.len() <= 0 {
+                if noisevec.len() == 0 {
                     break;
                 }
                 let mut num = noisevec.pop().unwrap() as i32;
@@ -177,7 +177,7 @@ impl WorldGenerator for MountainWorldGenerator {
         }
         for x in 0..16 {
             for z in 0..16 {
-                if noisevec.len() <= 0 {
+                if noisevec.len() == 0 {
                     break;
                 }
                 let mut num = noisevec.pop().unwrap() as i32;

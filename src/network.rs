@@ -37,7 +37,9 @@ impl Listener {
     async fn run(mut self) {
         loop {
             if let Ok((stream, addr)) = self.listener.accept().await {
-                self.accept(stream, addr).await;
+                if stream.set_nodelay(true).is_ok() {
+                    self.accept(stream, addr).await;
+                }
             }
         }
     }

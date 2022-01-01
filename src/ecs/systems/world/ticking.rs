@@ -67,7 +67,6 @@ pub fn tick_blocks(game: &mut Game) -> SysResult {
                         None => continue,
                     };
                     drop(chunk);
-                    drop(world);
                     let block_pos = BlockPosition::new(x as i32 + (chunkpos.x * 16) , y as i32, z as i32 + (chunkpos.z * 16));
                     let start = Instant::now();
                     if let Some(block_type) = registry.get_block(block_state.b_type) {

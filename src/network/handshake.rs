@@ -30,7 +30,7 @@ pub async fn handle_connection(worker: &mut Worker) -> anyhow::Result<HandshakeR
         let packet = worker.read::<ClientLoginPacket>().await?;
         let ClientLoginPacket::LoginRequest(login_request) = packet;
         // log::info!("Successfully authenticated {}[/{}]", lr_packet.username, worker.addr);
-        if login_request.protocol_version != 69420 && false {
+        if login_request.protocol_version != 17 {
             //worker.write(ServerPacket::Disconnect { reason: "Wrong version.".to_string() }).await?;
             return Err(anyhow::anyhow!("Wrong protocol version!"));
         }

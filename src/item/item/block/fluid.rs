@@ -72,6 +72,7 @@ pub trait FluidBlock {
             }
             if num_adjacent_sources >= 2 {
                 if game.is_solid_block(position.offset(0, -1, 0), world) {
+                    let _ = ();
                     var10 = 0;
                 } else if self.is_water(game.block_id_at(position.offset(0, -1, 0), world))
                     && game.block_meta_at(position.offset(0, -1, 0), world) == 0

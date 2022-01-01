@@ -76,11 +76,10 @@ pub fn handle_packet(
             interaction::handle_player_block_placement(game, server, p, player)?;
         }
         ClientPlayPacket::Respawn(_) => {
-            let netid = game.ecs.get::<NetworkID>(player)?.deref().clone();
+            let netid = *game.ecs.get::<NetworkID>(player)?.deref();
             game.ecs
             .insert_entity_event(player, PlayerSpawnEvent)
             .unwrap();
-            drop(netid);
             if let Err(_) = game.ecs.remove::<Dead>(player) {
 
             }

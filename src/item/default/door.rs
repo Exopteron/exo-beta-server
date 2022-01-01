@@ -58,9 +58,7 @@ impl Item for DoorItem {
                 let f = game.block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1), target.world).unwrap_or(BlockState::air()).b_type == 64;
                 let f1 = game.block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1), target.world).unwrap_or(BlockState::air()).b_type == 64;
                 let mut f2 = false;
-                if f && !f1 {
-                    f2 = true;
-                } else if num1 > num2 {
+                if f && !f1 || num1 > num2 {
                     f2 = true;
                 }
                 if f2 {

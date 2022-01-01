@@ -57,7 +57,6 @@ impl Block for JukeboxBlock {
             return ActionResult::SUCCESS;
         }
         drop(window);
-        drop(id);
         drop(slot);
         drop(entity_ref);
         log::debug!("Is here");

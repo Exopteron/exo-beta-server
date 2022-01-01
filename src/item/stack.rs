@@ -155,8 +155,6 @@ impl ItemStack {
         }
         if count > self.item.stack_size() {
             return Err(ItemStackError::ExceedsStackSize);
-        } else if count > i8::MAX {
-            return Err(ItemStackError::ClientOverflow);
         }
         self.count = count;
         Ok(self.count)
@@ -217,12 +215,8 @@ impl ItemStack {
         }
         let max_transfer = other.item.stack_size().saturating_sub(other.count);
         let transfer = max_transfer.min(self.count).min(n);
-        if other.count + transfer > i8::MAX {
-            return Err(ItemStackError::ClientOverflow);
-        }
-
-        self.count = self.count - transfer;
-        other.count = other.count + transfer;
+        self.count -= transfer;
+        other.count += transfer;
         Ok(())
     }
 

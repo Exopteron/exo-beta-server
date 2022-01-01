@@ -838,7 +838,6 @@ impl Game {
                 let name = entity_ref.get::<Username>()?.0.clone();
                 drop(entity_ref);
                 drop(position);
-                drop(world);
                 game.broadcast_to_ops(&name, &format!("Set spawn point for world {} to {}", world.world_id, blockpos));
                 Ok(0)
             }),

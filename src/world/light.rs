@@ -102,7 +102,7 @@ pub fn propagate_light(world: i32, game: &mut Game, position: BlockPosition, mut
             true => block.b_skylight,
             false => block.b_light
         };
-        if light_level <= 0 {
+        if light_level == 0 {
             log::info!("skylight? {} of {:?} is {}, higher than {}", sky_light, position, light, light_level);
             return;
         }
