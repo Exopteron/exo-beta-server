@@ -24,20 +24,19 @@ use anyhow::anyhow;
 use logging::file::LogManager;
 use std::cell::RefCell;
 use std::io::Read;
-const VERSION: &'static str = env!("CARGO_PKG_VERSION");
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn main() -> anyhow::Result<()> {
     let appender = logging::setup_logging();
     let start = Instant::now();
+    let mut generators = WorldgenRegistry::new();
+    crate::world::generation::default_world_generators(&mut generators);
+    generators.set();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
     let mut manager = PluginManager::new();
     unsafe {
         manager.load_plugin("test_plugins/test_plugin_1/target/release/libtest_plugin_1.so")?;
     }
-    rayon::ThreadPoolBuilder::new()
-        .num_threads(8)
-        .build_global()
-        .unwrap();
     let _ = &configuration::CONFIGURATION.max_players;
     let translation = TranslationManager::initialize()?;
     let mut systems = SystemExecutor::<Game>::new();
@@ -123,6 +122,7 @@ use crate::item::item::ItemRegistry;
 use crate::plugins::PluginManager;
 use crate::server::Server;
 use crate::translation::TranslationManager;
+use crate::world::generation::WorldgenRegistry;
 
 //use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {

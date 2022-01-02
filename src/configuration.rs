@@ -5,7 +5,7 @@ use once_cell::sync::Lazy;
 use rand::RngCore;
 use serde::{Deserialize, de::{Visitor, self}, Deserializer};
 
-use crate::world::generation::{WorldGenerator, FlatWorldGenerator, TerrainWorldGenerator, MountainWorldGenerator, CustomWorldGenerator};
+use crate::world::generation::{WorldGenerator, FlatWorldGenerator, TerrainWorldGenerator, MountainWorldGenerator, CustomWorldGenerator, WorldgenRegistry};
 #[derive(serde_derive::Serialize, serde_derive::Deserialize)]
 struct SerializeOPS {
     ops: Vec<String>,
@@ -272,28 +272,14 @@ impl<'de> Deserialize<'de> for WorldgenData {
 }
 impl WorldgenData {
     fn set_self(&mut self, name: &str) -> bool {
-        self.generator = match name {
-            "flat" => {
-                self.name = Some(String::from("flat"));
-                Arc::new(FlatWorldGenerator {})
-            }
-            "terrain" => {
-                self.name = Some(String::from("terrain"));
-                Arc::new(TerrainWorldGenerator {})
-            }
-            "mountain" => {
-                self.name = Some(String::from("mountain"));
-                Arc::new(MountainWorldGenerator {})
-            }
-            "custom" => {
-                self.name = Some(String::from("custom"));
-                Arc::new(CustomWorldGenerator { x_step: CONFIGURATION.custom_generation.x_step, y_step: CONFIGURATION.custom_generation.y_step, multiplication_factor: CONFIGURATION.custom_generation.multiplication })
-            }
-            _ => {
-                return false;
-            }
-        };
-        true
+        let registry = WorldgenRegistry::get();
+        let generator = registry.get_generator(name);
+        if let Some(generator) = generator {
+            self.generator = generator;
+            self.name = Some(name.to_string());
+            return true;
+        }
+        false
     }
     pub fn get(&self) -> Arc<dyn WorldGenerator> {
         Arc::clone(&self.generator)

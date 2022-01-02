@@ -1,5 +1,6 @@
-use std::hash::Hasher;
+use std::{hash::Hasher, sync::Arc};
 
+use ahash::AHashMap;
 use rand::{SeedableRng, Rng, RngCore};
 use rand_xorshift::XorShiftRng;
 use siphasher::sip128::SipHasher13;
@@ -8,7 +9,37 @@ use worldgen::{noise::perlin::PerlinNoise, noisemap::{NoiseMap, NoiseMapGenerato
 use crate::{game::ChunkCoords, configuration::CONFIGURATION};
 
 use super::chunks::{Chunk, BlockState};
+static mut WORLDGEN_REGISTRY: Option<Arc<WorldgenRegistry>> = None;
 
+pub struct WorldgenRegistry {
+    generators: AHashMap<String, Arc<dyn WorldGenerator>>
+}
+impl WorldgenRegistry {
+    pub fn new() -> Self {
+        Self { generators: AHashMap::new() }
+    }
+    pub fn get() -> Arc<WorldgenRegistry> {
+        unsafe {
+            Arc::clone(WORLDGEN_REGISTRY.as_ref().unwrap())
+        }
+    }
+    pub fn set(self) {
+        unsafe {
+            WORLDGEN_REGISTRY = Some(Arc::new(self));
+        }
+    }
+    pub fn register_generator(&mut self, name: &str, generator: impl WorldGenerator + 'static) {
+        self.generators.insert(name.to_string(), Arc::new(generator));
+    }
+    pub fn get_generator(&self, name: &str) -> Option<Arc<dyn WorldGenerator>> {
+        self.generators.get(name).cloned()
+    }
+}
+pub fn default_world_generators(registry: &mut WorldgenRegistry) {
+    registry.register_generator("flat", FlatWorldGenerator {});
+    registry.register_generator("terrain", TerrainWorldGenerator {});
+    registry.register_generator("mountain", MountainWorldGenerator {});
+}
 pub trait WorldGenerator: Send + Sync {
     /// Generates the chunk at the given position.
     fn generate_chunk(&self, position: ChunkCoords) -> Chunk;
