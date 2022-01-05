@@ -5,19 +5,20 @@ use rand::{SeedableRng, Rng, RngCore};
 use rand_xorshift::XorShiftRng;
 use siphasher::sip128::SipHasher13;
 use worldgen::{noise::perlin::PerlinNoise, noisemap::{NoiseMap, NoiseMapGenerator, Size, Seed, Step, NoiseMapGeneratorBase}};
-
+pub mod mcvanillagenerator;
 use crate::{game::ChunkCoords, configuration::CONFIGURATION};
+
+use self::mcvanillagenerator::VanillaWorldGenerator;
 
 use super::chunks::{Chunk, BlockState};
 static mut WORLDGEN_REGISTRY: Option<Arc<WorldgenRegistry>> = None;
 
+#[derive(Default, Clone)]
 pub struct WorldgenRegistry {
-    generators: AHashMap<String, Arc<dyn WorldGenerator>>
+    generators: AHashMap<String, Arc<GeneratorCreator>>
 }
+pub type GeneratorCreator = dyn Fn(u64, i8) -> Arc<dyn WorldGenerator>;
 impl WorldgenRegistry {
-    pub fn new() -> Self {
-        Self { generators: AHashMap::new() }
-    }
     pub fn get() -> Arc<WorldgenRegistry> {
         unsafe {
             Arc::clone(WORLDGEN_REGISTRY.as_ref().unwrap())
@@ -28,27 +29,29 @@ impl WorldgenRegistry {
             WORLDGEN_REGISTRY = Some(Arc::new(self));
         }
     }
-    pub fn register_generator(&mut self, name: &str, generator: impl WorldGenerator + 'static) {
+    pub fn register_generator(&mut self, name: &str, generator: impl Fn(u64, i8) -> Arc<dyn WorldGenerator> + 'static) {
         self.generators.insert(name.to_string(), Arc::new(generator));
     }
-    pub fn get_generator(&self, name: &str) -> Option<Arc<dyn WorldGenerator>> {
-        self.generators.get(name).cloned()
+    pub fn get_generator(&self, name: &str, seed: u64, world_type: i8) -> Option<Arc<dyn WorldGenerator>> {
+        let f = self.generators.get(name)?.clone();
+        Some(f(seed, world_type))
     }
 }
 pub fn default_world_generators(registry: &mut WorldgenRegistry) {
-    registry.register_generator("flat", FlatWorldGenerator {});
-    registry.register_generator("terrain", TerrainWorldGenerator {});
-    registry.register_generator("mountain", MountainWorldGenerator {});
+    registry.register_generator("flat", |_, _| Arc::new(FlatWorldGenerator {}));
+    registry.register_generator("terrain", |_, _| Arc::new(TerrainWorldGenerator {}));
+    registry.register_generator("mountain", |_, _| Arc::new(MountainWorldGenerator {}));
+    registry.register_generator("vanilla", |seed, world_type| Arc::new(VanillaWorldGenerator::new(seed, world_type).unwrap()));
 }
 pub trait WorldGenerator: Send + Sync {
     /// Generates the chunk at the given position.
-    fn generate_chunk(&self, position: ChunkCoords) -> Chunk;
+    fn generate_chunk(&self, position: ChunkCoords, seed: u64) -> Chunk;
 }
 
 pub struct EmptyWorldGenerator {}
 
 impl WorldGenerator for EmptyWorldGenerator {
-    fn generate_chunk(&self, position: ChunkCoords) -> Chunk {
+    fn generate_chunk(&self, position: ChunkCoords, seed: u64) -> Chunk {
         Chunk::new(position)
     }
 }
@@ -57,7 +60,7 @@ const GROUND_LEVEL: usize = 65;
 pub struct FlatWorldGenerator {}
 
 impl WorldGenerator for FlatWorldGenerator {
-    fn generate_chunk(&self, position: ChunkCoords) -> Chunk {
+    fn generate_chunk(&self, position: ChunkCoords, seed: u64) -> Chunk {
         let mut chunk = Chunk::new(position);
         for x in 0..16 {
             for z in 0..16 {
@@ -74,8 +77,8 @@ const WATER_HEIGHT: i32 = 25;
 pub struct TerrainWorldGenerator {}
 
 impl WorldGenerator for TerrainWorldGenerator {
-    fn generate_chunk(&self, position: ChunkCoords) -> Chunk {
-        let seed = CONFIGURATION.world_seed.unwrap();
+    fn generate_chunk(&self, position: ChunkCoords, seed: u64) -> Chunk {
+
         let mut chunk = Chunk::new(position);
         let mut hash = SipHasher13::new_with_keys(seed, seed);
         hash.write_i32(position.x);
@@ -134,8 +137,8 @@ pub struct CustomWorldGenerator {
 }
 
 impl WorldGenerator for CustomWorldGenerator {
-    fn generate_chunk(&self, position: ChunkCoords) -> Chunk {
-        let seed = CONFIGURATION.world_seed.unwrap();
+    fn generate_chunk(&self, position: ChunkCoords, seed: u64) -> Chunk {
+
         let mut chunk = Chunk::new(position);
         let mut hash = SipHasher13::new_with_keys(seed, seed);
         hash.write_i32(position.x);
@@ -185,8 +188,8 @@ impl WorldGenerator for CustomWorldGenerator {
 pub struct MountainWorldGenerator;
 
 impl WorldGenerator for MountainWorldGenerator {
-    fn generate_chunk(&self, position: ChunkCoords) -> Chunk {
-        let seed = CONFIGURATION.world_seed.unwrap();
+    fn generate_chunk(&self, position: ChunkCoords, seed: u64) -> Chunk {
+
         let mut chunk = Chunk::new(position);
         let mut hash = SipHasher13::new_with_keys(seed, seed);
         hash.write_i32(position.x);

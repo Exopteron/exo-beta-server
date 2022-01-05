@@ -3,9 +3,7 @@ use crate::game::DamageType;
 // feather license in FEATHER_LICENSE.md
 
 /// Represents an entity's health
-#[derive(
-    Clone, Debug, PartialEq,
-)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Health(pub i16, pub DamageType);
 impl Health {
     pub fn damage(&mut self, amount: i16, damage_type: DamageType) {
@@ -16,9 +14,7 @@ impl Health {
 pub struct Dead;
 pub struct PreviousHealth(pub Health);
 /// Represents an entity's hunger
-#[derive(
-    Copy, Clone, Debug, PartialEq,
-)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Hunger(pub i16, pub f32);
 impl Hunger {
     pub fn get_points(&mut self, num: i16) -> bool {

@@ -3,17 +3,14 @@ pub mod packet;
 pub mod handshake;
 pub mod ids;
 pub mod metadata;
-pub mod message;
 use tokio::net::{TcpListener, TcpStream};
 use std::net::SocketAddr;
 use crate::player_count::PlayerCount;
 use crate::server::NewPlayer;
 use crate::configuration::CONFIGURATION;
 // use crate::error::Result;
-// never used flume before, looks cool and feather uses it
 use flume::Sender;
 use worker::Worker;
-// this is rust's OOP
 pub struct Listener {
     listener: TcpListener,
     new_players: Sender<NewPlayer>,

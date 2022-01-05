@@ -85,7 +85,7 @@ fn iter_section_blocks(
             let z = dz + chunk.z * 16;
 
             // It's safe to unwrap because we are working from a valid source of block positions
-            BlockPosition::new(x, y, z)
+            BlockPosition::new(x, y, z, chunk.world)
         })
 }
 

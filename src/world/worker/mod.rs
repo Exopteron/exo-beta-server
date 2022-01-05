@@ -55,6 +55,7 @@ pub struct ChunkWorker {
     send_gen: Sender<LoadedChunk>,
     recv_gen: Receiver<LoadedChunk>, // Chunk generation should be infallible.
     recv_load: Receiver<ChunkLoadResult>,
+    world_seed: u64,
 }
 
 impl ChunkWorker {
@@ -71,7 +72,7 @@ impl ChunkWorker {
         for x in 0..16 {
             for z in 0..16 {
                 if let Some(y) = chunk.chunk.heightmaps.light_blocking.height(x, z) {
-                    let pos = BlockPosition::new((x + (chunk.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (chunk.pos.z as usize) * 16) as i32);
+                    let pos = BlockPosition::new((x + (chunk.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (chunk.pos.z as usize) * 16) as i32, chunk.pos.world);
                     //light.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
                 }
             }
@@ -84,7 +85,7 @@ impl ChunkWorker {
         self.send_req = send_req;
         self.recv_load = recv_load;
     }
-    pub fn new(world_dir: impl Into<PathBuf>, generator: Arc<dyn WorldGenerator>, shutdown: Arc<AtomicBool>) -> Self {
+    pub fn new(world_dir: impl Into<PathBuf>, seed: u64, generator: Arc<dyn WorldGenerator>, shutdown: Arc<AtomicBool>) -> Self {
         let (send_req, recv_req) = flume::unbounded();
         let (send_gen, recv_gen) = flume::unbounded();
         let (region_worker, recv_load) = RegionWorker::new(world_dir.into(), recv_req, shutdown);
@@ -95,6 +96,7 @@ impl ChunkWorker {
             recv_gen,
             recv_load,
             generator,
+            world_seed: seed
         }
     }
     pub fn queue_load(&mut self, request: LoadRequest) {
@@ -109,12 +111,13 @@ impl ChunkWorker {
                         // chunk does not exist, queue it for generation
                         let send_gen = self.send_gen.clone();
                         let gen = self.generator.clone();
+                        let seed = self.world_seed;
                         rayon::spawn(move || {
                             // spawn task to generate chunk
                             if CONFIGURATION.logging.chunk_gen {
                                 log::info!("Generating chunk at {}", pos);
                             }
-                            let mut chunk = gen.generate_chunk(pos);
+                            let mut chunk = gen.generate_chunk(pos, seed);
                             chunk.heightmaps.recalculate(Chunk::block_at_fn(&chunk.data));
                             //chunk.calculate_full_skylight();
                             send_gen.send(LoadedChunk { pos, chunk, tile_entity_data: Vec::new() }).unwrap()

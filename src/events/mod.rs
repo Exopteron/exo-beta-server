@@ -29,6 +29,11 @@ pub struct ChunkCrossEvent {
 #[derive(Debug)]
 pub struct EntityCreateEvent;
 
+pub struct ChangeWorldEvent {
+    pub old_dim: i32,
+    pub new_dim: i32
+}
+
 /// Event triggered when a player changes their `View`,
 /// meaning they crossed into a new chunk.
 #[derive(Debug)]

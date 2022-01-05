@@ -1,15 +1,17 @@
+use std::ops::Deref;
+
 use hecs::EntityBuilder;
 
 use crate::{
     block_entity::{BlockEntity, BlockEntityLoader},
     ecs::{
-        entities::player::Username,
+        entities::{player::Username, item::ItemEntityData},
         systems::{SysResult, SystemExecutor},
         EntityRef,
     },
     game::{Game, Position},
     network::ids::NetworkID,
-    server::Client,
+    server::Client, status_effects::StatusEffectsManager, item::inventory_slot::InventorySlot,
 };
 
 // feather license in FEATHER_LICENSE.md
@@ -22,6 +24,7 @@ pub mod spawn_packet;
 pub enum EntityInit {
     Player,
     BlockEntity,
+    Item,
 }
 
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
@@ -38,13 +41,11 @@ impl SpawnPacketSender {
         if let Ok(username) = entity.get::<Username>() {
             if let Ok(_) = entity.get::<Position>() {
                 if let Ok(_) = entity.get::<NetworkID>() {
-                    if res.is_ok() {
-                        if client.username() != username.0 {
-                            client.send_exact_entity_position(
-                                *entity.get::<NetworkID>()?,
-                                *entity.get::<Position>()?,
-                            );
-                        }
+                    if res.is_ok() && client.username() != username.0 {
+                        client.send_exact_entity_position(
+                            *entity.get::<NetworkID>()?,
+                            *entity.get::<Position>()?,
+                        );
                     }
                 }
             }
@@ -79,6 +80,7 @@ fn add_spawn_packet(builder: &mut EntityBuilder, init: &EntityInit) {
     let spawn_packet = match init {
         EntityInit::Player => spawn_player,
         EntityInit::BlockEntity => spawn_block_entity,
+        EntityInit::Item => spawn_item_entity,
         _ => spawn_living_entity,
     };
     builder.add(SpawnPacketSender(spawn_packet));
@@ -88,8 +90,20 @@ fn spawn_player(entity: &EntityRef, client: &Client) -> SysResult {
     let network_id = *entity.get::<NetworkID>()?;
     let pos = *entity.get::<Position>()?;
     let name = &*entity.get::<Username>()?;
+    let status = entity.get::<StatusEffectsManager>()?;
+    for effect in status.get_effects() {
+        effect.show_client(entity, client)?;
+    }
+    drop(status);
     client.send_player(network_id, name, pos);
     client.send_entity_equipment(entity)?;
+    Ok(())
+}
+fn spawn_item_entity(entity: &EntityRef, client: &Client) -> SysResult {
+    let net_id = *entity.get::<NetworkID>()?;
+    let pos = *entity.get::<Position>()?;
+    let data = entity.get::<ItemEntityData>()?.deref().clone(); 
+    client.spawn_dropped_item(net_id, pos, InventorySlot::Filled(data.0));
     Ok(())
 }
 fn spawn_block_entity(entity: &EntityRef, client: &Client) -> SysResult {

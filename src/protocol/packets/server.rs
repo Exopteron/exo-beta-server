@@ -54,4 +54,7 @@ packet_enum!(ServerPlayPacket {
     0x04 = TimeUpdate,
     0x82 = UpdateSign,
     0x36 = BlockAction,
+    0x29 = EntityEffect,
+    0x2A = RemoveEntityEffect,
+    0x15 = PickupSpawn,
 });

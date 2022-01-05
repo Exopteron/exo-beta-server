@@ -1,15 +1,19 @@
-use std::{any::type_name, marker::PhantomData, time::{Duration, Instant}};
+use std::{
+    any::type_name,
+    marker::PhantomData,
+    panic::{self, AssertUnwindSafe},
+    time::{Duration, Instant}, sync::atomic::Ordering,
+};
 
-use crate::{game::Game, server::Server};
-mod entities;
-pub mod world;
+use crate::{game::Game, server::Server, configuration::CONFIGURATION, SHUTDOWN};
 pub mod chat;
-pub mod tablist;
+mod entities;
 pub mod stdin;
+pub mod tablist;
+pub mod world;
 use super::{HasEcs, HasResources};
 
 // Derived from feather-rs. License can be found in FEATHER_LICENSE.md
-
 
 /// The result type returned by a system function.
 ///
@@ -125,13 +129,34 @@ impl<Input> SystemExecutor<Input> {
             if !self.is_first_run {
                 input.ecs_mut().remove_old_events();
             }
-            let result = (system.function)(input);
-            if let Err(e) = result {
-                log::error!(
-                    "System {} returned an error; this is a bug: {:?}",
-                    system.name,
-                    e
-                );
+            let result = panic::catch_unwind(AssertUnwindSafe(|| (system.function)(input)));
+            match result {
+                Ok(result) => {
+                    if let Err(e) = result {
+                        log::error!(
+                            "System {} returned an error; this is a bug: {:?}",
+                            system.name,
+                            e
+                        );
+                    }
+                }
+                Err(e) => {
+                    if CONFIGURATION.shutdown_after_system_panic {
+                        log::error!(
+                            "System {} panicked! shutting down: {:?}",
+                            system.name,
+                            e
+                        );
+                        SHUTDOWN.store(true, Ordering::Relaxed);
+                        return;
+                    } else {
+                        log::error!(
+                            "System {} panicked! attempting to recover: {:?}",
+                            system.name,
+                            e
+                        );
+                    }
+                }
             }
         }
 
@@ -186,12 +211,15 @@ pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) {
     crate::world::view::register(s);
     crate::world::chunk_subscriptions::register(s);
     world::register(g, s);
-    s.group::<Server>().add_system(|_game, server| {
-        for client in server.clients.iter_mut() {
-            client.1.tick();
-        }
-        Ok(())
-    }).add_system(send_keepalives).add_system(time_update);
+    s.group::<Server>()
+        .add_system(|_game, server| {
+            for client in server.clients.iter_mut() {
+                client.1.tick();
+            }
+            Ok(())
+        })
+        .add_system(send_keepalives)
+        .add_system(time_update);
     crate::entities::register(g, s);
     crate::world::chunk_entities::register(s);
     tablist::register(s);

@@ -1,4 +1,5 @@
 use anyhow::bail;
+use crate::ecs::entities::player::CurrentWorldInfo;
 use crate::item::inventory::reference::BackingWindow as BackingWindow;
 use crate::item::inventory_slot::InventorySlot;
 use crate::item::item::{Item, ItemRegistry};
@@ -16,7 +17,7 @@ pub fn handle_creative_inventory_action(
     if packet.item_id > 255 {
         match ItemRegistry::global().get_item(packet.item_id) {
             Some(i) => {
-                clicked_item = InventorySlot::Filled(ItemStack::new(ItemStackType::Item(i), packet.quantity as i8, packet.meta));
+                clicked_item = InventorySlot::Filled(ItemStack::new(i.id(), packet.quantity as i8, packet.meta));
             }
             None => {
                 log::info!("Unknown item {}", packet.item_id);
@@ -26,7 +27,7 @@ pub fn handle_creative_inventory_action(
     } else {
         match ItemRegistry::global().get_block(packet.item_id as u8) {
             Some(i) => {
-                clicked_item = InventorySlot::Filled(ItemStack::new(ItemStackType::Block(i), packet.quantity as i8, packet.meta));
+                clicked_item = InventorySlot::Filled(ItemStack::new(i.id() as i16, packet.quantity as i8, packet.meta));
             }
             None => {
                 log::info!("Unknown block {}:{}", packet.item_id, packet.meta);
@@ -53,7 +54,8 @@ pub fn handle_creative_inventory_action(
         let client = server.clients.get(&client_id).unwrap();
         client.send_window_items(&window);
     }
-    server.broadcast_equipment_change(&player)?;
+    let world = player.get::<CurrentWorldInfo>()?.world_id;
+    server.broadcast_equipment_change(&player, world)?;
     Ok(())
 }
 
@@ -84,7 +86,8 @@ pub fn handle_click_window(
 
     client.send_window_items(&*window);
     drop(window);
-    server.broadcast_equipment_change(&player)?;
+    let world = player.get::<CurrentWorldInfo>()?.world_id;
+    server.broadcast_equipment_change(&player, world)?;
     result
 }
 

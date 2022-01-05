@@ -58,6 +58,7 @@ pub fn handle_player_position(
         return Ok(());
     }
     let mut pos = player.get_mut::<Position>()?;
+    let previous_pos = pos.clone();
     pos.x = packet.x;
     pos.y = packet.y;
     pos.z = packet.z;
@@ -65,7 +66,7 @@ pub fn handle_player_position(
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
     update_client_position(server, &player, *pos)?;
-    on_movement(&player, &mut pos)?;
+    on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
 }
 pub fn handle_player_position_and_look(
@@ -77,6 +78,7 @@ pub fn handle_player_position_and_look(
         return Ok(());
     }
     let mut pos = player.get_mut::<Position>()?;
+    let previous_pos = pos.clone();
     pos.x = packet.x;
     pos.y = packet.y;
     pos.z = packet.z;
@@ -85,7 +87,7 @@ pub fn handle_player_position_and_look(
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
     update_client_position(server, &player, *pos)?;
-    on_movement(&player, &mut pos)?;
+    on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
 }
 pub fn handle_player_look(server: &Server, player: EntityRef, packet: PlayerLook) -> SysResult {
@@ -93,23 +95,25 @@ pub fn handle_player_look(server: &Server, player: EntityRef, packet: PlayerLook
         return Ok(());
     }
     let mut pos = player.get_mut::<Position>()?;
+    let previous_pos = pos.clone();
     pos.yaw = packet.yaw;
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
     update_client_position(server, &player, *pos)?;
-    on_movement(&player, &mut pos)?;
+    on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
 }
 pub fn handle_player_movement(player: EntityRef, packet: PlayerMovement) -> SysResult {
     let mut pos = player.get_mut::<Position>()?;
+    let previous_pos = pos.clone();
     pos.on_ground = packet.on_ground;
     update_offground_height(&player, *pos)?;
-    on_movement(&player, &mut pos)?;
+    on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
 }
 
-fn on_movement(player: &EntityRef, pos: &mut Position) -> SysResult {
+fn on_movement(player: &EntityRef, previous_pos: Position, pos: &mut Position) -> SysResult {
     let border = CONFIGURATION.world_border;
     if pos.x > border as f64 {
         pos.x = border as f64;

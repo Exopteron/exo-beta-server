@@ -1,20 +1,31 @@
 //! Traits for reading/writing Minecraft-encoded values.
 
-use crate::{entities::metadata::{MetaEntry, EntityMetadata}, network::metadata::Metadata, item::{inventory_slot::InventorySlot, stack::{ItemStack, ItemStackType}, item::{Item, ItemRegistry}}, world::chunks::BlockState, game::BlockPosition};
+use crate::{
+    entities::metadata::{EntityMetadata, MetaEntry},
+    game::BlockPosition,
+    item::{
+        inventory_slot::InventorySlot,
+        item::{Item, ItemRegistry},
+        stack::{ItemStack, ItemStackType},
+    },
+    network::metadata::Metadata,
+    world::chunks::BlockState,
+};
 
 use super::ProtocolVersion;
 use anyhow::{anyhow, bail, Context};
 use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt};
-use encoding::{all::UTF_16BE, Encoding, EncoderTrap};
+use encoding::{all::UTF_16BE, EncoderTrap, Encoding};
 use serde::{de::DeserializeOwned, Serialize};
 use std::{
     borrow::Cow,
     collections::BTreeMap,
     convert::{TryFrom, TryInto},
+    fmt::Display,
     io::{self, Cursor, Read, Write},
     iter::{self, FromIterator},
     marker::PhantomData,
-    num::TryFromIntError, fmt::Display,
+    num::TryFromIntError,
 };
 use thiserror::Error;
 pub type Slot = InventorySlot;
@@ -177,10 +188,11 @@ fn ff(input: f32) -> i32 {
 impl Readable for RotationFraction360 {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         let num = i8::read(buffer, version)? as i32;
         let float = ((num * 360) as f32) / 256.;
-        Ok(Self(float)) 
+        Ok(Self(float))
     }
 }
 impl Writeable for BlockPosition {
@@ -194,7 +206,8 @@ impl Writeable for BlockPosition {
 impl Readable for BlockPosition {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         let mut this = BlockPosition::default();
         this.x = i32::read(buffer, version)?;
         this.y = i8::read(buffer, version)? as i32;
@@ -212,7 +225,8 @@ impl Writeable for BlockState {
 impl Readable for BlockState {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         let mut this = BlockState::air();
         this.b_type = u8::read(buffer, version)?;
         this.b_metadata = u8::read(buffer, version)?;
@@ -223,20 +237,18 @@ impl Writeable for Slot {
     fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
         match self.item_kind() {
             None => (-1i16).write(buffer, version)?,
-            Some(v) => {
-                match v {
-                    ItemStackType::Item(i) => {
-                        (i.id() as i16).write(buffer, version)?;
-                        self.count().write(buffer, version)?;
-                        self.damage().write(buffer, version)?;
-                    }
-                    ItemStackType::Block(b) => {
-                        (b.id() as i16).write(buffer, version)?;
-                        self.count().write(buffer, version)?;
-                        self.damage().write(buffer, version)?;
-                    }
+            Some(v) => match v {
+                ItemStackType::Item(i) => {
+                    (i.id() as i16).write(buffer, version)?;
+                    self.count().write(buffer, version)?;
+                    self.damage().write(buffer, version)?;
                 }
-            }
+                ItemStackType::Block(b) => {
+                    (b.id() as i16).write(buffer, version)?;
+                    self.count().write(buffer, version)?;
+                    self.damage().write(buffer, version)?;
+                }
+            },
         };
         Ok(())
     }
@@ -244,16 +256,13 @@ impl Writeable for Slot {
 impl Readable for Slot {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         let id = i16::read(buffer, version)?;
         if id >= 0 {
             let count = i8::read(buffer, version)?;
             let meta = i16::read(buffer, version)?;
-            if id > 255 {
-                return Ok(Slot::Filled(ItemStack::new(ItemStackType::Item(ItemRegistry::global().get_item(id).ok_or(anyhow::anyhow!("No such item"))?), count, meta)));
-            } else {
-                return Ok(Slot::Filled(ItemStack::new(ItemStackType::Block(ItemRegistry::global().get_block(id as u8).ok_or(anyhow::anyhow!("No such block"))?), count, meta)));
-            }
+            return Ok(Slot::Filled(ItemStack::new(id, count, meta)));
         } else {
             return Ok(Slot::Empty);
         }
@@ -267,19 +276,27 @@ pub struct PingData {
 }
 impl PingData {
     pub fn new(motd: impl Into<String>, online_players: usize, slots: usize) -> Self {
-        Self { motd: motd.into(), online_players, slots }
+        Self {
+            motd: motd.into(),
+            online_players,
+            slots,
+        }
     }
 }
 impl Readable for PingData {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         unreachable!()
     }
 }
 impl Writeable for PingData {
     fn write(&self, buffer: &mut Vec<u8>, version: ProtocolVersion) -> anyhow::Result<()> {
-        let format = format!("{}\u{00a7}{}\u{00a7}{}", self.motd, self.online_players, self.slots);
+        let format = format!(
+            "{}\u{00a7}{}\u{00a7}{}",
+            self.motd, self.online_players, self.slots
+        );
         String16(format).write(buffer, version)?;
         Ok(())
     }
@@ -289,7 +306,8 @@ pub struct AbsoluteInt(pub f64);
 impl Readable for AbsoluteInt {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         let val = i32::read(buffer, version)?;
         Ok(Self((val as f64) / 32.0))
     }
@@ -337,7 +355,8 @@ impl Readable for String16 {
     where
         Self: Sized,
     {
-        let length = i16::read(buffer, version).context("failed to read string length")? as usize * 2;
+        let length =
+            i16::read(buffer, version).context("failed to read string length")? as usize * 2;
 
         // Read string into buffer.
         let mut temp = vec![0u8; length];
@@ -535,7 +554,8 @@ impl Writeable for Metadata {
 impl Readable for Metadata {
     fn read(buffer: &mut Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
-        Self: Sized {
+        Self: Sized,
+    {
         unimplemented!();
     }
 }

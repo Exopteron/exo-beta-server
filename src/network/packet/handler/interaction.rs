@@ -37,12 +37,12 @@ pub fn handle_held_item_change(
 ) -> SysResult {
     let new_id = packet.slot_id as usize;
     let mut slot = player.get_mut::<HotbarSlot>()?;
-
+    let world = player.get::<CurrentWorldInfo>()?.world_id;
     log::trace!("Got player slot change from {} to {}", slot.get(), new_id);
 
     slot.set(new_id)?;
     drop(slot);
-    server.broadcast_equipment_change(&player)?;
+    server.broadcast_equipment_change(&player, world)?;
     Ok(())
 }
 /// Handles the Player Digging packet sent for the following
@@ -61,7 +61,7 @@ pub fn handle_player_digging(
     let world = game.ecs.entity(player)?.get::<CurrentWorldInfo>()?.world_id;
     let gamemode = game.ecs.entity(player)?.get::<Gamemode>()?.deref().clone();
     log::trace!("Got player digging with status {:?}", packet.status);
-    let pos = BlockPosition::new(packet.x, packet.y.into(), packet.z);
+    let pos = BlockPosition::new(packet.x, packet.y.into(), packet.z, world);
     let res = match packet.status {
         DiggingStatus::StartedDigging => {
             if gamemode.id() == Gamemode::Creative.id() {
@@ -75,7 +75,7 @@ pub fn handle_player_digging(
                     if let Some(block_type) = ItemRegistry::global().get_block(block) {
                         block_type.on_break(game, server, player, pos, packet.face, world);
                         let _success = game.break_block(pos, world);
-                        server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
+                        server.broadcast_effect(SoundEffectKind::BlockBreak, pos, world, block as i32);
                     }
                     Ok(())
                 } else {
@@ -96,7 +96,7 @@ pub fn handle_player_digging(
                 if let Some(block_type) = ItemRegistry::global().get_block(block) {
                     block_type.on_break(game, server, player, pos, packet.face, world);
                     let _success = game.break_block(pos, world);
-                    server.broadcast_effect(SoundEffectKind::BlockBreak, pos, block as i32);
+                    server.broadcast_effect(SoundEffectKind::BlockBreak, pos, world, block as i32);
                 }
                 Ok(())
             } else {
@@ -142,7 +142,7 @@ fn validate_block_place(
 pub fn handle_player_block_placement(
     game: &mut Game,
     server: &mut Server,
-    packet: PlayerBlockPlacement,
+    mut packet: PlayerBlockPlacement,
     player: Entity,
 ) -> SysResult {
     if matches!(packet.direction, Face::Invalid) {
@@ -161,6 +161,7 @@ pub fn handle_player_block_placement(
         return Ok(());
     }
     let world = game.ecs.get::<CurrentWorldInfo>(player).unwrap().world_id;
+    packet.pos.world = world;
     let block_kind = {
         let result = game.block(packet.direction.offset(packet.pos), world);
         match result {
@@ -274,7 +275,7 @@ pub fn handle_player_block_placement(
                 drop(slot);
                 client.send_window_items(&inventory);
                 drop(inventory);
-                server.broadcast_equipment_change(&entity_ref)?;
+                server.broadcast_equipment_change(&entity_ref, world)?;
             }
             let id = match event.held_item.item() {
                 ItemStackType::Item(_) => return Ok(()),
@@ -307,6 +308,7 @@ pub fn handle_update_sign(
     player: Entity,
     packet: UpdateSign,
 ) -> SysResult {
+    let world = game.ecs.get::<CurrentWorldInfo>(player)?.world_id;
     if packet.text1.0.len() > 15
         || packet.text2.0.len() > 15
         || packet.text3.0.len() > 15
@@ -314,7 +316,7 @@ pub fn handle_update_sign(
     {
         bail!("Text too long!");
     }
-    let pos = BlockPosition::new(packet.x, packet.y as i32, packet.z);
+    let pos = BlockPosition::new(packet.x, packet.y as i32, packet.z, world);
     let mut to_sync = Vec::new();
     for (entity, (sign_data, block_entity)) in
         game.ecs.query::<(&mut SignData, &BlockEntity)>().iter()
@@ -331,6 +333,7 @@ pub fn handle_update_sign(
         let entity_ref = game.ecs.entity(entity)?;
         server.sync_block_entity(
             *entity_ref.get::<Position>()?,
+            world,
             entity_ref.get::<BlockEntityLoader>()?.deref().clone(),
             &entity_ref,
         );

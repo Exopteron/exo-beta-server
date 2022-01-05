@@ -3,6 +3,7 @@ use hecs::Entity;
 use crate::game::Game;
 use crate::server::Server;
 use std::any::Any;
+use std::panic::AssertUnwindSafe;
 use std::sync::Arc;
 /*
 Command codes:
@@ -60,21 +61,19 @@ pub struct Command {
     pub description: String,
     pub arguments: Vec<CommandArgumentTypes>,
     pub perm_level: u8,
-    function: Arc<
-        Box<
-            dyn Fn(
-                &mut Game,
-                &mut Server,
-                Entity,
-                CommandArgs,
-            ) -> anyhow::Result<usize>,
-        >,
-    >,
+    function:
+        Arc<Box<dyn Fn(&mut Game, &mut Server, Entity, CommandArgs) -> anyhow::Result<usize>>>,
 }
 pub struct CommandArgs(Vec<Arc<Box<dyn CommandArgument>>>);
 impl CommandArgs {
     pub fn get<T: 'static + CommandArgument>(&self, idx: usize) -> anyhow::Result<&T> {
-        Ok(self.0.get(idx).ok_or(anyhow::anyhow!("Arg does not exist"))?.as_any().downcast_ref::<T>().ok_or(anyhow::anyhow!("Wrong type"))?)
+        Ok(self
+            .0
+            .get(idx)
+            .ok_or(anyhow::anyhow!("Arg does not exist"))?
+            .as_any()
+            .downcast_ref::<T>()
+            .ok_or(anyhow::anyhow!("Wrong type"))?)
     }
 }
 pub struct CommandSystem {
@@ -86,14 +85,7 @@ impl Command {
         description: &str,
         perm_level: u8,
         arguments: Vec<CommandArgumentTypes>,
-        function: Box<
-            dyn Fn(
-                &mut Game,
-                &mut Server,
-                Entity,
-                CommandArgs,
-            ) -> anyhow::Result<usize>,
-        >,
+        function: Box<dyn Fn(&mut Game, &mut Server, Entity, CommandArgs) -> anyhow::Result<usize>>,
     ) -> Self {
         Self {
             root: root.to_string(),
@@ -114,7 +106,7 @@ pub fn code_to_message(res: usize) -> Option<String> {
         }
         4 => {
             return Some(String::from("§7Unknown command."));
-           // player.send_message(Message::new(&format!("§7Unknown command.")));
+            // player.send_message(Message::new(&format!("§7Unknown command.")));
         }
         5 => {
             return Some(String::from("§4Insufficient permission."));
@@ -192,7 +184,7 @@ impl CommandSystem {
                 }
                 CommandArgumentTypes::Int => {
                     if let Some(arg) = command.get(argselect) {
-                        args.push(Arc::new(Box::new(match i32::from_str_radix(arg, 10) {
+                        args.push(Arc::new(Box::new(match arg.parse::<i32>() {
                             Ok(int) => int,
                             Err(_) => {
                                 return Ok(3);
@@ -205,6 +197,10 @@ impl CommandSystem {
                 }
             }
         }
-        (cmd.function)(game, server, executor, CommandArgs(args))
+        let mut res: anyhow::Result<usize> = Ok(0);
+        std::panic::catch_unwind(AssertUnwindSafe(|| {
+            res = (cmd.function)(game, server, executor, CommandArgs(args));
+        })).map_err(|_| anyhow::anyhow!("Bad"))?;
+        res
     }
 }

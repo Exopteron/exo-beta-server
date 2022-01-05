@@ -1,6 +1,7 @@
 use std::{collections::HashSet, fmt::Debug, sync::Arc};
 
 use ahash::AHashSet;
+use java_utils::HashCode;
 use once_cell::sync::Lazy;
 use rand::RngCore;
 use serde::{Deserialize, de::{Visitor, self}, Deserializer};
@@ -23,8 +24,10 @@ pub struct ServerConfig {
     pub translation_file: String,
     pub default_gamemode: u8,
     pub tps: i32,
-    pub world_seed: Option<u64>,
+    pub world_seed: WorldSeed,
     pub world_border: i32,
+    pub vanilla_jar: Option<String>,
+    pub shutdown_after_system_panic: bool,
     pub custom_generation: GenConfig,
     pub logging: LoggingConfig,
     // generic configuration, max players etc
@@ -81,11 +84,17 @@ default_gamemode = 0
 # Server TPS (Ticks Per Second), probably shouldn't change it. But who's stopping you?
 tps = 20
 
-# World seed, optional. If not specified the server will use a random seed. Must be an unsigned 64 bit number. (u64 type)
-# world_seed = 420
+# World seed. If blank the server will use a random seed.
+world_seed = ""
 
 # World border. How many blocks out can a player go from spawn?
 world_border = 16000
+
+# Patched vanilla b1.8.1 jar location. Required for vanilla world generation
+# vanilla_jar = "patchedjar.jar"
+
+# If we should shutdown after a system panics. If this is false, the server will attempt to recover.
+shutdown_after_system_panic = true
 
 # Custom worldgen options. These take effect when chunk_generator is "custom".
 
@@ -120,10 +129,7 @@ packet_transfer_exclusion = ["PreChunk", "ChunkData", "TimeUpdate", "PlayerMovem
 
 pub static CONFIGURATION: Lazy<ServerConfig> = Lazy::new(|| {
     //ServerConfig {listen_address: "127.0.0.1".to_string(), listen_port: 25565, server_name: "Hello".to_string(), server_motd: "there!".to_string()}
-    let mut cfg = get_options();
-    if cfg.world_seed == None {
-        cfg.world_seed = Some(rand::thread_rng().next_u64());
-    }
+    let cfg = get_options();
     cfg
 });
 pub fn get_options() -> ServerConfig {
@@ -231,7 +237,6 @@ pub fn remove_op(username: &str) {
 
 pub struct WorldgenData {
     name: Option<String>,
-    generator: Arc<dyn WorldGenerator>,
 }
 impl Debug for WorldgenData {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -261,7 +266,7 @@ impl<'de> Deserialize<'de> for WorldgenData {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de> {
-        let mut us = WorldgenData { name: None, generator: Arc::new(FlatWorldGenerator {})};
+        let mut us = WorldgenData { name: None, };
         if let Ok(str) = deserializer.deserialize_string(StringVisitor) {
             if !us.set_self(&str) {
                 return Err(de::Error::custom(format!("unknown world generator \"{}\"", str)));
@@ -270,24 +275,48 @@ impl<'de> Deserialize<'de> for WorldgenData {
         Ok(us)
     }
 }
+
+
+pub struct WorldSeed {
+    pub seed: i64,
+}
+impl Debug for WorldSeed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("WorldSeed").field("seed", &self.seed).finish()
+    }
+}
+impl<'de> Deserialize<'de> for WorldSeed {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        let mut us = WorldSeed { seed: rand::thread_rng().next_u64() as i64 };
+        if let Ok(str) = deserializer.deserialize_string(StringVisitor) {
+            let mut ok = false;
+            if !str.is_empty() {
+                let res = str.parse::<i128>();
+                if let Ok(seed) = res  {
+                    if seed != 0 {
+                        us.seed = (seed % i64::MAX as i128) as i64;
+                        ok = true;
+                    }
+                }
+            }
+            if !ok {
+                us.seed = str.hash_code() as i64;
+            }
+        }
+        Ok(us)
+    }
+}
 impl WorldgenData {
     fn set_self(&mut self, name: &str) -> bool {
-        let registry = WorldgenRegistry::get();
-        let generator = registry.get_generator(name);
-        if let Some(generator) = generator {
-            self.generator = generator;
-            self.name = Some(name.to_string());
-            return true;
-        }
-        false
-    }
-    pub fn get(&self) -> Arc<dyn WorldGenerator> {
-        Arc::clone(&self.generator)
+        self.name = Some(name.to_string());
+        true
     }
     pub fn name(&self) -> String {
         match &self.name {
             Some(name) => name.clone(),
-            None => String::from("null")
+            None => String::from("flat")
         }
     }
 }

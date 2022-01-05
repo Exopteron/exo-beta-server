@@ -172,7 +172,7 @@ pub trait FluidBlock {
                 if var8 == 3 {
                     var11 += 1;
                 }
-                let position = BlockPosition::new(var9, position.y, var11);
+                let position = BlockPosition::new(var9, position.y, var11, world);
                 if !self.block_blocks_flow(world, game, position)
                     && !self.is_water(game.block_id_at(position, world))
                     || game.block_meta_at(position, world) != 0
@@ -214,7 +214,7 @@ pub trait FluidBlock {
             if var5 == 3 {
                 var8 += 1;
             }
-            let position = BlockPosition::new(var6, position.y, var8);
+            let position = BlockPosition::new(var6, position.y, var8, world);
             if !self.block_blocks_flow(world, game, position)
                 && (!self.is_water(game.block_id_at(position, world))
                     || game.block_meta_at(position, world) != 0)

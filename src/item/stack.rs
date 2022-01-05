@@ -45,7 +45,13 @@ impl ItemStack {
     }
     /// Creates a new `ItemStack` with the default name (title)
     /// no lore, no damage, no repair cost and no enchantments.
-    pub fn new(item: ItemStackType, count: i8, meta: i16) -> Self {
+    pub fn new(item_id: i16, count: i8, meta: i16) -> Self {
+        let item: ItemStackType;
+        if let Some(itemtype)= ItemRegistry::global().get_item(item_id) {
+            item = ItemStackType::Item(itemtype);
+        } else {
+            item = ItemStackType::Block(ItemRegistry::global().get_block(item_id as u8).unwrap());
+        }
         Self { item, count, meta }
     }
 

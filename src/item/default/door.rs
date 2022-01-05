@@ -53,10 +53,10 @@ impl Item for DoorItem {
                     }
                     _ => (),
                 }
-                let num1 = game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1), target.world) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1), target.world) as u8;
-                let num2 = game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1), target.world) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1), target.world) as u8;
-                let f = game.block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1), target.world).unwrap_or(BlockState::air()).b_type == 64;
-                let f1 = game.block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1), target.world).unwrap_or(BlockState::air()).b_type == 64;
+                let num1 = game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1, target.world), target.world) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1, target.world), target.world) as u8;
+                let num2 = game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1, target.world), target.world) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1, target.world), target.world) as u8;
+                let f = game.block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64;
+                let f1 = game.block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64;
                 let mut f2 = false;
                 if f && !f1 || num1 > num2 {
                     f2 = true;
@@ -141,7 +141,7 @@ impl Block for DoorBlock {
         }
         game.set_block(position, BlockState::new(self.id(), state.b_metadata ^ 4), world);
         let id = game.ecs.get::<NetworkID>(player).unwrap();
-        server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, 0);
+        server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, world, 0);
         ActionResult::SUCCESS
     }
 }

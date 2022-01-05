@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use anyhow::Context;
 
-use crate::{server::Server, game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}, entities::player::Username}, events::{ViewUpdateEvent, EntityCreateEvent, EntityRemoveEvent, ChunkCrossEvent}, network::ids::NetworkID, block_entity::BlockEntityLoader};
+use crate::{server::Server, game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}, entities::player::{Username, CurrentWorldInfo}}, events::{ViewUpdateEvent, EntityCreateEvent, EntityRemoveEvent, ChunkCrossEvent}, network::ids::NetworkID, block_entity::BlockEntityLoader};
 
 use super::{SpawnPacketSender, PreviousPosition};
 
@@ -58,9 +58,9 @@ pub fn update_visible_entities(game: &mut Game, server: &mut Server) -> SysResul
 
 /// System to send an entity to clients when it is created.
 fn send_entities_when_created(game: &mut Game, server: &mut Server) -> SysResult {
-    for (entity, (_event, &position, spawn_packet)) in game
+    for (entity, (_event, &position, spawn_packet, world_info)) in game
         .ecs
-        .query::<(&EntityCreateEvent, &Position, &SpawnPacketSender)>()
+        .query::<(&EntityCreateEvent, &Position, &SpawnPacketSender, &CurrentWorldInfo)>()
         .iter()
     {
         let entity_ref = game.ecs.entity(entity)?;
@@ -76,9 +76,9 @@ fn send_entities_when_created(game: &mut Game, server: &mut Server) -> SysResult
 
 /// System to unload an entity on clients when it is removed.
 fn unload_entities_when_removed(game: &mut Game, server: &mut Server) -> SysResult {
-    for (_, (_event, &position, &network_id)) in game
+    for (_, (_event, &position, &network_id, world_info)) in game
         .ecs
-        .query::<(&EntityRemoveEvent, &Position, &NetworkID)>()
+        .query::<(&EntityRemoveEvent, &Position, &NetworkID, &CurrentWorldInfo)>()
         .iter()
     {
         server.broadcast_nearby_with(position, |client| client.unload_entity(network_id));
@@ -89,9 +89,9 @@ fn unload_entities_when_removed(game: &mut Game, server: &mut Server) -> SysResu
 
 /// System to send/unsend entities on clients when the entity changes chunks.
 fn update_entities_on_chunk_cross(game: &mut Game, server: &mut Server) -> SysResult {
-    for (entity, (event, spawn_packet, &network_id)) in game
+    for (entity, (event, spawn_packet, &network_id, world_info)) in game
         .ecs
-        .query::<(&ChunkCrossEvent, &SpawnPacketSender, &NetworkID)>()
+        .query::<(&ChunkCrossEvent, &SpawnPacketSender, &NetworkID, &CurrentWorldInfo)>()
         .iter()
     {
         let old_clients: HashSet<_> = server

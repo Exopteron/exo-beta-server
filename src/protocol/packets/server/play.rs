@@ -181,4 +181,25 @@ packets! {
         byte1 i8;
         byte2 i8; 
     }
+
+    EntityEffect {
+        eid i32;
+        effect_id EntityEffectKind;
+        amplifier i8;
+        duration i16;
+    }
+    RemoveEntityEffect {
+        eid i32;
+        effect_id EntityEffectKind;
+    }
+    PickupSpawn {
+        eid i32;
+        item Slot;
+        x AbsoluteInt;
+        y AbsoluteInt;
+        z AbsoluteInt;
+        rotation i8;
+        pitch i8;
+        roll i8;
+    }
 }

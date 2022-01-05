@@ -90,7 +90,7 @@ impl Ecs {
     }
 
     /// Adds an event component to an entity and schedules
-    /// it to be removed immeditately before the current system
+    /// it to be removed immediately before the current system
     /// runs again. Thus, all systems have exactly one chance
     /// to observe the event before it is dropped.
     pub fn insert_entity_event<T: Component>(

@@ -33,7 +33,7 @@ impl InventorySlot {
         if count == 0 {
             Self::Empty
         } else {
-            Self::Filled(ItemStack::new(kind, count, meta))
+            Self::Filled(ItemStack::new(kind.id(), count, meta))
         }
     }
 

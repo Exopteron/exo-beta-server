@@ -10,7 +10,11 @@ pub enum ActionResult {
     PASS,
     SUCCESS
 }
+pub struct BurnRate(pub i32, pub i32);
 pub trait Block {
+    fn burn_rate(&self) -> Option<BurnRate> {
+        None
+    }
     fn id(&self) -> BlockIdentifier;
     fn item_stack_size(&self) -> i8;
     fn on_break(&self, game: &mut Game, server: &mut Server, breaker: Entity, mut position: BlockPosition, face: Face, world: i32) {
@@ -18,6 +22,9 @@ pub trait Block {
     }
     fn added(&self, world: i32, game: &mut Game, server: &mut Server, position: BlockPosition, state: BlockState) {
 
+    }
+    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, player: Entity) -> SysResult {
+        Ok(())
     }
     fn place(&self, game: &mut Game, placer: Entity, item: ItemStack, mut position: BlockPosition, face: Face, world: i32) -> Option<BlockPlacementEvent> {
         position = face.offset(position);

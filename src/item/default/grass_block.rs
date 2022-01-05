@@ -5,7 +5,7 @@ use crate::{
     ecs::{entities::player::Chatbox, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
     game::{BlockPosition, Game, Position},
-    item::{stack::{ItemStackType, ItemStack}, item::block::{ActionResult, AtomicRegistryBlock, NonBoxedRegBlock}},
+    item::{stack::{ItemStackType, ItemStack}, item::block::{ActionResult, AtomicRegistryBlock, NonBoxedRegBlock, BurnRate}},
     protocol::packets::{Face, SoundEffectKind},
     world::chunks::BlockState, network::ids::NetworkID,
 };
@@ -14,6 +14,9 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 pub struct GrassBlock;
 
 impl Block for GrassBlock {
+    fn burn_rate(&self) -> Option<crate::item::item::block::BurnRate> {
+        Some(BurnRate(50, 50))   
+    }
     fn id(&self) -> BlockIdentifier {
         2
     }

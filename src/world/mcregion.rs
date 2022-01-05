@@ -129,7 +129,7 @@ impl MCRegionLoader {
                 return ChunkLoadResult::Error(anyhow::anyhow!("Level tag read error"));
             }
         };
-        return match Region::chunk_from_tag(level_tag) {
+        return match Region::chunk_from_tag(level_tag, coords.world) {
             Ok(c) => ChunkLoadResult::Loaded(LoadedChunk {
                 chunk: c.0,
                 pos: coords.clone(),
@@ -221,7 +221,7 @@ pub fn temp_from_regions(regions: Vec<Region>) -> World {
     world
 } */
 impl Region {
-    pub fn chunk_from_tag(tag: &CompoundTag) -> anyhow::Result<(Chunk, Vec<CompoundTag>)> {
+    pub fn chunk_from_tag(tag: &CompoundTag, world_id: i32) -> anyhow::Result<(Chunk, Vec<CompoundTag>)> {
         let tile_entities = match tag.get_compound_tag_vec("TileEntities") {
             Ok(t) => t.into_iter().cloned().collect(),
             Err(_) => Vec::new(),
@@ -296,7 +296,7 @@ impl Region {
             }
         }
         let mut chunk = Chunk {
-            pos: ChunkCoords { x: x_pos, z: z_pos },
+            pos: ChunkCoords { x: x_pos, z: z_pos, world: world_id },
             data: [
                 Some(chunksections[0].clone()),
                 Some(chunksections[1].clone()),
@@ -335,162 +335,12 @@ impl Region {
     fn index_hm_vec(x: usize, z: usize) -> usize {
         z << 4 | x
     }
-    pub fn from_file(file: &str) -> anyhow::Result<Self> {
-        let mut file = std::fs::File::open(file)?;
-        let mut chunks = Vec::new();
-        let mut present_chunks = Vec::new();
-        file.seek(SeekFrom::Start(0))?;
-        for i in 0..1024 {
-            let mut offset = vec![0; 3];
-            file.read_exact(&mut offset)?;
-            offset.reverse();
-            offset.push(0);
-            offset.reverse();
-            if offset.iter().sum::<u8>() > 0 {
-                log::info!("Bytes: {:?}", offset);
-            }
-            let offset: u32 = u32::from_be_bytes(
-                offset
-                    .try_into()
-                    .or_else(|_| Err(anyhow::anyhow!("couldn't convert?")))?,
-            );
-            let mut sector_count = [0; 1];
-            file.read_exact(&mut sector_count)?;
-            if sector_count[0] > 0 {
-                log::info!("Count: {:?}", sector_count);
-            }
-            if i > 100 {
-                //std::process::exit(0);
-            }
-            if offset != 0 && sector_count[0] != 0 {
-                if offset > 0 {
-                    log::info!("Adding {} {}", offset, sector_count[0]);
-                }
-                present_chunks.push(PresentChunk {
-                    offset,
-                    sector_count: sector_count[0],
-                    timestamp: 0,
-                });
-            } else {
-                //log::info!("Not!");
-            }
-        }
-        //std::process::exit(0);
-        for i in 0..present_chunks.len() {
-            let mut integer = [0; 4];
-            file.read_exact(&mut integer)?;
-            if let Some(chunk) = present_chunks.get_mut(i) {
-                chunk.timestamp = u32::from_be_bytes(integer);
-            } else {
-                return Err(anyhow::anyhow!("Chunk doesn't exist?"));
-            }
-        }
-        file.seek(SeekFrom::Start(8192))?;
-        for chunk in present_chunks {
-            log::info!("Offset: {:?}", chunk.offset as u64 * 4096);
-            file.seek(SeekFrom::Start(chunk.offset as u64 * 4096))?;
-            log::info!("A");
-            let mut integer = [0; 4];
-            file.read_exact(&mut integer)?;
-            log::info!("B");
-            let length = u32::from_be_bytes(integer);
-            log::info!("Len: {:?}", length);
-            if length == 0 {
-                continue;
-            }
-            let mut chunk = vec![0; length as usize];
-            file.read_exact(&mut chunk)?;
-            let mut chunk = std::io::Cursor::new(chunk);
-            log::info!("C");
-            let mut comp_type = [0; 1];
-            chunk.read_exact(&mut comp_type).unwrap();
-            log::info!("D");
-            let comp_type = comp_type[0];
-            if comp_type != 2 {
-                log::info!("Wrong. {}", comp_type);
-                return Err(anyhow::anyhow!("Unknown compression type!"));
-            }
-            log::info!("Here lol!");
-            use flate2::read::ZlibDecoder;
-            use nbt::decode::read_zlib_compound_tag;
-            use nbt::CompoundTag;
-            let mut tag = read_zlib_compound_tag(&mut chunk)?;
-            let mut tag = tag
-                .get_compound_tag("Level")
-                .or(Err(anyhow::anyhow!("Does not exist!")))?;
-            let val = tag
-                .get_i8_vec("Blocks")
-                .or(Err(anyhow::anyhow!("Does not exist!")))?;
-            let block_ids = vec_i8_into_u8(val.clone());
-            let val = tag
-                .get_i8_vec("Data")
-                .or(Err(anyhow::anyhow!("Does not exist!")))?;
-            log::info!("Got to here!");
-            let block_metadata = vec_i8_into_u8(val.clone());
-            use super::chunks::*;
-            let metadata = super::chunks::decompress_vec(block_metadata).unwrap();
-            let mut blocks = Vec::new();
-            let mut i = 0;
-            for block in block_ids {
-                blocks.push(BlockState {
-                    b_type: block,
-                    b_metadata: metadata[i],
-                    b_light: 0,
-                    b_skylight: 0,
-                });
-                i += 1;
-            }
-            let x_pos = tag
-                .get_i32("xPos")
-                .or(Err(anyhow::anyhow!("Does not exist!")))?;
-            let z_pos = tag
-                .get_i32("zPos")
-                .or(Err(anyhow::anyhow!("Does not exist!")))?;
-            //log::info!("Compression type: {}", comp_type);
-            log::info!("Pos: {} {}", x_pos, z_pos);
-            let mut chunksections = Vec::new();
-            for i in 0..8 {
-                chunksections.push(ChunkSection::new(i));
-            }
-            for section in 0..8 {
-                for x in 0..16 {
-                    for z in 0..16 {
-                        for y in 0..16 {
-                            let y = y + (section * 16);
-                            //log::info!("Doing section {}, {} {} {}", section, x, y, z);
-                            let section = chunksections.get_mut(section).unwrap();
-                            section
-                                .get_data()
-                                .push(blocks[Self::pos_to_idx(x, y as i32, z)]);
-                        }
-                    }
-                }
-            }
-            let mut chunk = Chunk {
-                pos: ChunkCoords { x: x_pos, z: z_pos },
-                data: [
-                    Some(chunksections[0].clone()),
-                    Some(chunksections[1].clone()),
-                    Some(chunksections[2].clone()),
-                    Some(chunksections[3].clone()),
-                    Some(chunksections[4].clone()),
-                    Some(chunksections[5].clone()),
-                    Some(chunksections[6].clone()),
-                    Some(chunksections[7].clone()),
-                ],
-                heightmaps: HeightmapStore::new(),
-            };
-            chunks.push(chunk);
-        }
-        Ok(Self { chunks })
-        //Err(anyhow::anyhow!("Balls"))
-    }
-    fn pos_to_idx(x: i32, y: i32, z: i32) -> usize {
+    pub fn pos_to_idx(x: i32, y: i32, z: i32) -> usize {
         (y + (z * 128) + (x * 128 * 16)) as usize
     }
 }
 
-fn vec_u8_into_i8(v: Vec<u8>) -> Vec<i8> {
+pub fn vec_u8_into_i8(v: Vec<u8>) -> Vec<i8> {
     // ideally we'd use Vec::into_raw_parts, but it's unstable,
     // so we have to do it manually:
 
@@ -508,7 +358,7 @@ fn vec_u8_into_i8(v: Vec<u8>) -> Vec<i8> {
 }
 
 // Stackoverflow lol
-fn vec_i8_into_u8(v: Vec<i8>) -> Vec<u8> {
+pub fn vec_i8_into_u8(v: Vec<i8>) -> Vec<u8> {
     // ideally we'd use Vec::into_raw_parts, but it's unstable,
     // so we have to do it manually:
 

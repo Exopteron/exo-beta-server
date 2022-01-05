@@ -7,7 +7,7 @@ use crate::{
     },
     game::{Game, Position, DamageType},
     network::ids::NetworkID,
-    server::Server, protocol::{packets::{server::ChatMessage, EntityStatusKind}, io::String16}, events::{EntityDeathEvent, PlayerSpawnEvent}, item::{window::Window, item::ItemRegistry}, entities::SpawnPacketSender, translation::TranslationManager, aabb::AABBSize,
+    server::Server, protocol::{packets::{server::ChatMessage, EntityStatusKind}, io::String16}, events::{EntityDeathEvent, PlayerSpawnEvent, ChangeWorldEvent}, item::{window::Window, item::ItemRegistry}, entities::SpawnPacketSender, translation::TranslationManager, aabb::AABBSize,
 };
 
 pub fn init_systems(s: &mut SystemExecutor<Game>) {
@@ -28,7 +28,7 @@ pub fn init_systems(s: &mut SystemExecutor<Game>) {
             game.remove_entity(entity)?;
         }
         Ok(())
-    }).add_system(update_gamemode).add_system(update_health).add_system(spawn_listener);
+    }).add_system(update_gamemode).add_system(update_health).add_system(spawn_listener).add_system(notify_pos);
 }
 fn broadcast_player_leave(game: &Game, username: &Username) {
     let translation = game.objects.get::<TranslationManager>().unwrap();
@@ -71,6 +71,22 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
     }
     Ok(())
 }
+fn notify_pos(game: &mut Game, server: &mut Server) -> SysResult {
+    for (_, (event, id, pos)) in game.ecs.query::<(&ChangeWorldEvent, &NetworkID, &mut Position)>().iter() {
+        pos.world = event.new_dim;
+        let mut newpos = pos.clone();
+        newpos.world = event.old_dim;
+        server.broadcast_nearby_with(newpos, |c| {
+            if *id != c.id {
+                log::info!("Telling {} to unload", c.username());
+                c.unload_entity(*id);
+            }
+        });
+        let client = server.clients.get(id).ok_or(anyhow::anyhow!("No client"))?;
+        client.update_own_position(*pos);
+    }
+    Ok(())
+}
 fn regenerate(game: &mut Game) -> SysResult {
     for (e, (health, hunger, regenerator)) in game.ecs.query::<(&mut Health, &mut Hunger, &mut Regenerator)>().iter() {
         if !game.ecs.get::<Dead>(e).is_ok() {
@@ -109,7 +125,8 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         let entity_ref = game.ecs.entity(hurt)?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
-        server.broadcast_entity_status(*pos, *id, EntityStatusKind::EntityHurt);
+        let world = entity_ref.get::<CurrentWorldInfo>()?;
+        server.broadcast_entity_status(*pos, world.world_id, *id, EntityStatusKind::EntityHurt);
     }
     for dead in make_dead {
         game.ecs.insert_entity_event(dead, EntityDeathEvent)?;
@@ -118,10 +135,12 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         let health = entity_ref.get::<Health>()?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
+        let world = entity_ref.get::<CurrentWorldInfo>()?;
         if let Ok(name) = entity_ref.get::<Username>() {
             game.broadcast_chat(format!("{} {}", name.0, health.1.string()));
         }
-        server.broadcast_entity_status(*pos, *id, EntityStatusKind::EntityDead);
+        log::info!("Sending dead");
+        server.broadcast_entity_status(*pos, world.world_id, *id, EntityStatusKind::EntityDead);
     }
     Ok(())
 }

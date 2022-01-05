@@ -196,6 +196,7 @@ macro_rules! def_enum {
 }
 def_enum! {
     EntityStatusKind (i8) {
+        0 = None,
         2 = EntityHurt,
         3 = EntityDead,
         4 = Unknown4,
@@ -278,6 +279,29 @@ def_enum! {
         104 = Crouch,
         105 = Uncrouch,
         102 = Unknown,
+    }
+}
+def_enum! {
+    EntityEffectKind (i8) {
+        1 = MoveSpeed,
+        2 = MoveSlowdown,
+        3 = DigSpeed,
+        4 = DigSlowdown,
+        5 = DamageBoost,
+        6 = Heal,
+        7 = Harm,
+        8 = Jump,
+        9 = Confusion,
+        10 = Regeneration,
+        11 = Resistance,
+        12 = FireResistance,
+        13 = WaterBreathing,
+        14 = Invisibility,
+        15 = Blindness,
+        16 = NightVision,
+        17 = Hunger,
+        18 = Weakness,
+        19 = Poison,
     }
 }
 def_enum! {

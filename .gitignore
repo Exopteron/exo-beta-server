@@ -23,3 +23,6 @@
 /log
 /test
 /test_plugins/*/target
+/patchedjar.jar
+/local
+/vanillaworld

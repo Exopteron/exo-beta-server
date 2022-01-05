@@ -17,6 +17,8 @@ pub mod protocol;
 pub mod server;
 pub mod translation;
 pub mod world;
+pub mod status_effects;
+pub mod physics;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -24,18 +26,23 @@ use anyhow::anyhow;
 use logging::file::LogManager;
 use std::cell::RefCell;
 use std::io::Read;
+pub mod jvm;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn main() -> anyhow::Result<()> {
+    std::fs::create_dir_all("local/")?;
     let appender = logging::setup_logging();
     let start = Instant::now();
-    let mut generators = WorldgenRegistry::new();
+    if let Some(str) = &CONFIGURATION.vanilla_jar {
+        JVMSetup::setup(str).unwrap();
+    }
+    let mut generators = WorldgenRegistry::default();
     crate::world::generation::default_world_generators(&mut generators);
     generators.set();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
     let mut manager = PluginManager::new();
     unsafe {
-        manager.load_plugin("test_plugins/test_plugin_1/target/release/libtest_plugin_1.so")?;
+        //manager.load_plugin("test_plugins/test_plugin_1/target/release/libtest_plugin_1.so")?;
     }
     let _ = &configuration::CONFIGURATION.max_players;
     let translation = TranslationManager::initialize()?;
@@ -107,7 +114,7 @@ pub async fn main() -> anyhow::Result<()> {
     }
 } */
 use std::panic::{self, AssertUnwindSafe};
-use std::sync::atomic::Ordering;
+use std::sync::atomic::{Ordering, AtomicBool};
 use std::sync::Arc;
 use std::time::Instant;
 use sysinfo::ProcessorExt;
@@ -119,24 +126,28 @@ use crate::ecs::systems::SystemExecutor;
 use crate::game::{Game, Scheduler};
 use crate::item::default;
 use crate::item::item::ItemRegistry;
+use crate::jvm::JVMSetup;
 use crate::plugins::PluginManager;
 use crate::server::Server;
 use crate::translation::TranslationManager;
 use crate::world::generation::WorldgenRegistry;
+use crate::world::generation::mcvanillagenerator::VanillaWorldGenerator;
+pub static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 //use plugins::PluginManager;
 fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
     std::env::set_var("RUST_BACKTRACE", "1");
-    use std::sync::mpsc::channel;
-    let (tx, rx) = channel();
-    ctrlc::set_handler(move || tx.send(()).expect("Could not send signal on channel."))
-        .expect("Error setting Ctrl-C handler");
+    ctrlc::set_handler(move || {
+        log::info!("Got ctrlc");
+        SHUTDOWN.store(true, Ordering::Relaxed);
+    })
+    .expect("Error setting Ctrl-C handler");
     use std::time::{Duration, Instant};
     let mut tick_counter = 0;
     let mut last_tps_check = Instant::now();
     TickLoop::new(move || {
         game.ticks += 1;
-        if rx.try_recv().is_ok() {
+        if SHUTDOWN.load(Ordering::Relaxed) {
             log::info!("Shutting down.");
             let translation = game.objects.get::<TranslationManager>().unwrap();
             for (_, client) in game
@@ -160,7 +171,7 @@ fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
                     positions.push(pos);
                     //drop(chunk);
                 }
-                log::info!("Unloading DIM-{} ({} chunks)", id, positions.len());
+                log::info!("Unloading DIM:{} ({} chunks)", id, positions.len());
                 for pos in positions {
                     //log::info!("Unloading chunk {} in {}", pos, id);
                     if let Err(e) = world.unload_chunk(&mut game.ecs, &pos) {
@@ -188,8 +199,7 @@ fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
             systems.borrow_mut().run(&mut game);
             //log::info!("Time taken: {}ms", start.elapsed().as_millis());
             tick_counter += 1;
-            let scheduler = game.scheduler.clone();
-            scheduler.borrow_mut().run_tasks(&mut game);
+            game.run_scheduler();
         })) {
             //game.save_playerdata().unwrap();
             //game.world.get_world().to_file(&CONFIGURATION.level_name);

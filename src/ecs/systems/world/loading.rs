@@ -8,20 +8,31 @@ use std::{
 
 use ahash::AHashMap;
 use hecs::Entity;
+use nbt::CompoundTag;
 
 use crate::{
-    ecs::systems::{SysResult, SystemExecutor},
-    events::{EntityRemoveEvent, ViewUpdateEvent, DeferredSpawnEvent},
-    game::{ChunkCoords, Game, BlockPosition, Position},
-    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest}, block_entity::{BlockEntityNBTLoaders, BlockEntity, BlockEntityLoader, SignData}, entities::EntityInit, server::Server,
+    block_entity::{BlockEntity, BlockEntityLoader, BlockEntityNBTLoaders, SignData},
+    ecs::{
+        entities::player::{CurrentWorldInfo, PreviousWorldInfo},
+        systems::{SysResult, SystemExecutor},
+    },
+    entities::EntityInit,
+    events::{DeferredSpawnEvent, EntityRemoveEvent, ViewUpdateEvent},
+    game::{BlockPosition, ChunkCoords, Game, Position},
+    server::Server,
+    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest},
 };
 
 use super::light::LightPropagationManager;
 
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
-    game.insert_object(ChunkLoadState::default());
+    let mut state = GlobalChunkLoadState::default();
+    for (world, _) in game.worlds.iter() {
+        state.states.insert(*world, ChunkLoadState::default());
+    }
+    game.insert_object(state);
     systems
-        .group::<ChunkLoadState>()
+        .group::<GlobalChunkLoadState>()
         .add_system(remove_dead_entities)
         .add_system(update_tickets_for_players)
         .add_system(unload_chunks)
@@ -33,6 +44,20 @@ pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
 const UNLOAD_DELAY: Duration = Duration::from_secs(10);
 
 #[derive(Default)]
+struct GlobalChunkLoadState {
+    pub states: AHashMap<i32, ChunkLoadState>,
+}
+impl GlobalChunkLoadState {
+    pub fn get_mut(&mut self, idx: i32) -> anyhow::Result<&mut ChunkLoadState> {
+        if let Some(state) = self.states.get_mut(&idx) {
+            Ok(state)
+        } else {
+            Err(anyhow::anyhow!("No state for world {}", idx))
+        }
+    }
+}
+
+#[derive(Default)]
 struct ChunkLoadState {
     /// Chunks that have been queued for unloading.
     chunk_unload_queue: VecDeque<QueuedChunkUnload>,
@@ -41,16 +66,20 @@ struct ChunkLoadState {
 }
 
 impl ChunkLoadState {
-    pub fn remove_ticket(&mut self, chunk: ChunkCoords, ticket: Ticket) {
-        self.chunk_tickets.remove_ticket(chunk, ticket);
+    pub fn remove_ticket(&mut self, chunk: ChunkCoords, ticket: Ticket) -> Option<()> {
+        self.chunk_tickets.remove_ticket(chunk, ticket)?;
 
         // If this was the last ticket, then queue the chunk to be
         // unloaded.
         if self.chunk_tickets.num_tickets(chunk) == 0 {
+            //log::info!("Chunk {:?} IS worthy of unload", chunk);
             self.chunk_tickets.remove_chunk(chunk);
             self.chunk_unload_queue
                 .push_back(QueuedChunkUnload::new(chunk));
+        } else {
+            //log::info!("Chunk {:?} not worthy of unload", chunk);
         }
+        Some(())
     }
 }
 
@@ -84,11 +113,12 @@ impl ChunkTickets {
         self.by_entity.entry(ticket).or_default().push(chunk);
     }
 
-    pub fn remove_ticket(&mut self, chunk: ChunkCoords, ticket: Ticket) {
+    pub fn remove_ticket(&mut self, chunk: ChunkCoords, ticket: Ticket) -> Option<()> {
         if let Some(vec) = self.tickets.get_mut(&chunk) {
             vec_remove_item(vec, &ticket);
         }
-        vec_remove_item(self.by_entity.get_mut(&ticket).unwrap(), &chunk);
+        vec_remove_item(self.by_entity.get_mut(&ticket)?, &chunk);
+        Some(())
     }
 
     pub fn num_tickets(&self, chunk: ChunkCoords) -> usize {
@@ -118,23 +148,42 @@ impl ChunkTickets {
 struct Ticket(Entity);
 
 /// System to populate chunk tickets based on players' views.
-fn update_tickets_for_players(game: &mut Game, state: &mut ChunkLoadState) -> SysResult {
+fn update_tickets_for_players(game: &mut Game, gl_state: &mut GlobalChunkLoadState) -> SysResult {
     for (_, world) in game.worlds.iter_mut() {
-        for (player, event) in game.ecs.query::<&ViewUpdateEvent>().iter() {
+        for (player, (event, current_world, prev_world)) in game
+            .ecs
+            .query::<(&ViewUpdateEvent, &CurrentWorldInfo, &mut PreviousWorldInfo)>()
+            .iter()
+        {
+            let state = gl_state.get_mut(current_world.world_id)?;
             let player_ticket = Ticket(player);
 
             // Remove old tickets
+            let mut flag = false;
             for &old_chunk in &event.old_chunks {
-                state.remove_ticket(old_chunk, player_ticket);
+                if state.remove_ticket(old_chunk, player_ticket).is_none() {
+                    flag = true;
+                    break;
+                }
             }
+            if prev_world.1.world_id != current_world.world_id {
+                //log::info!("Differing!");
+                let state = gl_state.get_mut(prev_world.1.world_id)?;
+                prev_world.1.world_id = current_world.world_id;
+                for &old_chunk in &event.old_chunks {
+                    state.remove_ticket(old_chunk, player_ticket);
+                }
+            }
+            let state = gl_state.get_mut(current_world.world_id)?;
+            if current_world.world_id == world.id {
+                // Create new tickets
+                for &new_chunk in &event.new_chunks {
+                    state.chunk_tickets.insert_ticket(new_chunk, player_ticket);
 
-            // Create new tickets
-            for &new_chunk in &event.new_chunks {
-                state.chunk_tickets.insert_ticket(new_chunk, player_ticket);
-
-                // Load if needed
-                if !world.is_chunk_loaded(&new_chunk) && !world.is_chunk_loading(&new_chunk) {
-                    world.queue_chunk_load(LoadRequest { pos: new_chunk });
+                    // Load if needed
+                    if !world.is_chunk_loaded(&new_chunk) && !world.is_chunk_loading(&new_chunk) {
+                        world.queue_chunk_load(LoadRequest { pos: new_chunk });
+                    }
                 }
             }
         }
@@ -143,8 +192,9 @@ fn update_tickets_for_players(game: &mut Game, state: &mut ChunkLoadState) -> Sy
 }
 
 /// System to unload chunks from the `ChunkUnloadQueue`.
-fn unload_chunks(game: &mut Game, state: &mut ChunkLoadState) -> SysResult {
+fn unload_chunks(game: &mut Game, state: &mut GlobalChunkLoadState) -> SysResult {
     for (_, world) in game.worlds.iter_mut() {
+        let mut state = state.get_mut(world.id)?;
         while let Some(&unload) = state.chunk_unload_queue.get(0) {
             if unload.unload_at_time > Instant::now() {
                 // None of the remaining chunks in the queue are
@@ -167,8 +217,13 @@ fn unload_chunks(game: &mut Game, state: &mut ChunkLoadState) -> SysResult {
     Ok(())
 }
 
-fn remove_dead_entities(game: &mut Game, state: &mut ChunkLoadState) -> SysResult {
-    for (entity, _event) in game.ecs.query::<&EntityRemoveEvent>().iter() {
+fn remove_dead_entities(game: &mut Game, state: &mut GlobalChunkLoadState) -> SysResult {
+    for (entity, (_event, world, prev_world)) in game
+        .ecs
+        .query::<(&EntityRemoveEvent, &CurrentWorldInfo, &PreviousWorldInfo)>()
+        .iter()
+    {
+        let mut state = state.get_mut(world.world_id)?;
         let entity_ticket = Ticket(entity);
         for chunk in state.chunk_tickets.take_entity_tickets(entity_ticket) {
             state.remove_ticket(chunk, entity_ticket);
@@ -178,35 +233,52 @@ fn remove_dead_entities(game: &mut Game, state: &mut ChunkLoadState) -> SysResul
 }
 
 /// System to call `World::load_chunks` each tick
-fn load_chunks(game: &mut Game, chunk_load_state: &mut ChunkLoadState) -> SysResult {
+fn load_chunks(game: &mut Game, chunk_load_state: &mut GlobalChunkLoadState) -> SysResult {
     let be_nbt = game.objects.get::<BlockEntityNBTLoaders>()?.clone();
-    let mut te_data = Vec::new();
+    let mut te_data: AHashMap<i32, Vec<CompoundTag>> = AHashMap::new();
     let mut light = game.objects.get_mut::<LightPropagationManager>()?;
-    for (_, world) in game.worlds.iter_mut() {
-        te_data.append(&mut world.load_chunks(&mut game.ecs, &mut light)?);
+    for (id, world) in game.worlds.iter_mut() {
+        if let Some(vec) = te_data.get_mut(id) {
+            vec.append(&mut world.load_chunks(&mut game.ecs, &mut light)?);
+        } else {
+            let mut vec = Vec::new();
+            vec.append(&mut world.load_chunks(&mut game.ecs, &mut light)?);
+            te_data.insert(*id, vec);
+        }
     }
     drop(light);
-    for tag in te_data {
-        let id = tag.get_str("id").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-        let x = tag.get_i32("x").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
-        let y = tag.get_i32("y").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
-        let z = tag.get_i32("z").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
-        let pos = BlockPosition::new(x, y, z);
-        game.remove_block_entity_at(pos, 0)?;
-        let pospos = Position::from_pos(x as f64, y as f64, z as f64);
-        let mut builder = game.create_entity_builder(pospos, EntityInit::BlockEntity);
-        // TODO do multiworld
-        builder.add(BlockEntity(pos, 0));
-        if be_nbt.run(id.clone(), &tag, pos, &mut builder) {
-            game.ecs.insert_event(DeferredSpawnEvent(builder));
-/*             let entity_ref = game.ecs.entity(e)?;
+    for (world_id, tags) in te_data {
+        for tag in tags {
+            let id = tag
+                .get_str("id")
+                .or_else(|_| Err(anyhow::anyhow!("No tag")))?
+                .to_string();
+            let x = tag
+                .get_i32("x")
+                .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+            let y = tag
+                .get_i32("y")
+                .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+            let z = tag
+                .get_i32("z")
+                .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+            let pos = BlockPosition::new(x, y, z, world_id);
+            game.remove_block_entity_at(pos, 0)?;
+            let pospos = Position::from_pos(x as f64, y as f64, z as f64, world_id);
+            let mut builder = game.create_entity_builder(pospos, EntityInit::BlockEntity);
+            // TODO do multiworld
+            builder.add(BlockEntity(pos, 0));
+            if be_nbt.run(id.clone(), &tag, pos, &mut builder) {
+                game.ecs.insert_event(DeferredSpawnEvent(builder));
+            /*             let entity_ref = game.ecs.entity(e)?;
             let server = game.objects.get::<Server>()?;
             if let Ok(loader) = entity_ref.get::<BlockEntityLoader>() {
                 log::info!("Syncing {:?}", *entity_ref.get::<SignData>()?);
                 server.sync_block_entity(pospos, (*loader).clone(), &entity_ref);
             } */
-        } else {
-            log::info!("No parser for type {}", id);
+            } else {
+                log::info!("No parser for type {}", id);
+            }
         }
     }
     Ok(())

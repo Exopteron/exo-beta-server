@@ -265,7 +265,7 @@ impl Chunk {
                             self.set_block_at_nlh(x, y, z, b);
                         }
                     }
-                    let pos = BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, y as i32, (z + (self.pos.z as usize) * 16) as i32);
+                    let pos = BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, y as i32, (z + (self.pos.z as usize) * 16) as i32, self.pos.world);
                     requests.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
                 }
             }
@@ -286,7 +286,7 @@ impl Chunk {
                     self.set_block_at_nlh(x, y, z, b);
                 }
             }
-            return Some(BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (self.pos.z as usize) * 16) as i32));
+            return Some(BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (self.pos.z as usize) * 16) as i32, self.pos.world));
         } else {
             for y in 0..128 {
                 if let Some(mut b) = self.block_at(x, y, z) {
@@ -360,9 +360,9 @@ impl Chunk {
     pub fn position(&self) -> ChunkCoords {
         self.pos
     }
-    pub fn plain(x: i32, z: i32) -> Self {
+    pub fn plain(x: i32, z: i32, world: i32) -> Self {
         let mut v = Self {
-            pos: ChunkCoords { x, z },
+            pos: ChunkCoords { x, z, world },
             data: [None, None, None, None, None, None, None, None],
             heightmaps: HeightmapStore::new(),
         };

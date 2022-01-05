@@ -4,7 +4,7 @@ use crate::{
     ecs::{entities::player::Chatbox, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
     game::{BlockPosition, Game, Position},
-    item::{stack::ItemStackType, item::block::ActionResult},
+    item::{stack::ItemStackType, item::block::{ActionResult, BurnRate}},
     protocol::packets::{Face, SoundEffectKind},
     world::chunks::BlockState, network::ids::NetworkID,
 };
@@ -21,6 +21,9 @@ impl Block for FenceBlock {
     }
     fn opaque(&self) -> bool {
         false
+    }
+    fn burn_rate(&self) -> Option<crate::item::item::block::BurnRate> {
+        Some(BurnRate(5, 20))
     }
 }
 pub struct FenceGateBlock {}
@@ -104,7 +107,7 @@ impl Block for FenceGateBlock {
             game.set_block(position, state, world);
         }
         let id = game.ecs.get::<NetworkID>(player).unwrap();
-        server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, 0);
+        server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, world, 0);
         ActionResult::SUCCESS
     }
 }

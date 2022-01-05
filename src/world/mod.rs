@@ -11,6 +11,7 @@ pub mod worker;
 use ahash::AHashMap;
 use hecs::Entity;
 use nbt::{decode::read_compound_tag, CompoundTag, encode::write_compound_tag};
+use retain_mut::RetainMut;
 
 use crate::{
     aabb::{AABBSize, AABB},
@@ -23,7 +24,7 @@ use crate::{
     events::ChunkLoadEvent,
     game::{BlockPosition, ChunkCoords, Game, Position},
     item::item::{block::AtomicRegistryBlock, ItemRegistry},
-    world::worker::SaveRequest, configuration::CONFIGURATION,
+    world::{worker::SaveRequest, generation::WorldgenRegistry}, configuration::CONFIGURATION, protocol::packets::Face,
 };
 
 pub mod chunk_entities;
@@ -69,6 +70,45 @@ impl World {
         }
         false
     }
+    pub fn get_collisions_extra(
+        &self,
+        aabb: &AABBSize,
+        position: &Position,
+    ) -> Vec<(AtomicRegistryBlock, BlockState, BlockPosition, Vec<Face>)> {
+        let mut blocks = Vec::new();
+        //log::info!("Called get col");
+        let mut registry = ItemRegistry::global();
+        for x in (position.x - 3.0 + aabb.minx).floor() as i32
+            ..(position.x + 3.0 + aabb.maxx).floor() as i32
+        {
+            for y in (position.y - 3.0 + aabb.miny).floor() as i32
+                ..(position.y + 3.0 + aabb.maxy).floor() as i32
+            {
+                for z in (position.z - 3.0 + aabb.minz).floor() as i32
+                    ..(position.z + 3.0 + aabb.maxz).floor() as i32
+                {
+                    let p = BlockPosition::new(x, y, z, position.world);
+                    if let Some(state) = self.block_at(p) {
+                        if let Some(block) = registry.get_block(state.b_type) {
+                            blocks.push((block, state, p, Vec::new()));
+                        }
+                    }
+                }
+            }
+        }
+        let aabb = aabb.get(position);
+        blocks.retain_mut(|(block, state, pos, faces)| {
+            if let Some(bounding_box) = block.collision_box(*state, *pos) {
+                let mut collisions = bounding_box.collisions(&aabb);
+                if collisions.len() > 0 {
+                    faces.append(&mut collisions);
+                    return true;
+                }
+            }
+            false
+        });
+        blocks
+    }
     pub fn get_collisions(
         &self,
         aabb: &AABBSize,
@@ -86,7 +126,7 @@ impl World {
                 for z in (position.z - 3.0 + aabb.minz).floor() as i32
                     ..(position.z + 3.0 + aabb.maxz).floor() as i32
                 {
-                    let p = BlockPosition::new(x, y, z);
+                    let p = BlockPosition::new(x, y, z, position.world);
                     if let Some(state) = self.block_at(p) {
                         if let Some(block) = registry.get_block(state.b_type) {
                             blocks.push((block, state, p));
@@ -207,21 +247,23 @@ impl World {
             self.chunk_worker.queue_load(req);
         }
     }
-    pub fn from_file_mcr(dir: &str) -> anyhow::Result<Self> {
+    pub fn from_file_mcr(dir: &str, world_type: i8) -> anyhow::Result<Self> {
         log::info!("Loading world from {:?}", dir);
         let dir = PathBuf::from(dir);
         let mut level_dat = dir.clone();
         level_dat.push("level.dat");
+        let level_dat = LevelDat::from_file(level_dat, world_type as i32);
         let shutdown = Arc::new(AtomicBool::new(false));
+        let generator = WorldgenRegistry::get().get_generator(&CONFIGURATION.chunk_generator.name(), level_dat.world_seed, world_type).ok_or(anyhow::anyhow!("No such generator"))?;
         let world = Self {
-            chunk_worker: ChunkWorker::new(dir.clone(), CONFIGURATION.chunk_generator.get(), shutdown.clone()),
+            chunk_worker: ChunkWorker::new(dir.clone(), level_dat.world_seed, generator, shutdown.clone()),
             chunk_map: ChunkMap::new(),
             loading_chunks: HashSet::new(),
             canceled_chunk_loads: HashSet::new(),
             shutdown,
             cache: ChunkCache::new(),
-            id: 0,
-            level_dat: LevelDat::from_file(level_dat).ok_or(anyhow::anyhow!("Couldn't read level.dat"))?,
+            id: world_type as i32,
+            level_dat,
             world_dir: dir
         };
         log::info!("Using world generator {:?}", CONFIGURATION.chunk_generator.name());
@@ -275,18 +317,28 @@ impl ChunkLoadManager {
 
 pub struct LevelDat {
     pub spawn_point: BlockPosition,
+    pub world_seed: u64,
 }
 impl LevelDat {
-    pub fn from_file(input: impl Into<PathBuf>) -> Option<Self> {
+    pub fn from_file(input: impl Into<PathBuf>, world_type: i32) -> Self {
         if let Ok(mut input) = File::open(input.into()) {
-            let tag = read_compound_tag(&mut input).ok()?;
-            let tag = tag.get_compound_tag("Data").ok()?;
-            let spawn_x = tag.get_i32("SpawnX").ok()?;
-            let spawn_y = tag.get_i32("SpawnY").ok()?;
-            let spawn_z = tag.get_i32("SpawnZ").ok()?;
-            Some(Self { spawn_point: BlockPosition::new(spawn_x, spawn_y, spawn_z) })
+            let mut x: Box<dyn FnMut() -> Option<Self>> = Box::new(|| {
+                let tag = read_compound_tag(&mut input).ok()?;
+                let tag = tag.get_compound_tag("Data").ok()?;
+                let spawn_x = tag.get_i32("SpawnX").unwrap_or(0);
+                let spawn_y = tag.get_i32("SpawnY").unwrap_or(75);
+                let spawn_z = tag.get_i32("SpawnZ").unwrap_or(0);
+                let seed = tag.get_i64("RandomSeed").unwrap_or(CONFIGURATION.world_seed.seed as i64) as u64;
+                Some(Self { spawn_point: BlockPosition::new(spawn_x, spawn_y, spawn_z, world_type), world_seed: seed })
+            });
+            let x = x();
+            if let Some(x) = x {
+                x
+            } else {
+                Self { spawn_point: BlockPosition::new(0, 75, 0, world_type), world_seed: CONFIGURATION.world_seed.seed as u64 }
+            }
         } else {
-            Some(Self { spawn_point: BlockPosition::new(0, 75, 0) })
+            Self { spawn_point: BlockPosition::new(0, 75, 0, world_type), world_seed: CONFIGURATION.world_seed.seed as u64 }
         }
     }
     pub fn to_file(&self, file: impl Into<PathBuf>) -> anyhow::Result<()> {
@@ -297,6 +349,7 @@ impl LevelDat {
         data.insert_i32("SpawnX", self.spawn_point.x);
         data.insert_i32("SpawnY", self.spawn_point.y);
         data.insert_i32("SpawnZ", self.spawn_point.z);
+        data.insert_i64("RandomSeed", self.world_seed as i64);
         tag.insert("Data", data);
         write_compound_tag(&mut file, &tag)?;
         Ok(())

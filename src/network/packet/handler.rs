@@ -1,9 +1,10 @@
 use hecs::Entity;
 
+use crate::aabb::AABBSize;
 use crate::configuration::CONFIGURATION;
 use crate::ecs::entities::living::{Health, Dead};
 use crate::ecs::entities::player::{
-    ChatMessage, Chatbox, ChunkLoadQueue, CurrentWorldInfo, Username,
+    ChatMessage, Chatbox, ChunkLoadQueue, CurrentWorldInfo, Username, self, Player,
 };
 use crate::ecs::systems::SysResult;
 use crate::ecs::EntityRef;
@@ -32,16 +33,24 @@ pub fn handle_packet(
     let pref = game.ecs.entity(player)?;
     match packet {
         ClientPlayPacket::PlayerPositionAndLook(p) => {
+            let prev_position = *pref.get::<Position>()?;
             movement::handle_player_position_and_look(server, pref, p)?;
+            player_moved(player, game, prev_position)?;
         }
         ClientPlayPacket::PlayerMovement(p) => {
+            let prev_position = *pref.get::<Position>()?;
             movement::handle_player_movement(pref, p)?;
+            player_moved(player, game, prev_position)?;
         }
         ClientPlayPacket::PlayerPosition(p) => {
+            let prev_position = *pref.get::<Position>()?;
             movement::handle_player_position(server, pref, p)?;
+            player_moved(player, game, prev_position)?;
         }
         ClientPlayPacket::PlayerLook(p) => {
+            let prev_position = *pref.get::<Position>()?;
             movement::handle_player_look(server, pref, p)?;
+            player_moved(player, game, prev_position)?;
         }
         ClientPlayPacket::ChatMessage(p) => {
             handle_chat_message(game, server, player, p)?;
@@ -83,8 +92,9 @@ pub fn handle_packet(
             if let Err(_) = game.ecs.remove::<Dead>(player) {
 
             }
+            let world = game.worlds.get(&game.ecs.get::<CurrentWorldInfo>(player)?.world_id).unwrap();
             let pref = game.ecs.entity(player)?;
-            server.clients.get(&netid).unwrap().notify_respawn(&pref)?;
+            server.clients.get(&netid).unwrap().notify_respawn(&pref, world.level_dat.world_seed)?;
         }
         ClientPlayPacket::UpdateSign(p) => {
             interaction::handle_update_sign(game, server, player, p)?;
@@ -100,9 +110,9 @@ fn handle_chat_message(
     player: Entity,
     packet: crate::protocol::packets::client::ChatMessage,
 ) -> SysResult {
-    if packet.message.0.starts_with("/") {
+    if packet.message.0.starts_with('/') {
         let name = game.ecs.get::<Username>(player)?.0.clone();
-        let mut message = packet.message.0.clone();
+        let mut message = packet.message.0;
         log::info!("{} issued server command {}", name, message);
         message.remove(0);
         let res = game.execute_command(server, &message, player);
@@ -128,6 +138,22 @@ fn handle_chat_message(
         for (_, chatbox) in game.ecs.query::<&mut Chatbox>().iter() {
             chatbox.send_message(message.clone());
         }
+    }
+    Ok(())
+}
+
+
+fn player_moved(player: Entity, game: &mut Game, prev_position: Position) -> SysResult {
+    let position = *game.ecs.get::<Position>(player)?;
+    let aabb = *game.ecs.get::<AABBSize>(player)?;
+    let world = game.worlds.get(&position.world).unwrap();
+    let mut current_collisions = world.get_collisions(&aabb, &position);
+    let prev_collisions = world.get_collisions(&aabb, &prev_position);
+    current_collisions.retain(|v| {
+        !prev_collisions.contains(v)
+    });
+    for collision in current_collisions {
+        collision.0.on_collide(game, collision.2, collision.1, player)?;
     }
     Ok(())
 }

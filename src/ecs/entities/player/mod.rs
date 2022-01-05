@@ -10,7 +10,7 @@ use crate::{
     entities::{EntityInit, PreviousPosition},
     game::{ChunkCoords, Game, Position, DamageType},
     network::ids::NetworkID,
-    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::{CONFIGURATION, OpManager}, aabb::AABBSize,
+    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::{CONFIGURATION, OpManager}, aabb::AABBSize, status_effects::StatusEffectsManager,
 };
 
 use super::living::{Health, Hunger, PreviousHealth, PreviousHunger, Regenerator};
@@ -52,7 +52,8 @@ impl CurrentWorldInfo {
         Self { world_id }
     }
 }
-
+#[derive(Clone, Copy)]
+pub struct PreviousWorldInfo(pub CurrentWorldInfo, pub CurrentWorldInfo);
 #[derive(Clone)]
 pub struct ChatMessage(pub Arc<String>);
 impl Into<ChatMessage> for String {
@@ -204,6 +205,8 @@ impl PlayerBuilder {
             player: inventory.new_handle(),
         });
         let mut builder = game.create_entity_builder(position, EntityInit::Player);
+        builder.add(StatusEffectsManager::default());
+        builder.add(PreviousWorldInfo(world_info, world_info));
         builder.add(Player);
         builder.add(position);
         builder.add(username);

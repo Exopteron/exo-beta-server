@@ -2,7 +2,16 @@ use std::collections::HashMap;
 
 use ahash::AHashMap;
 
-use crate::{game::{ChunkCoords, Game}, network::ids::NetworkID, ecs::systems::{SystemExecutor, SysResult}, server::Server, events::{EntityRemoveEvent, ViewUpdateEvent}};
+use crate::{
+    ecs::{
+        entities::player::CurrentWorldInfo,
+        systems::{SysResult, SystemExecutor},
+    },
+    events::{EntityRemoveEvent, ViewUpdateEvent},
+    game::{ChunkCoords, Game},
+    network::ids::NetworkID,
+    server::Server,
+};
 
 use super::view::View;
 
@@ -17,10 +26,7 @@ pub struct ChunkSubscriptions {
 
 impl ChunkSubscriptions {
     pub fn subscriptions_for(&self, chunk: ChunkCoords) -> &[NetworkID] {
-        self.chunks
-            .get(&chunk)
-            .map(Vec::as_slice)
-            .unwrap_or_default()
+        self.chunks.get(&chunk).map(Vec::as_slice).unwrap_or_default()
     }
 }
 
@@ -32,7 +38,11 @@ pub fn register(systems: &mut SystemExecutor<Game>) {
 
 fn update_chunk_subscriptions(game: &mut Game, server: &mut Server) -> SysResult {
     // Update players whose views have changed
-    for (_, (event, &client_id)) in game.ecs.query::<(&ViewUpdateEvent, &NetworkID)>().iter() {
+    for (_, (event, &client_id, world_info)) in game
+        .ecs
+        .query::<(&ViewUpdateEvent, &NetworkID, &CurrentWorldInfo)>()
+        .iter()
+    {
         for new_chunk in event.new_view.difference(event.old_view) {
             server
                 .chunk_subscriptions
@@ -47,9 +57,9 @@ fn update_chunk_subscriptions(game: &mut Game, server: &mut Server) -> SysResult
     }
 
     // Update players that have left
-    for (_, (_event, &client_id, &view)) in game
+    for (_, (_event, &client_id, &view, world_info)) in game
         .ecs
-        .query::<(&EntityRemoveEvent, &NetworkID, &View)>()
+        .query::<(&EntityRemoveEvent, &NetworkID, &View, &CurrentWorldInfo)>()
         .iter()
     {
         for chunk in view.iter() {
@@ -61,13 +71,13 @@ fn update_chunk_subscriptions(game: &mut Game, server: &mut Server) -> SysResult
 }
 
 fn remove_subscription(server: &mut Server, chunk: ChunkCoords, client_id: NetworkID) {
-    if let Some(vec) = server.chunk_subscriptions.chunks.get_mut(&chunk) {
-        vec_remove_item(vec, &client_id);
+        if let Some(vec) = server.chunk_subscriptions.chunks.get_mut(&chunk) {
+            vec_remove_item(vec, &client_id);
 
-        if vec.is_empty() {
-            server.chunk_subscriptions.chunks.remove(&chunk);
+            if vec.is_empty() {
+                server.chunk_subscriptions.chunks.remove(&chunk);
+            }
         }
-    }
 }
 
 /// Swap-removes an item from a vector by equality.

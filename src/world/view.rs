@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use itertools::Either;
 
-use crate::{game::{Game, Position, ChunkCoords}, ecs::{systems::{SysResult, SystemExecutor}, entities::player::Username}, events::{ViewUpdateEvent, PlayerJoinEvent}};
+use crate::{game::{Game, Position, ChunkCoords}, ecs::{systems::{SysResult, SystemExecutor}, entities::player::{Username, CurrentWorldInfo}}, events::{ViewUpdateEvent, PlayerJoinEvent}};
 
 // feather license in FEATHER_LICENSE.md
 
@@ -40,8 +40,8 @@ fn update_player_views(game: &mut Game) -> SysResult {
 /// Triggers a ViewUpdateEvent when a player joins the game.
 fn update_view_on_join(game: &mut Game) -> SysResult {
     let mut events = Vec::new();
-    for (player, (&view, name, _)) in game.ecs.query::<(&View, &Username, &PlayerJoinEvent)>().iter() {
-        let event = ViewUpdateEvent::new(View::empty(), view);
+    for (player, (&view, name, _, world)) in game.ecs.query::<(&View, &Username, &PlayerJoinEvent, &CurrentWorldInfo)>().iter() {
+        let event = ViewUpdateEvent::new(View::empty(world.world_id), view);
         events.push((player, event));
         log::trace!("View of {} has been updated (player joined)", name.0);
     }
@@ -70,8 +70,8 @@ impl View {
     }
 
     /// Gets the empty view, i.e., the view containing no chunks.
-    pub fn empty() -> Self {
-        Self::new(ChunkCoords::new(0, 0), 0)
+    pub fn empty(world: i32) -> Self {
+        Self::new(ChunkCoords::new(0, 0, world), 0)
     }
 
     /// Determines whether this is the empty view.
@@ -105,6 +105,7 @@ impl View {
                 self.min_z(),
                 self.max_x(),
                 self.max_z(),
+                self.center.world
             ))
         }
     }
@@ -123,6 +124,9 @@ impl View {
 
     /// Determines whether the given chunk is visible.
     pub fn contains(&self, pos: ChunkCoords) -> bool {
+        if self.center.world != pos.world {
+            return false;
+        }
         pos.x >= self.min_x()
             && pos.x <= self.max_x()
             && pos.z >= self.min_z()
@@ -134,10 +138,11 @@ impl View {
         min_z: i32,
         max_x: i32,
         max_z: i32,
+        world: i32,
     ) -> impl Iterator<Item = ChunkCoords> {
         (min_x..=max_x)
-            .flat_map(move |x| (min_z..=max_z).map(move |z| (x, z)))
-            .map(|(x, z)| ChunkCoords { x, z })
+            .flat_map(move |x| (min_z..=max_z).map(move |z| (x, z, world)))
+            .map(|(x, z, world)| ChunkCoords { x, z, world })
     }
 
     /// Returns the minimum X chunk coordinate.

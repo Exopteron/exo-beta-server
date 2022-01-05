@@ -21,6 +21,8 @@ mod vines;
 mod pumpkin;
 mod chest;
 mod lever;
+mod fire;
+mod portal;
 use crate::{
     ecs::{entities::player::Chatbox, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
@@ -30,9 +32,9 @@ use crate::{
     world::chunks::BlockState,
 };
 
-use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock};
+use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock};
 
-use super::item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
+use super::item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
 
 pub struct RedstoneTorchBlock {}
 impl Block for RedstoneTorchBlock {
@@ -275,7 +277,35 @@ impl Block for AirBlock {
         false
     }
 }
+pub struct LogBlock;
+impl Block for LogBlock {
+    fn id(&self) -> BlockIdentifier {
+        17
+    }
+
+    fn item_stack_size(&self) -> i8 {
+        64
+    }
+    fn burn_rate(&self) -> Option<super::item::block::BurnRate> {
+        Some(BurnRate(5, 5))
+    }
+}
+pub struct GenericBurnable(pub BlockIdentifier);
+impl Block for GenericBurnable {
+    fn id(&self) -> BlockIdentifier {
+        self.0
+    }
+
+    fn item_stack_size(&self) -> i8 {
+        64
+    }
+    fn burn_rate(&self) -> Option<BurnRate> {
+        Some(BurnRate(50, 50))
+    }
+}
 pub fn register_items(registry: &mut ItemRegistry) {
+    registry.register_block(GenericBurnable(1));
+    registry.register_block(GenericBurnable(3));
     registry.register_block(TorchBlock {});
     registry.register_block(AirBlock {});
     registry.register_block(RedstoneTorchBlock {});
@@ -319,6 +349,10 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_block(PumpkinBlock(91));
     registry.register_block(ChestBlock);
     registry.register_block(LeverBlock);
+    registry.register_block(FireBlock);
+    registry.register_item(FlintAndSteelItem);
+    registry.register_block(LogBlock);
+    registry.register_block(PortalBlock);
     //registry.register_block(MovingWaterBlock(8));
     //registry.register_block(NotFlowingWaterBlock);
     //registry.register_item(WaterBucketItem);

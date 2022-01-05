@@ -29,10 +29,7 @@ pub fn handle_entity_action(game: &mut Game, player: Entity, packet: EntityActio
             }
         }
         EntityActionKind::LeaveBed => {
-            //TODO issue #423
-            // Note that the leave bed packet is not sent if the server changes night to day
-            // and all players are kicked out of the bed. We have to seperatly send out
-            // a notice that bed state might have changed.
+            
         }
         EntityActionKind::StartSprinting | EntityActionKind::StopSprinting => {
             let start_sprinting = matches!(packet.action_id, EntityActionKind::StartSprinting);

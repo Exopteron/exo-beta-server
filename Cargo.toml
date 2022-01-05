@@ -70,5 +70,8 @@ zip-extract = "0.1.0"
 tempfile = "3.2.0"
 error-chain = "0.12.4"
 vtable = "0.1.4"
+java-utils = "0.1.0"
+retain_mut = "0.1.5"
+
 [profile.dev.package.worldgen]
 opt-level = 3

@@ -1,13 +1,15 @@
 use std::mem;
 
-use crate::{game::Game, server::Server, events::DeferredSpawnEvent};
+use crate::{game::Game, server::Server, events::DeferredSpawnEvent, status_effects::StatusEffectsManager};
 
 use super::{SystemExecutor, SysResult};
 
 pub mod player;
+pub mod item;
 pub fn default_systems(game: &mut Game, systems: &mut SystemExecutor<Game>) {
+    item::init_systems(systems);
     systems.add_system(deferred_spawn);
-    systems.group::<Server>().add_system(tick_clients);
+    systems.group::<Server>().add_system(tick_clients).add_system(StatusEffectsManager::system);
 }
 /// Ticks `Client`s.
 fn tick_clients(_game: &mut Game, server: &mut Server) -> SysResult {

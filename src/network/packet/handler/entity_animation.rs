@@ -1,10 +1,11 @@
-use crate::{server::Server, ecs::{EntityRef, systems::SysResult}, game::Position, network::ids::NetworkID, protocol::packets::{client::Animation, EntityAnimationType}};
+use crate::{server::Server, ecs::{EntityRef, systems::SysResult, entities::player::CurrentWorldInfo}, game::Position, network::ids::NetworkID, protocol::packets::{client::Animation, EntityAnimationType}};
 
 pub fn handle_animation(
     server: &mut Server,
     player: EntityRef,
     packet: Animation,
 ) -> SysResult {
+    let world = player.get::<CurrentWorldInfo>()?.world_id;
     let pos = *player.get::<Position>()?;
     let network_id = *player.get::<NetworkID>()?;
 

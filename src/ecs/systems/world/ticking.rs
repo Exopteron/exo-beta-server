@@ -52,7 +52,7 @@ pub fn tick_blocks(game: &mut Game) -> SysResult {
                     let x = rng.gen_range(0..16);
                     let y = rng.gen_range(0..16) + (section * 16);
                     let z = rng.gen_range(0..16);
-                    let block_pos = BlockPosition::new(x, y, z);
+                    let block_pos = BlockPosition::new(x, y, z, world_id);
                     //log::info!("Ticking {:?} in chunk {}", block_pos, chunk);
                     let world = game.worlds.get(&world_id).unwrap();
                     let chunk = match world.chunk_map.chunk_at(*chunkpos) {
@@ -67,7 +67,7 @@ pub fn tick_blocks(game: &mut Game) -> SysResult {
                         None => continue,
                     };
                     drop(chunk);
-                    let block_pos = BlockPosition::new(x as i32 + (chunkpos.x * 16) , y as i32, z as i32 + (chunkpos.z * 16));
+                    let block_pos = BlockPosition::new(x as i32 + (chunkpos.x * 16) , y as i32, z as i32 + (chunkpos.z * 16), world_id);
                     let start = Instant::now();
                     if let Some(block_type) = registry.get_block(block_state.b_type) {
                         let ms = start.elapsed().as_millis();

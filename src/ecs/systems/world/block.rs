@@ -53,7 +53,7 @@ fn broadcast_block_changes(game: &mut Game, server: &mut Server) -> SysResult {
         game.remove_block_entity_at(update.0, update.1)?;
         if let Some(blockstate) = game.block(update.0, update.1) {
             if let Ok(block) = blockstate.registry_type() {
-                let mut builder = game.create_entity_builder(Position::from_pos(update.0.x as f64, update.0.y as f64, update.0.z as f64), EntityInit::BlockEntity);
+                let mut builder = game.create_entity_builder(update.0.into(), EntityInit::BlockEntity);
                 builder.add(BlockEntity(update.0, update.1));
                 if block.block_entity(&mut builder, blockstate, update.0.clone()) {
                     game.spawn_entity(builder);

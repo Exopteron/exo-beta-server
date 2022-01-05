@@ -82,7 +82,7 @@ impl Block for TrapdoorBlock {
         state.b_metadata ^= 4;
         game.set_block(position, state, world);
         let id = game.ecs.get::<NetworkID>(player).unwrap();
-        server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, 0);
+        server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, world, 0);
         ActionResult::SUCCESS
     }
 }
