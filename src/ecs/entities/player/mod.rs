@@ -43,6 +43,7 @@ impl ChunkLoadQueue {
         self.chunks.retain(f);
     }
 }
+// This will be removed, world info will be stored in the position only. Haven't done it yet!
 #[derive(Clone, Copy)]
 pub struct CurrentWorldInfo {
     pub world_id: i32,
