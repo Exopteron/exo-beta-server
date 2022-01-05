@@ -471,7 +471,6 @@ impl Client {
             .borrow_mut()
             .insert(chunk.read().position());
     }
-    // TODO: tick
     pub fn tick(&self) {
         //let num_to_send = MAX_CHUNKS_PER_TICK.min(self.chunk_send_queue.borrow().len());
         for packet in self.chunk_send_queue.borrow_mut().drain(0..) {

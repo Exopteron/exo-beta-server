@@ -212,12 +212,6 @@ pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) {
     crate::world::chunk_subscriptions::register(s);
     world::register(g, s);
     s.group::<Server>()
-        .add_system(|_game, server| {
-            for client in server.clients.iter_mut() {
-                client.1.tick();
-            }
-            Ok(())
-        })
         .add_system(send_keepalives)
         .add_system(time_update);
     crate::entities::register(g, s);

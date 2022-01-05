@@ -201,7 +201,7 @@ impl Window {
         // TODO: If you shift click an item in the crafting table, then you craft
         // as many as possible. So the items are crafted and put in Area::CraftingOutput
         // We don't currently have a working crafting system, and once we have we probably
-        // need to change the function signature to get acsess to the crafting system.
+        // need to change the function signature to get access to the crafting system.
         todo!()
     }
 
