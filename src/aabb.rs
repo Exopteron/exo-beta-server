@@ -1,14 +1,10 @@
 use crate::{game::{Position, BlockPosition}, protocol::packets::Face};
 
+#[derive(Default)]
 pub struct AABBPool {
     list: Vec<AABB>,
 }
 impl AABBPool {
-    pub fn new() -> Self {
-        Self {
-            list: Vec::new(),
-        }
-    }
     pub fn add(&mut self, aabb: AABB) {
         self.list.push(aabb);
     }

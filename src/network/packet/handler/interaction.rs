@@ -229,7 +229,7 @@ pub fn handle_player_block_placement(
                                     world,
                                 );
                                 if let Some(val) = &e {
-                                    let mut pool = AABBPool::new();
+                                    let mut pool = AABBPool::default();
                                     let block_bounding_box = b.collision_box(
                                         BlockState::new(
                                             val.held_item.id() as u8,
