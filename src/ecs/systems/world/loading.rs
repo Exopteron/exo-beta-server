@@ -13,10 +13,9 @@ use nbt::CompoundTag;
 use crate::{
     block_entity::{BlockEntity, BlockEntityLoader, BlockEntityNBTLoaders, SignData},
     ecs::{
-        entities::player::{CurrentWorldInfo, PreviousWorldInfo},
         systems::{SysResult, SystemExecutor},
     },
-    entities::EntityInit,
+    entities::{EntityInit, PreviousPosition},
     events::{DeferredSpawnEvent, EntityRemoveEvent, ViewUpdateEvent},
     game::{BlockPosition, ChunkCoords, Game, Position},
     server::Server,
@@ -150,12 +149,12 @@ struct Ticket(Entity);
 /// System to populate chunk tickets based on players' views.
 fn update_tickets_for_players(game: &mut Game, gl_state: &mut GlobalChunkLoadState) -> SysResult {
     for (_, world) in game.worlds.iter_mut() {
-        for (player, (event, current_world, prev_world)) in game
+        for (player, (event, current_position, prev_position)) in game
             .ecs
-            .query::<(&ViewUpdateEvent, &CurrentWorldInfo, &mut PreviousWorldInfo)>()
+            .query::<(&ViewUpdateEvent, &Position, &mut PreviousPosition)>()
             .iter()
         {
-            let state = gl_state.get_mut(current_world.world_id)?;
+            let state = gl_state.get_mut(current_position.world)?;
             let player_ticket = Ticket(player);
 
             // Remove old tickets
@@ -166,16 +165,16 @@ fn update_tickets_for_players(game: &mut Game, gl_state: &mut GlobalChunkLoadSta
                     break;
                 }
             }
-            if prev_world.1.world_id != current_world.world_id {
+            if prev_position.0.world != current_position.world {
                 //log::info!("Differing!");
-                let state = gl_state.get_mut(prev_world.1.world_id)?;
-                prev_world.1.world_id = current_world.world_id;
+                let state = gl_state.get_mut(prev_position.0.world)?;
+                prev_position.0.world = current_position.world;
                 for &old_chunk in &event.old_chunks {
                     state.remove_ticket(old_chunk, player_ticket);
                 }
             }
-            let state = gl_state.get_mut(current_world.world_id)?;
-            if current_world.world_id == world.id {
+            let state = gl_state.get_mut(current_position.world)?;
+            if current_position.world == world.id {
                 // Create new tickets
                 for &new_chunk in &event.new_chunks {
                     state.chunk_tickets.insert_ticket(new_chunk, player_ticket);
@@ -220,10 +219,10 @@ fn unload_chunks(game: &mut Game, state: &mut GlobalChunkLoadState) -> SysResult
 fn remove_dead_entities(game: &mut Game, state: &mut GlobalChunkLoadState) -> SysResult {
     for (entity, (_event, world, prev_world)) in game
         .ecs
-        .query::<(&EntityRemoveEvent, &CurrentWorldInfo, &PreviousWorldInfo)>()
+        .query::<(&EntityRemoveEvent, &Position, &PreviousPosition)>()
         .iter()
     {
-        let mut state = state.get_mut(world.world_id)?;
+        let mut state = state.get_mut(world.world)?;
         let entity_ticket = Ticket(entity);
         for chunk in state.chunk_tickets.take_entity_tickets(entity_ticket) {
             state.remove_ticket(chunk, entity_ticket);

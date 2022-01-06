@@ -2,7 +2,7 @@ use std::ops::Deref;
 
 use crate::{
     ecs::{
-        entities::{player::{Player, Username, Chatbox, Gamemode, PreviousGamemode, OffgroundHeight, CurrentWorldInfo}, living::{PreviousHealth, Hunger, Health, Dead, PreviousHunger, Regenerator}},
+        entities::{player::{Player, Username, Chatbox, Gamemode, PreviousGamemode, OffgroundHeight}, living::{PreviousHealth, Hunger, Health, Dead, PreviousHunger, Regenerator}},
         systems::{SystemExecutor, SysResult},
     },
     game::{Game, Position, DamageType},
@@ -54,8 +54,8 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
     }
     for entity in entities_respawned {
         let pref = game.ecs.entity(entity)?;
-        let current_world = pref.get::<CurrentWorldInfo>()?;
-        let mut spawn_point = game.worlds.get(&current_world.world_id).unwrap().level_dat.spawn_point;
+        let current_world = pref.get::<Position>()?.world;
+        let mut spawn_point = game.worlds.get(&current_world).unwrap().level_dat.spawn_point;
         let netid = pref.get::<NetworkID>()?.deref().clone();
         pref.get_mut::<Health>()?.0 = 20;
         *pref.get_mut::<Position>()? = spawn_point.into();
@@ -125,8 +125,7 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         let entity_ref = game.ecs.entity(hurt)?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
-        let world = entity_ref.get::<CurrentWorldInfo>()?;
-        server.broadcast_entity_status(*pos, world.world_id, *id, EntityStatusKind::EntityHurt);
+        server.broadcast_entity_status(*pos, pos.world, *id, EntityStatusKind::EntityHurt);
     }
     for dead in make_dead {
         game.ecs.insert_entity_event(dead, EntityDeathEvent)?;
@@ -135,19 +134,18 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         let health = entity_ref.get::<Health>()?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
-        let world = entity_ref.get::<CurrentWorldInfo>()?;
         if let Ok(name) = entity_ref.get::<Username>() {
             game.broadcast_chat(format!("{} {}", name.0, health.1.string()));
         }
         log::info!("Sending dead");
-        server.broadcast_entity_status(*pos, world.world_id, *id, EntityStatusKind::EntityDead);
+        server.broadcast_entity_status(*pos, pos.world, *id, EntityStatusKind::EntityDead);
     }
     Ok(())
 }
 
 fn check_fall_damage(game: &mut Game) -> SysResult {
     //log::info!("Running");
-    for (entity, (health, fall_start, pos, world, bounding_box)) in game.ecs.query::<(&mut Health, &OffgroundHeight, &Position, &CurrentWorldInfo, &AABBSize)>().iter() {
+    for (entity, (health, fall_start, pos, bounding_box)) in game.ecs.query::<(&mut Health, &OffgroundHeight, &Position, &AABBSize)>().iter() {
         //log::info!("Found entity");
         if pos.on_ground {
             //log::info!("On ground");
@@ -160,7 +158,7 @@ fn check_fall_damage(game: &mut Game) -> SysResult {
                         do_dmg = false;
                     }
                 }
-                if let Some(world) = game.worlds.get(&world.world_id) {
+                if let Some(world) = game.worlds.get(&pos.world) {
                     // TODO check if absorbs fall
                     if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block(9).unwrap()) {
                         do_dmg = false;

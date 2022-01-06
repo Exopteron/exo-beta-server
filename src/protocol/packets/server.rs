@@ -57,4 +57,5 @@ packet_enum!(ServerPlayPacket {
     0x29 = EntityEffect,
     0x2A = RemoveEntityEffect,
     0x15 = PickupSpawn,
+    0x16 = CollectItem,
 });

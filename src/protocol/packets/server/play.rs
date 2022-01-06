@@ -202,4 +202,8 @@ packets! {
         pitch i8;
         roll i8;
     }
+    CollectItem {
+        collected_eid i32;
+        collector_eid i32;
+    }
 }

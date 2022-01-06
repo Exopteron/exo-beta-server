@@ -1,5 +1,5 @@
 use anyhow::bail;
-use crate::ecs::entities::player::CurrentWorldInfo;
+use crate::game::Position;
 use crate::item::inventory::reference::BackingWindow as BackingWindow;
 use crate::item::inventory_slot::InventorySlot;
 use crate::item::item::{Item, ItemRegistry};
@@ -54,7 +54,7 @@ pub fn handle_creative_inventory_action(
         let client = server.clients.get(&client_id).unwrap();
         client.send_window_items(&window);
     }
-    let world = player.get::<CurrentWorldInfo>()?.world_id;
+    let world = player.get::<Position>()?.world;
     server.broadcast_equipment_change(&player, world)?;
     Ok(())
 }
@@ -86,7 +86,7 @@ pub fn handle_click_window(
 
     client.send_window_items(&*window);
     drop(window);
-    let world = player.get::<CurrentWorldInfo>()?.world_id;
+    let world = player.get::<Position>()?.world;
     server.broadcast_equipment_change(&player, world)?;
     result
 }

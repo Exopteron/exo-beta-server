@@ -4,7 +4,7 @@ use crate::aabb::AABBSize;
 use crate::configuration::CONFIGURATION;
 use crate::ecs::entities::living::{Health, Dead};
 use crate::ecs::entities::player::{
-    ChatMessage, Chatbox, ChunkLoadQueue, CurrentWorldInfo, Username, self, Player,
+    ChatMessage, Chatbox, ChunkLoadQueue, Username, self, Player,
 };
 use crate::ecs::systems::SysResult;
 use crate::ecs::EntityRef;
@@ -92,7 +92,7 @@ pub fn handle_packet(
             if let Err(_) = game.ecs.remove::<Dead>(player) {
 
             }
-            let world = game.worlds.get(&game.ecs.get::<CurrentWorldInfo>(player)?.world_id).unwrap();
+            let world = game.worlds.get(&game.ecs.get::<Position>(player)?.world).unwrap();
             let pref = game.ecs.entity(player)?;
             server.clients.get(&netid).unwrap().notify_respawn(&pref, world.level_dat.world_seed)?;
         }

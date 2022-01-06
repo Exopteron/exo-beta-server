@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use itertools::Either;
 
-use crate::{game::{Game, Position, ChunkCoords}, ecs::{systems::{SysResult, SystemExecutor}, entities::player::{Username, CurrentWorldInfo}}, events::{ViewUpdateEvent, PlayerJoinEvent}};
+use crate::{game::{Game, Position, ChunkCoords}, ecs::{systems::{SysResult, SystemExecutor}, entities::player::{Username}}, events::{ViewUpdateEvent, PlayerJoinEvent}};
 
 // feather license in FEATHER_LICENSE.md
 
@@ -40,8 +40,8 @@ fn update_player_views(game: &mut Game) -> SysResult {
 /// Triggers a ViewUpdateEvent when a player joins the game.
 fn update_view_on_join(game: &mut Game) -> SysResult {
     let mut events = Vec::new();
-    for (player, (&view, name, _, world)) in game.ecs.query::<(&View, &Username, &PlayerJoinEvent, &CurrentWorldInfo)>().iter() {
-        let event = ViewUpdateEvent::new(View::empty(world.world_id), view);
+    for (player, (&view, name, _, world)) in game.ecs.query::<(&View, &Username, &PlayerJoinEvent, &Position)>().iter() {
+        let event = ViewUpdateEvent::new(View::empty(world.world), view);
         events.push((player, event));
         log::trace!("View of {} has been updated (player joined)", name.0);
     }

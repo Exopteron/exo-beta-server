@@ -43,18 +43,6 @@ impl ChunkLoadQueue {
         self.chunks.retain(f);
     }
 }
-// This will be removed, world info will be stored in the position only. Haven't done it yet!
-#[derive(Clone, Copy)]
-pub struct CurrentWorldInfo {
-    pub world_id: i32,
-}
-impl CurrentWorldInfo {
-    pub fn new(world_id: i32) -> Self {
-        Self { world_id }
-    }
-}
-#[derive(Clone, Copy)]
-pub struct PreviousWorldInfo(pub CurrentWorldInfo, pub CurrentWorldInfo);
 #[derive(Clone)]
 pub struct ChatMessage(pub Arc<String>);
 impl Into<ChatMessage> for String {
@@ -192,7 +180,6 @@ impl PlayerBuilder {
         username: Username,
         position: Position,
         id: NetworkID,
-        world_info: CurrentWorldInfo,
         gamemode: Gamemode,
     ) -> EntityBuilder {
         let op_manager = game.objects.get::<OpManager>().unwrap();
@@ -207,12 +194,10 @@ impl PlayerBuilder {
         });
         let mut builder = game.create_entity_builder(position, EntityInit::Player);
         builder.add(StatusEffectsManager::default());
-        builder.add(PreviousWorldInfo(world_info, world_info));
         builder.add(Player);
         builder.add(position);
         builder.add(username);
         builder.add(id);
-        builder.add(world_info);
         builder.add(Chatbox::new());
         builder.add(Sneaking(false));
         builder.add(Sprinting::new(false));

@@ -4,11 +4,10 @@ use ahash::AHashMap;
 
 use crate::{
     ecs::{
-        entities::player::CurrentWorldInfo,
         systems::{SysResult, SystemExecutor},
     },
     events::{EntityRemoveEvent, ViewUpdateEvent},
-    game::{ChunkCoords, Game},
+    game::{ChunkCoords, Game, Position},
     network::ids::NetworkID,
     server::Server,
 };
@@ -38,9 +37,9 @@ pub fn register(systems: &mut SystemExecutor<Game>) {
 
 fn update_chunk_subscriptions(game: &mut Game, server: &mut Server) -> SysResult {
     // Update players whose views have changed
-    for (_, (event, &client_id, world_info)) in game
+    for (_, (event, &client_id)) in game
         .ecs
-        .query::<(&ViewUpdateEvent, &NetworkID, &CurrentWorldInfo)>()
+        .query::<(&ViewUpdateEvent, &NetworkID)>()
         .iter()
     {
         for new_chunk in event.new_view.difference(event.old_view) {
@@ -57,9 +56,9 @@ fn update_chunk_subscriptions(game: &mut Game, server: &mut Server) -> SysResult
     }
 
     // Update players that have left
-    for (_, (_event, &client_id, &view, world_info)) in game
+    for (_, (_event, &client_id, &view)) in game
         .ecs
-        .query::<(&EntityRemoveEvent, &NetworkID, &View, &CurrentWorldInfo)>()
+        .query::<(&EntityRemoveEvent, &NetworkID, &View)>()
         .iter()
     {
         for chunk in view.iter() {

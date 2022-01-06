@@ -6,7 +6,6 @@ use crate::configuration::CONFIGURATION;
 use crate::ecs::entities::living::Health;
 use crate::ecs::entities::living::Hunger;
 use crate::ecs::entities::player::ChatMessage;
-use crate::ecs::entities::player::CurrentWorldInfo;
 use crate::ecs::entities::player::Gamemode;
 use crate::ecs::entities::player::HotbarSlot;
 use crate::ecs::entities::player::Username;
@@ -38,6 +37,7 @@ use crate::protocol::packets::server::BlockAction;
 use crate::protocol::packets::server::BlockChange;
 use crate::protocol::packets::server::ChunkData;
 use crate::protocol::packets::server::ChunkDataKind;
+use crate::protocol::packets::server::CollectItem;
 use crate::protocol::packets::server::DestroyEntity;
 use crate::protocol::packets::server::EntityEffect;
 use crate::protocol::packets::server::EntityEquipment;
@@ -117,6 +117,12 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
+    pub fn send_collect_item(&self, collected: NetworkID, collector: NetworkID) {
+        self.send_packet(CollectItem {
+            collected_eid: collected.0,
+            collector_eid: collector.0,
+        });
+    }
     pub fn spawn_dropped_item(&self, eid: NetworkID, pos: Position, item: Slot) {
         if let InventorySlot::Filled(_) = &item {
             self.send_packet(PickupSpawn {
@@ -170,7 +176,7 @@ impl Client {
         self.send_packet(TimeUpdate { time });
     }
     pub fn notify_respawn(&self, us: &EntityRef, world_seed: u64) -> SysResult {
-        let current_world = us.get::<CurrentWorldInfo>()?.world_id as i8;
+        let current_world = us.get::<Position>()?.world as i8;
         let gamemode = us.get::<Gamemode>()?.id();
         self.send_packet(Respawn {
             world: current_world,

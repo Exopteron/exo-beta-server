@@ -7,7 +7,7 @@ use std::collections::HashMap;
 
 use hecs::Entity;
 
-use crate::{ecs::{systems::{SystemExecutor, SysResult}, entities::player::CurrentWorldInfo}, game::{Game, ChunkCoords, Position}, server::{Server, Client}, events::{ViewUpdateEvent, ChunkLoadEvent}, network::ids::NetworkID};
+use crate::{ecs::{systems::{SystemExecutor, SysResult}}, game::{Game, ChunkCoords, Position}, server::{Server, Client}, events::{ViewUpdateEvent, ChunkLoadEvent}, network::ids::NetworkID};
 
 
 pub fn register(systems: &mut SystemExecutor<Game>) {
@@ -32,9 +32,9 @@ impl WaitingChunks {
 }
 
 fn send_new_chunks(game: &mut Game, server: &mut Server) -> SysResult {
-    for (player, (&client_id, event, &position, &current_world)) in game
+    for (player, (&client_id, event, &position)) in game
         .ecs
-        .query::<(&NetworkID, &ViewUpdateEvent, &Position, &CurrentWorldInfo)>()
+        .query::<(&NetworkID, &ViewUpdateEvent, &Position)>()
         .iter()
     {
         // As ecs removes the client one tick after it gets removed here, it can
@@ -47,7 +47,6 @@ fn send_new_chunks(game: &mut Game, server: &mut Server) -> SysResult {
                 player,
                 client,
                 event,
-                &current_world,
                 position,
                 &mut server.waiting_chunks,
             )?;
@@ -61,13 +60,12 @@ fn update_chunks(
     player: Entity,
     client: &Client,
     event: &ViewUpdateEvent,
-    current_world: &CurrentWorldInfo,
     position: Position,
     waiting_chunks: &mut WaitingChunks,
 ) -> SysResult {
     // Send chunks that are in the new view but not the old view.
     for &pos in &event.new_chunks {
-        let world = game.worlds.get(&current_world.world_id).expect("World does not exist?");
+        let world = game.worlds.get(&position.world).expect("World does not exist?");
         if let Some(chunk) = world.chunk_map.chunk_handle_at(pos) {
             client.send_chunk(&chunk);
         } else {

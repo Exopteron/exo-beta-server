@@ -14,7 +14,7 @@ use nbt::{decode::read_compound_tag, CompoundTag, encode::write_compound_tag};
 use retain_mut::RetainMut;
 
 use crate::{
-    aabb::{AABBSize, AABB},
+    aabb::{AABBSize, AABB, SweeptestOutput},
     block_entity::{BlockEntity, BlockEntityNBTLoaders, BlockEntitySaver},
     ecs::{
         entities::player::{ChunkLoadQueue, Player},
@@ -89,8 +89,10 @@ impl World {
                 {
                     let p = BlockPosition::new(x, y, z, position.world);
                     if let Some(state) = self.block_at(p) {
-                        if let Some(block) = registry.get_block(state.b_type) {
-                            blocks.push((block, state, p, Vec::new()));
+                        if !state.is_air() {
+                            if let Some(block) = registry.get_block(state.b_type) {
+                                blocks.push((block, state, p, Vec::new()));
+                            }
                         }
                     }
                 }
@@ -107,6 +109,32 @@ impl World {
             }
             false
         });
+        blocks
+    }
+    pub fn get_possible_collisions(&self, aabb: &AABBSize, position: &Position) -> Vec<(AtomicRegistryBlock, BlockState, BlockPosition)> {
+        let mut blocks = Vec::new();
+        //log::info!("Called get col");
+        let registry = ItemRegistry::global();
+        for x in (position.x - 3.0 + aabb.minx).floor() as i32
+            ..(position.x + 3.0 + aabb.maxx).floor() as i32
+        {
+            for y in (position.y - 3.0 + aabb.miny).floor() as i32
+                ..(position.y + 3.0 + aabb.maxy).floor() as i32
+            {
+                for z in (position.z - 3.0 + aabb.minz).floor() as i32
+                    ..(position.z + 3.0 + aabb.maxz).floor() as i32
+                {
+                    let p = BlockPosition::new(x, y, z, position.world);
+                    if let Some(state) = self.block_at(p) {
+                        if !state.is_air() {
+                            if let Some(block) = registry.get_block(state.b_type) {
+                                blocks.push((block, state, p));
+                            }
+                        }
+                    }
+                }
+            }
+        }
         blocks
     }
     pub fn get_collisions(

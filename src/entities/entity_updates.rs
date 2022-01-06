@@ -4,7 +4,7 @@
 
 use std::ops::Deref;
 
-use crate::{game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}, entities::player::{CurrentWorldInfo, PreviousWorldInfo}}, server::Server, network::{ids::NetworkID, metadata::Metadata}, events::{SneakEvent, ViewUpdateEvent, ChangeWorldEvent}, world::view::View};
+use crate::{game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}}, server::Server, network::{ids::NetworkID, metadata::Metadata}, events::{SneakEvent, ViewUpdateEvent, ChangeWorldEvent}, world::view::View};
 
 use super::{PreviousPosition, metadata::{META_INDEX_POSE, EntityBitMask, EntityMetadata, META_INDEX_ENTITY_BITMASK}};
 
@@ -19,22 +19,20 @@ pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
 /// Sends entity movement packets.
 fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
     let mut to_switch_dim = Vec::new();
-    for (entity, (&position, prev_position, world_info, previous_world_info, &network_id)) in game
+    for (entity, (&position, prev_position, &network_id)) in game
         .ecs
         .query::<(
             &Position,
             &mut PreviousPosition,
-            &CurrentWorldInfo,
-            &mut PreviousWorldInfo,
             &NetworkID,
         )>()
         .iter()
     {
         let mut switched = false;
-        if world_info.world_id != previous_world_info.0.world_id {
-            to_switch_dim.push((entity, previous_world_info.0.world_id));
-            previous_world_info.1 = previous_world_info.0;
-            previous_world_info.0 = *world_info;
+        if position.world != prev_position.0.world {
+            to_switch_dim.push((entity, prev_position.0.world));
+            //previous_world_info.1 = previous_world_info.0;
+            prev_position.0.world = position.world;
             switched = true;
         }
         if position != prev_position.0 {
@@ -50,7 +48,7 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
     }
     for (entity, old_world) in to_switch_dim {
         let eref = game.ecs.entity(entity)?;
-        let world_id = eref.get::<CurrentWorldInfo>()?.world_id;
+        let world_id = eref.get::<Position>()?.world;
         let client = server.clients.get(&*eref.get::<NetworkID>()?).unwrap();
         client.notify_respawn(&eref, game.worlds.get(&world_id).unwrap().level_dat.world_seed)?;
         drop(eref);
@@ -70,9 +68,9 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
 
 /// Sends [SendEntityMetadata](protocol::packets::server::play::SendEntityMetadata) packet for when an entity is sneaking.
 fn send_entity_sneak_metadata(game: &mut Game, server: &mut Server) -> SysResult {
-    for (_, (&position, &SneakEvent { is_sneaking }, &network_id, world_info)) in game
+    for (_, (&position, &SneakEvent { is_sneaking }, &network_id)) in game
         .ecs
-        .query::<(&Position, &SneakEvent, &NetworkID, &CurrentWorldInfo)>()
+        .query::<(&Position, &SneakEvent, &NetworkID)>()
         .iter()
     {
         let mut metadata = Metadata::new();

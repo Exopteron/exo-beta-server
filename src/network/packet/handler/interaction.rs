@@ -7,7 +7,7 @@ use crate::{
     aabb::{AABBPool, AABBSize},
     block_entity::{BlockEntity, BlockEntityLoader, SignData},
     ecs::{
-        entities::player::{CurrentWorldInfo, Gamemode, HotbarSlot, SLOT_HOTBAR_OFFSET},
+        entities::player::{Gamemode, HotbarSlot, SLOT_HOTBAR_OFFSET},
         systems::{SysResult, world::block::update::BlockUpdateManager},
         EntityRef,
     },
@@ -37,7 +37,7 @@ pub fn handle_held_item_change(
 ) -> SysResult {
     let new_id = packet.slot_id as usize;
     let mut slot = player.get_mut::<HotbarSlot>()?;
-    let world = player.get::<CurrentWorldInfo>()?.world_id;
+    let world = player.get::<Position>()?.world;
     log::trace!("Got player slot change from {} to {}", slot.get(), new_id);
 
     slot.set(new_id)?;
@@ -58,7 +58,7 @@ pub fn handle_player_digging(
     packet: PlayerDigging,
     player: Entity,
 ) -> SysResult {
-    let world = game.ecs.entity(player)?.get::<CurrentWorldInfo>()?.world_id;
+    let world = game.ecs.entity(player)?.get::<Position>()?.world;
     let gamemode = game.ecs.entity(player)?.get::<Gamemode>()?.deref().clone();
     log::trace!("Got player digging with status {:?}", packet.status);
     let pos = BlockPosition::new(packet.x, packet.y.into(), packet.z, world);
@@ -160,7 +160,7 @@ pub fn handle_player_block_placement(
         }
         return Ok(());
     }
-    let world = game.ecs.get::<CurrentWorldInfo>(player).unwrap().world_id;
+    let world = game.ecs.get::<Position>(player)?.world;
     packet.pos.world = world;
     let block_kind = {
         let result = game.block(packet.direction.offset(packet.pos), world);
@@ -308,7 +308,7 @@ pub fn handle_update_sign(
     player: Entity,
     packet: UpdateSign,
 ) -> SysResult {
-    let world = game.ecs.get::<CurrentWorldInfo>(player)?.world_id;
+    let world = game.ecs.get::<Position>(player)?.world;
     if packet.text1.0.len() > 15
         || packet.text2.0.len() > 15
         || packet.text3.0.len() > 15

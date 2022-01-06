@@ -2,8 +2,9 @@ use std::mem;
 
 use glam::Vec3;
 use hecs::Entity;
+use num_traits::Zero;
 
-use crate::{game::{Game, Position}, ecs::{systems::SysResult, EntityRef}, aabb::{AABBSize, AABB}};
+use crate::{game::{Game, Position}, ecs::{systems::SysResult, EntityRef}, aabb::{AABBSize, AABB}, protocol::packets::Face};
 
 #[derive(Default)]
 pub struct Physics {
@@ -21,41 +22,60 @@ impl Physics {
         self.velocity.z += z;
     }
     pub fn process(&mut self, game: &mut Game, entity: Entity) -> SysResult {
-        log::info!("Called velocity {:?}", self.velocity);
+        //log::info!("Called velocity {:?}", self.velocity);
         if self.velocity.x + self.velocity.y + self.velocity.z == 0. {
-            log::info!("Returning");
+            //log::info!("Returning");
             return Ok(());
         }
         let entityref = game.ecs.entity(entity)?;
         let aabb = entityref.get::<AABBSize>()?;
         let mut position = entityref.get_mut::<Position>()?;
         let world = game.worlds.get(&position.world).ok_or(anyhow::anyhow!("No world"))?;
-        for (_, _, _, list) in world.get_collisions_extra(&*aabb, &*position) {
-            for collision in list {
-                log::info!("Collision: {:?}", collision);
-                match collision {
-                    crate::protocol::packets::Face::Invalid => (),
-                    crate::protocol::packets::Face::NegativeY => self.velocity.y = self.velocity.y.max(0.),
-                    crate::protocol::packets::Face::PositiveY => self.velocity.y = self.velocity.y.min(0.),
-                    crate::protocol::packets::Face::NegativeZ => self.velocity.z = self.velocity.z.max(0.),
-                    crate::protocol::packets::Face::PositiveZ => self.velocity.z = self.velocity.z.min(0.),
-                    crate::protocol::packets::Face::NegativeX => self.velocity.x = self.velocity.x.max(0.),
-                    crate::protocol::packets::Face::PositiveX => self.velocity.x = self.velocity.x.min(0.),
-                };
+        let real_aabb = aabb.get(&position);
+        let mut doit = true;
+        for (registry_type, state, pos) in world.get_possible_collisions(&*aabb, &*position) {
+            if let Some(bounding_box) = registry_type.collision_box(state, pos) {
+                let sweep_result = AABB::swept_aabb(real_aabb, bounding_box, self.velocity);
+                if sweep_result.0 < 1. {
+                    log::info!("Collision time: {}, Normals: {:?}, colliding with ID {} which is at {} in the world", sweep_result.0, sweep_result.1, state.b_type, pos);
+                    let mut epic_box = real_aabb;
+                    epic_box.minx += self.velocity.x as f64 * sweep_result.0;
+                    epic_box.maxx += self.velocity.x as f64 * sweep_result.0;
+                    epic_box.miny += self.velocity.y as f64 * sweep_result.0;
+                    epic_box.maxy += self.velocity.y as f64 * sweep_result.0;
+                    epic_box.minz += self.velocity.z as f64 * sweep_result.0;
+                    epic_box.maxz += self.velocity.z as f64 * sweep_result.0;
+                    let pos = epic_box.get_position(&*aabb, position.world);
+                    doit = false;
+                    *position = pos;
+                    let error_margin = f64::EPSILON;
+                    if (sweep_result.1.0 - -1.).abs() < error_margin || (sweep_result.1.0 - 1.).abs() < error_margin {
+                        self.velocity.x = 0.;
+                    }
+                    if (sweep_result.1.2 - -1.).abs() < error_margin || (sweep_result.1.2 - 1.).abs() < error_margin {
+                        self.velocity.z = 0.;
+                    }
+                    if (sweep_result.1.1 - 1.).abs() < error_margin ||  (sweep_result.1.1 - 1.).abs() < error_margin  {
+                        self.velocity.y = 0.;
+                    }
+                    log::info!("Velocity vector: {:?}", self.velocity);
+                }
             }
         }
-        let x_offset = self.velocity.x * self.speed;
-        self.velocity.x -= x_offset;
-
-        let y_offset = self.velocity.y * self.speed;
-        self.velocity.y -= y_offset;
-
-        let z_offset = self.velocity.z * self.speed;
-        self.velocity.z -= z_offset;
-        position.x += x_offset as f64;
-        position.y += y_offset as f64;
-        position.z += z_offset as f64;
-        log::info!("Position: {}", *position);
+        if doit {
+            let x_offset = self.velocity.x * self.speed;
+            self.velocity.x -= x_offset;
+    
+            let y_offset = self.velocity.y * self.speed;
+            self.velocity.y -= y_offset;
+    
+            let z_offset = self.velocity.z * self.speed;
+            self.velocity.z -= z_offset;
+            position.x += x_offset as f64;
+            position.y += y_offset as f64;
+            position.z += z_offset as f64;
+        }
+        //log::info!("Position: {:?}", *position);
         Ok(())
     }
     pub fn system(game: &mut Game) -> SysResult {

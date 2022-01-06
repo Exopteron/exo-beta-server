@@ -8,7 +8,6 @@ use crate::ecs::entities::item::ItemEntityBuilder;
 use crate::ecs::entities::living::Health;
 use crate::ecs::entities::player::ChatMessage;
 use crate::ecs::entities::player::Chatbox;
-use crate::ecs::entities::player::CurrentWorldInfo;
 use crate::ecs::entities::player::Gamemode;
 use crate::ecs::entities::player::Player;
 use crate::ecs::entities::player::PlayerBuilder;
@@ -26,13 +25,14 @@ use crate::events::EntityCreateEvent;
 use crate::events::EntityRemoveEvent;
 use crate::events::PlayerJoinEvent;
 use crate::events::PlayerSpawnEvent;
-use crate::VERSION;
 use crate::item::stack::ItemStack;
 use crate::item::stack::ItemStackType;
+use crate::VERSION;
 //use crate::game::events::*;
 use crate::network::ids::NetworkID;
 use crate::network::ids::IDS;
 use crate::objects::Resources;
+use crate::physics::Physics;
 use crate::plugins::PluginManager;
 use crate::protocol::io::String16;
 use crate::protocol::packets::server::LoginRequest;
@@ -747,17 +747,9 @@ impl Game {
                     let p1 = p1.unwrap();
                     let p2 = p2.unwrap();
                     let p2pos = *game.ecs.get::<Position>(p2)?;
-                    let p1world = game.ecs.get::<CurrentWorldInfo>(p1)?.world_id;
-                    if p2pos.world != p1world {
-                        game.ecs
-                            .get_mut::<Chatbox>(executor)?
-                            .send_message("Cannot teleport cross-dimensionally (yet)".into());
-                        Ok(3)
-                    } else {
-                        *game.ecs.get_mut::<Position>(p1)? = p2pos;
-                        game.broadcast_to_ops(&name.0, &format!("Teleporting {} to {}", p1n, p2n));
-                        Ok(0)
-                    }
+                    *game.ecs.get_mut::<Position>(p1)? = p2pos;
+                    game.broadcast_to_ops(&name.0, &format!("Teleporting {} to {}", p1n, p2n));
+                    Ok(0)
                 }
             }),
         ));
@@ -825,14 +817,14 @@ impl Game {
             vec![],
             Box::new(|game, server, executor, mut args| {
                 let executor = game.ecs.entity(executor)?;
-                let world = executor.get::<CurrentWorldInfo>()?;
                 let pos = executor.get::<Position>()?;
+                let world = pos.world;
                 let pos: BlockPosition = pos.deref().clone().into();
-                if let Some(state) = game.block(pos, world.world_id) {
+                if let Some(state) = game.block(pos, world) {
                     let mut chatbox = executor.get_mut::<Chatbox>()?;
                     chatbox.send_message(format!("Light: {}", state.b_skylight).into());
                 }
-                if let Some(world) = game.worlds.get(&world.world_id) {
+                if let Some(world) = game.worlds.get(&world) {
                     let mut chatbox = executor.get_mut::<Chatbox>()?;
                     let posoff = chunk_relative_pos(pos);
                     chatbox.send_message(
@@ -861,10 +853,10 @@ impl Game {
             Box::new(|game, server, executor, mut args| {
                 let executor = game.ecs.entity(executor)?;
                 let mut chatbox = executor.get_mut::<Chatbox>()?;
-                let world = executor.get::<CurrentWorldInfo>()?;
+                let world = executor.get::<Position>()?.world;
                 let world = game
                     .worlds
-                    .get(&world.world_id)
+                    .get(&world)
                     .ok_or(anyhow::anyhow!("Does not exist"))?;
                 chatbox.send_message(format!("Seed: [{}]", world.level_dat.world_seed).into());
                 Ok(0)
@@ -898,11 +890,16 @@ impl Game {
             "itemdrop",
             "itemdrop",
             4,
-            vec![],
+            vec![CommandArgumentTypes::Int, CommandArgumentTypes::Int, CommandArgumentTypes::Int],
             Box::new(|game, server, executor, mut args| {
+                let xv = *args.get::<i32>(0)?;
+                let yv = *args.get::<i32>(1)?;
+                let zv = *args.get::<i32>(2)?;
                 let executor = game.ecs.entity(executor)?;
                 let pos = *executor.get::<Position>()?;
-                ItemEntityBuilder::build(game, pos, ItemStack::new(1, 1, 0));
+                let entity = ItemEntityBuilder::build(game, pos, ItemStack::new(1, 1, 0));
+                let mut physics = game.ecs.get_mut::<Physics>(entity)?;
+                physics.add_velocity(xv as f32, yv as f32, zv as f32);
                 Ok(0)
             }),
         ));
@@ -941,7 +938,7 @@ impl Game {
                 let arg = args.get::<i32>(0)?;
                 let name = executor.get::<Username>()?.deref().clone();
                 if game.worlds.contains_key(arg) {
-                    executor.get_mut::<CurrentWorldInfo>()?.world_id = *arg;
+                    executor.get_mut::<Position>()?.world = *arg;
                     game.broadcast_to_ops(&name.0, &format!("Sending self to dimension {}", *arg));
                     //executor.get_mut::<Position>()?.world = *arg;
                     Ok(0)
@@ -973,10 +970,10 @@ impl Game {
             Box::new(|game, server, executor, mut args| {
                 let entity_ref = game.ecs.entity(executor)?;
                 let position = entity_ref.get::<Position>()?;
-                let world = entity_ref.get::<CurrentWorldInfo>()?.deref().clone();
+                let world = position.world;
                 let blockpos: BlockPosition = position.deref().clone().into();
                 game.worlds
-                    .get_mut(&world.world_id)
+                    .get_mut(&world)
                     .ok_or(anyhow::anyhow!("No such world"))?
                     .level_dat
                     .spawn_point = blockpos;
@@ -985,10 +982,7 @@ impl Game {
                 drop(position);
                 game.broadcast_to_ops(
                     &name,
-                    &format!(
-                        "Set spawn point for world {} to {}",
-                        world.world_id, blockpos
-                    ),
+                    &format!("Set spawn point for world {} to {}", world, blockpos),
                 );
                 Ok(0)
             }),
@@ -1175,6 +1169,9 @@ impl Game {
     /// Causes the given entity to be removed on the next tick.
     /// In the meantime, triggers `EntityRemoveEvent`.
     pub fn remove_entity(&mut self, entity: Entity) -> Result<(), NoSuchEntity> {
+        // if let Ok(nid) = self.ecs.get::<NetworkID>(entity) {
+        //     IDS.lock().unwrap().push(nid.0);
+        // }
         self.ecs.defer_despawn(entity);
         self.ecs.insert_entity_event(entity, EntityRemoveEvent)
     }
@@ -1211,7 +1208,6 @@ impl Game {
             Username(client.username().to_owned()),
             pos,
             id,
-            CurrentWorldInfo::new(world.id),
             Gamemode::from_id(CONFIGURATION.default_gamemode).unwrap(),
         );
         self.spawn_entity(player);
