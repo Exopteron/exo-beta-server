@@ -58,4 +58,9 @@ packet_enum!(ServerPlayPacket {
     0x2A = RemoveEntityEffect,
     0x15 = PickupSpawn,
     0x16 = CollectItem,
+    0x1C = EntityVelocity,
+    0x17 = AddObjectVehicle,
+    0x64 = OpenWindow,
+    0x65 = CloseWindow,
+    0x18 = MobSpawn,
 });

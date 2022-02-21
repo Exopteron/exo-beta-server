@@ -50,7 +50,7 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
         let eref = game.ecs.entity(entity)?;
         let world_id = eref.get::<Position>()?.world;
         let client = server.clients.get(&*eref.get::<NetworkID>()?).unwrap();
-        client.notify_respawn(&eref, game.worlds.get(&world_id).unwrap().level_dat.world_seed)?;
+        client.notify_respawn(&eref, game.worlds.get(&world_id).unwrap().level_dat.lock().world_seed)?;
         drop(eref);
         game.schedule_next_tick(move |game| {
             let eref = game.ecs.entity(entity).ok()?;
@@ -68,17 +68,13 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
 
 /// Sends [SendEntityMetadata](protocol::packets::server::play::SendEntityMetadata) packet for when an entity is sneaking.
 fn send_entity_sneak_metadata(game: &mut Game, server: &mut Server) -> SysResult {
-    for (_, (&position, &SneakEvent { is_sneaking }, &network_id)) in game
+    for (_, (&position, &SneakEvent { is_sneaking }, &network_id, metadata)) in game
         .ecs
-        .query::<(&Position, &SneakEvent, &NetworkID)>()
+        .query::<(&Position, &SneakEvent, &NetworkID, &mut Metadata)>()
         .iter()
     {
-        let mut metadata = Metadata::new();
-        let mut bit_mask = EntityBitMask::empty();
-
         // The Entity can sneak and sprint at the same time, what happens is that when it stops sneaking you immediately start running again.
-        bit_mask.set(EntityBitMask::CROUCHED, is_sneaking);
-        metadata.insert_byte_idx(bit_mask.bits(), META_INDEX_ENTITY_BITMASK);
+        metadata.flags.set(EntityBitMask::CROUCHED, is_sneaking);
         server.broadcast_nearby_with(position, |client| {
             client.send_entity_metadata(false, network_id, metadata.clone());
         });

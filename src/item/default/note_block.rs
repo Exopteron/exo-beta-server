@@ -32,8 +32,8 @@ impl Block for NoteBlock {
     fn is_solid(&self) -> bool {
         false
     }
-    fn interacted_with(&self, world: i32, game: &mut Game, server: &mut crate::server::Server, position: BlockPosition, state: BlockState, player: Entity) -> ActionResult {
-        if let Some(entity) = game.block_entity_at(position, world) {
+    fn interacted_with(&self, world: i32, game: &mut Game, server: &mut crate::server::Server, position: BlockPosition, state: BlockState, player: Entity) -> anyhow::Result<ActionResult> {
+        if let Some(entity) = game.block_entity_at(position) {
             if let Ok(mut data) = game.ecs.get_mut::<NoteblockData>(entity) {
                 server.broadcast_nearby_with(position.into(), |cl| {
                     cl.send_block_action(position, 0, data.0);
@@ -42,7 +42,7 @@ impl Block for NoteBlock {
                 data.0 %= 24;
             }
         }
-        ActionResult::SUCCESS
+        Ok(ActionResult::SUCCESS)
     }
     fn block_entity(&self, entity_builder: &mut hecs::EntityBuilder, state: BlockState, position: BlockPosition) -> bool {
         entity_builder.add(NoteblockData(0));

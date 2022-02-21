@@ -1,4 +1,6 @@
-use crate::{item::{item::{block::{Block, ActionResult}, ItemRegistry, Item, ItemIdentifier}, stack::ItemStackType, window::Window}, protocol::packets::{Face, SoundEffectKind}, events::block_interact::BlockPlacementEvent, world::chunks::BlockState, ecs::{systems::SysResult, entities::player::Gamemode}, game::{Position, BlockPosition}, network::ids::NetworkID, server::Server};
+use parking_lot::MutexGuard;
+
+use crate::{item::{item::{block::{Block, ActionResult}, ItemRegistry, Item, ItemIdentifier}, stack::{ItemStackType, ItemStack}, window::Window, inventory_slot::InventorySlot}, protocol::packets::{Face, SoundEffectKind}, events::block_interact::BlockPlacementEvent, world::chunks::BlockState, ecs::{systems::SysResult, entities::player::Gamemode}, game::{Position, BlockPosition}, network::ids::NetworkID, server::Server};
 
 pub struct DoorItem(pub ItemIdentifier);
 impl Item for DoorItem {
@@ -13,7 +15,7 @@ impl Item for DoorItem {
     fn durability(&self) -> Option<i16> {
         None
     }
-    fn on_use(&self, game: &mut crate::game::Game, server: &mut Server, item_slot: usize, user: hecs::Entity, target: Option<crate::item::item::BlockUseTarget>) -> SysResult {
+    fn on_use(&self, game: &mut crate::game::Game, server: &mut Server, mut item: MutexGuard<InventorySlot>, slot: usize, user: hecs::Entity, target: Option<crate::item::item::BlockUseTarget>) -> SysResult {
         // TODO reduce in gms
         if let Some(target) = target {
             let block_pos = target.face.offset(target.position);
@@ -71,9 +73,8 @@ impl Item for DoorItem {
                 if *entity_ref.get::<Gamemode>()? != Gamemode::Creative {
                     let window = entity_ref.get::<Window>()?;
                     let id = entity_ref.get::<NetworkID>()?;
-                    let mut slot = window.inner().item(item_slot)?;
-                    slot.try_take(1);
-                    drop(slot);
+                    item.try_take(1);
+                    drop(item);
                     let client = server.clients.get(&id).unwrap();
                     client.send_window_items(&window);
                 }
@@ -85,6 +86,9 @@ impl Item for DoorItem {
 
 pub struct DoorBlock {}
 impl Block for DoorBlock {
+    fn dropped_items(&self, state: BlockState, held_item: InventorySlot) -> Vec<crate::item::stack::ItemStack> {
+        vec![ItemStack::new(324, 1, 0)]
+    }
     fn opaque(&self) -> bool {
         false
     }
@@ -107,7 +111,7 @@ impl Block for DoorBlock {
                 if !game.is_solid_block(Face::NegativeY.offset(position), world) {
                     game.break_block(position, world);
                     f = true;
-                    if game.block_id_at(Face::PositiveY.offset(position), world) == self.id() {
+                    if game.block_id_at(Face::PositiveY.offset(position)) == self.id() {
                         game.break_block(Face::PositiveY.offset(position), world);   
                     }
                 }
@@ -125,14 +129,14 @@ impl Block for DoorBlock {
     fn item_stack_size(&self) -> i8 {
         1
     }
-    fn interacted_with(&self, world: i32, game: &mut crate::game::Game, server: &mut crate::server::Server, position: BlockPosition, state: BlockState, player: hecs::Entity) -> crate::item::item::block::ActionResult {
+    fn interacted_with(&self, world: i32, game: &mut crate::game::Game, server: &mut crate::server::Server, position: BlockPosition, state: BlockState, player: hecs::Entity) -> anyhow::Result<crate::item::item::block::ActionResult> {
         if (state.b_metadata & 8) != 0 {
             if let Some(b) = game.block(Face::NegativeY.offset(position), world) {
                 if b.b_type == self.id() {
                     self.interacted_with(world, game, server, Face::NegativeY.offset(position), b, player);
                 }
             }
-            return ActionResult::SUCCESS;
+            return Ok(ActionResult::SUCCESS);
         }
         if let Some(b) = game.block(Face::PositiveY.offset(position), world) {
             if b.b_type == self.id() {
@@ -142,7 +146,7 @@ impl Block for DoorBlock {
         game.set_block(position, BlockState::new(self.id(), state.b_metadata ^ 4), world);
         let id = game.ecs.get::<NetworkID>(player).unwrap();
         server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, world, 0);
-        ActionResult::SUCCESS
+        Ok(ActionResult::SUCCESS)
     }
 }
 

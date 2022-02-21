@@ -1,12 +1,93 @@
 #![forbid(unsafe_code)]
-use std::convert::TryInto;
+use std::{convert::TryInto, hash::Hash, fmt::Display};
+
+use serde::{Deserialize, Serialize};
 
 use super::item::{Item, AtomicRegistryItem, ItemRegistry, block::AtomicRegistryBlock};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Eq)]
 pub enum ItemStackType {
     Item(AtomicRegistryItem),
     Block(AtomicRegistryBlock),
+}
+use std::fmt;
+
+use serde::de::{self, Visitor};
+
+struct I16Visitor;
+
+impl<'de> Visitor<'de> for I16Visitor {
+    type Value = i16;
+
+    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+        formatter.write_str("an integer between -2^15 and 2^15")
+    }
+    fn visit_u64<E>(self, v: u64) -> Result<Self::Value, E>
+    where
+            E: de::Error, {
+        Ok(v as i16)
+    }
+    fn visit_u32<E>(self, v: u32) -> Result<Self::Value, E>
+    where
+            E: de::Error, {
+        Ok(v as i16)
+    }
+    fn visit_i64<E>(self, value: i64) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(value as i16)
+    }
+    fn visit_i32<E>(self, value: i32) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        if value >= i32::from(i16::MIN) && value <= i32::from(i16::MAX) {
+            Ok(value as i16)
+        } else {
+            Err(E::custom(format!("i16 out of range: {}", value)))
+        }
+    }
+    fn visit_i16<E>(self, value: i16) -> Result<Self::Value, E>
+    where
+        E: de::Error,
+    {
+        Ok(value)
+    }
+}
+
+impl Serialize for ItemStackType {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer {
+        serializer.serialize_i16(self.id())
+    }
+}
+impl<'de> Deserialize<'de> for ItemStackType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de> {
+        let id = deserializer.deserialize_i16(I16Visitor)?;
+        let registry = ItemRegistry::global();
+        if id > 256 {
+            match registry.get_item(id) {
+                Some(item) => Ok(ItemStackType::Item(item)),
+                None => Ok(ItemStackType::Block(registry.get_block(0).unwrap()))
+            }
+        } else {
+            Ok(ItemStackType::Block(registry.get_block(id as u8).unwrap_or_else(|| registry.get_block(0).unwrap())))
+        }
+    }
+}
+impl PartialOrd for ItemStackType {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        self.id().partial_cmp(&other.id())
+    }
+}
+impl Ord for ItemStackType {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.id().cmp(&other.id())
+    }
 }
 impl ItemStackType {
     pub fn stack_size(&self) -> i8 {
@@ -22,10 +103,20 @@ impl ItemStackType {
         }
     }
 }
+impl PartialEq for ItemStackType {
+    fn eq(&self, other: &Self) -> bool {
+        self.id() == other.id()
+    }
+}
+impl Hash for ItemStackType {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.id().hash(state);
+    }
+}
 /// Represents an item stack.
 ///
 /// An item stack includes an item type, an amount and a bunch of properties (enchantments, etc.)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct ItemStack {
     /// The item type of this `ItemStack`.
     item: ItemStackType,
@@ -34,8 +125,14 @@ pub struct ItemStack {
     count: i8,
 
     meta: i16,
+    #[serde(rename = "nullFlag")]
+    pub null_flag: bool,
 }
-
+impl Display for ItemStack {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "(id: {}, count: {}, meta: {})", self.id(), self.count(), self.damage_taken())
+    }
+}
 impl ItemStack {
     pub fn id(&self) -> i16 {
         match &self.item {
@@ -52,14 +149,14 @@ impl ItemStack {
         } else {
             item = ItemStackType::Block(ItemRegistry::global().get_block(item_id as u8).unwrap());
         }
-        Self { item, count, meta }
+        Self { item, count, meta, null_flag: false }
     }
 
     /// Returns whether the given item stack has
     /// the same type as (but not necessarily the same
     /// amount as) `self`.
     pub fn has_same_type(&self, other: &Self) -> bool {
-        self.id() == other.id()
+        self.id() == other.id() && self.damage_taken() == other.damage_taken()
     }
     pub fn set_damage(&mut self, damage: i16) {
         self.meta = damage;
@@ -378,6 +475,7 @@ impl From<ItemStackBuilder> for ItemStack {
             item: ItemStackType::Item(it.item),
             count: it.count,
             meta: it.meta,
+            null_flag: false
         }
     }
 }

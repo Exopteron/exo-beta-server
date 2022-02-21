@@ -43,7 +43,7 @@ pub fn propagate_lighting(game: &mut Game) -> SysResult {
     drop(propagator);
     let mut propagator = LightPropagator::new(true); // TODO: change in future for regular lighting
     for request in requests {
-        let block_id = game.block_id_at(request.position.clone(), request.world);
+        let block_id = game.block_id_at(request.position.clone());
         //log::info!("Propagating {:?} which is a {}", request, block_id);
         propagator.increase_light(request.world, game, request.position, request.level);
     }

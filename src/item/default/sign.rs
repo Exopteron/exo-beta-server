@@ -2,6 +2,7 @@ use std::ops::Deref;
 
 use hecs::Entity;
 use nbt::CompoundTag;
+use parking_lot::MutexGuard;
 
 use crate::{
     aabb::{AABB, AABBSize},
@@ -10,7 +11,7 @@ use crate::{
     game::{BlockPosition, Game, Position},
     item::{
         item::block::ActionResult,
-        stack::{ItemStack, ItemStackType},
+        stack::{ItemStack, ItemStackType}, inventory_slot::InventorySlot,
     },
     network::ids::NetworkID,
     protocol::packets::{Face, SoundEffectKind},
@@ -33,7 +34,7 @@ impl Item for SignItem {
     fn durability(&self) -> Option<i16> {
         None
     }
-    fn on_use(&self, game: &mut Game, server: &mut crate::server::Server, item_slot: usize, user: Entity, target: Option<crate::item::item::BlockUseTarget>) -> SysResult {
+    fn on_use(&self, game: &mut Game, server: &mut crate::server::Server, item: MutexGuard<InventorySlot>, slot: usize, user: Entity, target: Option<crate::item::item::BlockUseTarget>) -> SysResult {
         if let Some(mut target) = target {
             if matches!(target.face, Face::Invalid) || matches!(target.face, Face::NegativeY) {
                 return Ok(());
@@ -131,12 +132,13 @@ impl Block for SignBlock {
         }
         Ok(())
     }
+    // bug: TODO
     fn block_entity(&self, entity_builder: &mut hecs::EntityBuilder, state: BlockState, position: BlockPosition) -> bool {
         entity_builder.add(SignData::default());
         let component = BlockEntityLoader::new(|client, entity| {
             let data = entity.get::<SignData>()?;
             let pos = entity.get::<BlockEntity>()?.0;
-            //log::info!("Sign loader sending {:?} to {}", *data, client.username());
+            log::info!("Sign loader sending {:?} to {}", *data, client.username());
             client.update_sign(pos, data.deref().clone());
             Ok(())
         });

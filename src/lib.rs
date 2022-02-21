@@ -19,6 +19,7 @@ pub mod translation;
 pub mod world;
 pub mod status_effects;
 pub mod physics;
+mod player_dat;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
 pub mod commands;
@@ -33,6 +34,17 @@ pub async fn main() -> anyhow::Result<()> {
     std::fs::create_dir_all("local/")?;
     let appender = logging::setup_logging();
     let start = Instant::now();
+    let mut manager = PluginManager::new();
+    let mut loaders = BlockEntityNBTLoaders::default();
+    let mut recipes = Solver::new();
+    let mut item_registry = ItemRegistry::new(recipes);
+    manager.register_items(&mut item_registry);
+    default::register_items(&mut item_registry);
+    item_registry.apply_loaders(&mut loaders);
+    item_registry.set();
+    let mut recipes = ItemRegistry::global().deref().clone();
+    item::recipes::register(&mut recipes.solver);
+    recipes.set();
     if let Some(str) = &CONFIGURATION.vanilla_jar {
         JVMSetup::setup(str).unwrap();
     }
@@ -40,10 +52,6 @@ pub async fn main() -> anyhow::Result<()> {
     crate::world::generation::default_world_generators(&mut generators);
     generators.set();
     log::info!("Starting server version {} for Minecraft b1.8.1", VERSION);
-    let mut manager = PluginManager::new();
-    unsafe {
-        //manager.load_plugin("test_plugins/test_plugin_1/target/release/libtest_plugin_1.so")?;
-    }
     let _ = &configuration::CONFIGURATION.max_players;
     let translation = TranslationManager::initialize()?;
     let mut systems = SystemExecutor::<Game>::new();
@@ -65,12 +73,6 @@ pub async fn main() -> anyhow::Result<()> {
         }
         Ok(())
     }); */
-    let mut loaders = BlockEntityNBTLoaders::default();
-    let mut item_registry = ItemRegistry::new();
-    manager.register_items(&mut item_registry);
-    default::register_items(&mut item_registry);
-    item_registry.apply_loaders(&mut loaders);
-    item_registry.set();
     let mut game = game::Game::new(manager);
     game.insert_object(Scheduler::new());
     game.insert_object(OpManager::new());
@@ -94,6 +96,7 @@ pub async fn main() -> anyhow::Result<()> {
     loop {}
     Ok(())
 }
+use std::ops::Deref;
 /* fn load_plugins(manager: &mut PluginManager) {
     let mut faxvec: Vec<std::path::PathBuf> = Vec::new();
     std::fs::create_dir_all("plugins/").expect("Could not create plugins folder!");
@@ -121,12 +124,16 @@ use sysinfo::ProcessorExt;
 
 use crate::block_entity::BlockEntityNBTLoaders;
 use crate::configuration::OpManager;
+use crate::ecs::entities::player::{Username, Player};
 use crate::ecs::systems::world::block::update::BlockUpdateManager;
 use crate::ecs::systems::SystemExecutor;
 use crate::game::{Game, Scheduler};
+use crate::item::crafting::{Solver, ShapelessRecipe};
 use crate::item::default;
 use crate::item::item::ItemRegistry;
+use crate::item::stack::ItemStack;
 use crate::jvm::JVMSetup;
+use crate::player_dat::PlayerDat;
 use crate::plugins::PluginManager;
 use crate::server::Server;
 use crate::translation::TranslationManager;
@@ -149,6 +156,26 @@ fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
         game.ticks += 1;
         if SHUTDOWN.load(Ordering::Relaxed) {
             log::info!("Shutting down.");
+            let mut entities = Vec::new();
+            for (entity, (_, _)) in game.ecs.query::<(&Player, &Username)>().iter() {
+                entities.push(entity);
+            }
+            let closure: Box<dyn FnOnce() -> anyhow::Result<()>> = Box::new(|| {
+                for entity in entities {
+                    let entity_ref = game.ecs.entity(entity)?;
+                    let world = game.worlds.get(&0).unwrap();
+                    let mut pd_dir = world.world_dir.clone();
+                    let mut username = entity_ref.get::<Username>()?.0.clone();
+                    username = username.replace("\\", "");
+                    username = username.replace("/", "");
+                    username = username.replace("..", "");
+                    pd_dir.push("players/".to_owned() + &username + ".dat");
+                    PlayerDat::from_entity(&entity_ref)?.to_file(pd_dir)?;
+                    drop(entity_ref);
+                }
+                Ok(())
+            });
+            closure().unwrap();
             let translation = game.objects.get::<TranslationManager>().unwrap();
             for (_, client) in game
                 .objects
@@ -161,10 +188,11 @@ fn setup_tick_loop(mut game: game::Game, appender: LogManager) -> TickLoop {
                     &translation.translate("multiplayer.disconnect.server_shutdown", None),
                 );
             }
+            let world = game.worlds.get(&0).unwrap();
+            let mut path = world.world_dir.clone();
+            path.push("level.dat");
+            world.level_dat.lock().to_file(path).unwrap();
             for (id, world) in game.worlds.iter_mut() {
-                let mut path = world.world_dir.clone();
-                path.push("level.dat");
-                world.level_dat.to_file(path).unwrap();
                 let mut positions = Vec::new();
                 for chunk in world.chunk_map.iter_chunks() {
                     let pos = chunk.read().pos.clone();

@@ -41,7 +41,7 @@ impl Block for JukeboxBlock {
         position: BlockPosition,
         state: BlockState,
         player: Entity,
-    ) -> ActionResult {
+    ) -> anyhow::Result<ActionResult> {
         log::debug!("Interacted");
         let entity_ref = game.ecs.entity(player).unwrap();
         let window = entity_ref.get::<Window>().unwrap();
@@ -54,13 +54,13 @@ impl Block for JukeboxBlock {
         };
         if id != 2256 && id != 2257 {
             log::debug!("Not. It is {}", id);
-            return ActionResult::SUCCESS;
+            return Ok(ActionResult::SUCCESS);
         }
         drop(window);
         drop(slot);
         drop(entity_ref);
         log::debug!("Is here");
-        if let Some(entity) = game.block_entity_at(position, world) {
+        if let Some(entity) = game.block_entity_at(position) {
             if let Ok(mut data) = game.ecs.get_mut::<JukeboxData>(entity) {
                 data.0 = (id - 2255) as i32;
                 server.broadcast_nearby_with(position.into(), |cl| {
@@ -73,7 +73,7 @@ impl Block for JukeboxBlock {
         } else {
             log::debug!("No BE");
         }
-        ActionResult::SUCCESS
+        Ok(ActionResult::SUCCESS)
     }
     fn on_break(&self, game: &mut Game, server: &mut Server, breaker: Entity, mut position: BlockPosition, face: Face, world: i32) {
         server.broadcast_nearby_with(position.into(), |cl| {

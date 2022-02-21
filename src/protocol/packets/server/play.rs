@@ -206,4 +206,37 @@ packets! {
         collected_eid i32;
         collector_eid i32;
     }
+    EntityVelocity {
+        eid i32;
+        velocity_x i16;
+        velocity_y i16;
+        velocity_z i16;
+    }
+    AddObjectVehicle {
+        eid i32;
+        object_type ObjectVehicleKind;
+        x AbsoluteInt;
+        y AbsoluteInt;
+        z AbsoluteInt;
+        fbeid i32; // TODO
+    }
+    OpenWindow {
+        window_id i8;
+        inventory_type WindowKind;
+        window_title String16;
+        num_slots i8;
+    }
+    CloseWindow {
+        wid i8;
+    }
+    MobSpawn {
+        eid i32;
+        mobtype EnumMobType;
+        x AbsoluteInt;
+        y AbsoluteInt;
+        z AbsoluteInt;
+        yaw RotationFraction360;
+        pitch RotationFraction360;
+        meta Metadata;
+    }
 }

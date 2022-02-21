@@ -1,14 +1,17 @@
 use crate::game::DamageType;
-
+pub mod zombie;
 // feather license in FEATHER_LICENSE.md
+
 
 /// Represents an entity's health
 #[derive(Clone, Debug, PartialEq)]
 pub struct Health(pub i16, pub DamageType);
 impl Health {
     pub fn damage(&mut self, amount: i16, damage_type: DamageType) {
-        self.0 -= amount;
-        self.1 = damage_type;
+        if self.0 > 0 {
+            self.0 -= amount;
+            self.1 = damage_type;
+        }
     }
 }
 pub struct Dead;

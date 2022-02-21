@@ -36,7 +36,7 @@ serde = "1.0.130"
 serde_json = "1"
 gag = "1.0.0"
 sysinfo = "0.20.4"
-arrayvec = "0.5"
+arrayvec = { version = "0.5", features = ["serde"] }
 rand_xorshift = "0.3.0"
 siphasher = "0.3.7"
 named-binary-tag = "0.6.0"
@@ -70,6 +70,9 @@ error-chain = "0.12.4"
 vtable = "0.1.4"
 java-utils = "0.1.0"
 retain_mut = "0.1.5"
+moveslice = "*"
+hemnbt = { package = "hematite-nbt", version = "0.5.2" }
+nibble_vec = "0.1.0"
 
 [profile.dev.package.worldgen]
 opt-level = 3

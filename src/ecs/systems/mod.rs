@@ -5,7 +5,7 @@ use std::{
     time::{Duration, Instant}, sync::atomic::Ordering,
 };
 
-use crate::{game::Game, server::Server, configuration::CONFIGURATION, SHUTDOWN};
+use crate::{game::{Game, Position}, server::Server, configuration::CONFIGURATION, SHUTDOWN, network::ids::NetworkID};
 pub mod chat;
 mod entities;
 pub mod stdin;
@@ -229,9 +229,18 @@ fn send_keepalives(_game: &mut Game, server: &mut Server) -> SysResult {
 }
 
 fn time_update(game: &mut Game, server: &mut Server) -> SysResult {
-    server.clients.iter().for_each(|(_, cl)| {
-        cl.notify_time(game.time);
-    });
-    game.time += 1;
+    let mut list = Vec::new();
+    for (_, world) in game.worlds.iter_mut() {
+        world.time += 1;
+    }
+    for (_, (id, position)) in game.ecs.query::<(&NetworkID, &Position)>().iter() {
+        list.push((*id, *position));
+    }
+    for (id, pos) in list {
+        if let Some(client) = server.clients.get(&id) {
+            let time = game.worlds.get(&pos.world).unwrap().time;
+            client.notify_time(time);
+        }
+    }
     Ok(())
 }

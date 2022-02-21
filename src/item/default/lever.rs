@@ -169,14 +169,14 @@ impl Block for LeverBlock {
         position: BlockPosition,
         mut state: BlockState,
         player: Entity,
-    ) -> ActionResult {
+    ) -> anyhow::Result<ActionResult> {
         let v = state.b_metadata;
         let j1 = v & 7;
         let k1 = 8 - (v & 8);
         state.b_metadata = j1 + k1;
         game.set_block(position, state, world);
         //server.broadcast_effect(SoundEffectKind::, position, 0);
-        ActionResult::SUCCESS
+        Ok(ActionResult::SUCCESS)
     }
 }
 impl LeverBlock {

@@ -34,7 +34,7 @@ pub fn update_visible_entities(game: &mut Game, server: &mut Server) -> SysResul
                     let entity_ref = game.ecs.entity(entity_id)?;
                     if let Ok(spawn_packet) = entity_ref.get::<SpawnPacketSender>() {
                         spawn_packet
-                            .send(&entity_ref, client)
+                            .send(game.scheduler.clone(), game.ticks, &entity_ref, client)
                             .context("failed to send spawn packet")?;
                     }
                 }
@@ -66,7 +66,7 @@ fn send_entities_when_created(game: &mut Game, server: &mut Server) -> SysResult
         let entity_ref = game.ecs.entity(entity)?;
         server.broadcast_nearby_with(position, |client| {
             spawn_packet
-                .send(&entity_ref, client)
+                .send(game.scheduler.clone(), game.ticks, &entity_ref, client)
                 .expect("failed to create spawn packet");
         });
     }
@@ -116,7 +116,7 @@ fn update_entities_on_chunk_cross(game: &mut Game, server: &mut Server) -> SysRe
         let entity_ref = game.ecs.entity(entity)?;
         for send_client in new_clients.difference(&old_clients) {
             if let Some(client) = server.clients.get(send_client) {
-                spawn_packet.send(&entity_ref, client)?;
+                spawn_packet.send(game.scheduler.clone(), game.ticks, &entity_ref, client)?;
             }
         }
     }

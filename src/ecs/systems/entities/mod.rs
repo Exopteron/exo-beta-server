@@ -6,8 +6,12 @@ use super::{SystemExecutor, SysResult};
 
 pub mod player;
 pub mod item;
-pub fn default_systems(game: &mut Game, systems: &mut SystemExecutor<Game>) {
+pub mod falling_block;
+pub mod living;
+pub fn default_systems(_game: &mut Game, systems: &mut SystemExecutor<Game>) {
+    falling_block::init_systems(systems);
     item::init_systems(systems);
+    living::init_systems(systems);
     systems.add_system(deferred_spawn);
     systems.group::<Server>().add_system(tick_clients).add_system(StatusEffectsManager::system);
 }

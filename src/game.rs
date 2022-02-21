@@ -4,8 +4,11 @@ use crate::block_entity::BlockEntityLoader;
 use crate::commands::*;
 use crate::configuration::OpManager;
 use crate::configuration::CONFIGURATION;
+use crate::ecs::entities::falling_block::FallingBlockEntityBuilder;
+use crate::ecs::entities::falling_block::FallingBlockEntityData;
 use crate::ecs::entities::item::ItemEntityBuilder;
 use crate::ecs::entities::living::Health;
+use crate::ecs::entities::living::zombie::ZombieEntityBuilder;
 use crate::ecs::entities::player::ChatMessage;
 use crate::ecs::entities::player::Chatbox;
 use crate::ecs::entities::player::Gamemode;
@@ -30,9 +33,9 @@ use crate::item::stack::ItemStackType;
 use crate::VERSION;
 //use crate::game::events::*;
 use crate::network::ids::NetworkID;
-use crate::network::ids::IDS;
 use crate::objects::Resources;
 use crate::physics::Physics;
+use crate::player_dat::PlayerDat;
 use crate::plugins::PluginManager;
 use crate::protocol::io::String16;
 use crate::protocol::packets::server::LoginRequest;
@@ -47,6 +50,7 @@ use crate::server::Server;
 use crate::status_effects::poison::PoisonEffect;
 use crate::status_effects::StatusEffectsManager;
 use crate::translation::TranslationManager;
+use crate::world::LevelDat;
 use crate::world::chunk_entities::ChunkEntities;
 use crate::world::chunk_map::chunk_relative_pos;
 use crate::world::chunks::BlockState;
@@ -62,6 +66,7 @@ use hecs::NoSuchEntity;
 use itertools::Itertools;
 use j4rs::Jvm;
 use once_cell::sync::Lazy;
+use parking_lot::Mutex;
 use rand::SeedableRng;
 use rand_chacha::ChaCha8Rng;
 use std::any::Any;
@@ -69,11 +74,12 @@ use std::cell::RefCell;
 use std::cell::{Ref, RefMut};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Display;
+use std::fs;
 use std::mem;
 use std::ops::Deref;
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::Mutex;
 pub type RefContainer<T> = Arc<RefCell<T>>;
 
 #[derive(Copy, Clone, PartialEq, Debug, Hash)]
@@ -219,6 +225,7 @@ pub struct Position {
     pub pitch: f32,
     pub on_ground: bool,
     pub world: i32,
+    pub update: bool,
 }
 impl From<Position> for BlockPosition {
     fn from(other: Position) -> Self {
@@ -241,6 +248,7 @@ impl From<BlockPosition> for Position {
             pitch: 0.,
             on_ground: false,
             world: bpos.world,
+            update: true,
         }
     }
 }
@@ -261,6 +269,7 @@ impl std::default::Default for Position {
             pitch: 0.,
             on_ground: false,
             world: 0,
+            update: true,
         }
     }
 }
@@ -283,6 +292,7 @@ impl Position {
             pitch: 0.0,
             on_ground: false,
             world,
+            update: true
         }
     }
     pub fn as_vec3(&self) -> DVec3 {
@@ -479,7 +489,6 @@ pub struct Game {
     entity_spawn_callbacks: Vec<EntitySpawnCallback>,
     pub chunk_entities: ChunkEntities,
     pub commands: Rc<RefCell<CommandSystem>>,
-    pub time: i64,
     pub console_entity: Entity,
     pub scheduler: Rc<RefCell<Scheduler>>,
     pub tps: f64,
@@ -503,6 +512,37 @@ impl HasEcs for Game {
     }
 }
 impl Game {
+    pub fn can_see_sky(&self, pos: BlockPosition) -> bool {
+        if let Some(world) = self.worlds.get(&pos.world) {
+            let posoff = chunk_relative_pos(pos);
+            let height = world
+            .chunk_map
+            .chunk_at(pos.to_chunk_coords())
+            .unwrap()
+            .heightmaps
+            .light_blocking
+            .height(posoff.0 as usize, posoff.2 as usize);
+            if let Some(height) = height {
+                if pos.y > height as i32 {
+                    return true;
+                }
+            }
+        } 
+        false
+    }
+    pub fn entity_by_network_id(&self, id: NetworkID) -> Option<Entity> {
+        for (current_entity, entity_net_id) in self.ecs.query::<&NetworkID>().iter() {
+            if *entity_net_id == id {
+                return Some(current_entity);
+            }
+        }
+        None
+    }
+    pub fn schedule_at(&mut self, ticks: u128, callback: impl Fn(&mut Game) -> Option<u128> + 'static) {
+        let sch = self.scheduler.clone();
+        let mut scheduler = sch.borrow_mut();
+        scheduler.schedule_task(ticks, callback);
+    }
     pub fn schedule_next_tick(&mut self, callback: impl Fn(&mut Game) -> Option<u128> + 'static) {
         let sch = self.scheduler.clone();
         let mut scheduler = sch.borrow_mut();
@@ -536,9 +576,9 @@ impl Game {
         }
         None
     }
-    pub fn block_entity_at(&self, position: BlockPosition, world: i32) -> Option<Entity> {
+    pub fn block_entity_at(&self, position: BlockPosition) -> Option<Entity> {
         for (entity, block_entity) in self.ecs.query::<&BlockEntity>().iter() {
-            if block_entity.0 == position && block_entity.1 == world {
+            if block_entity.0 == position && block_entity.1 == position.world {
                 return Some(entity);
             }
         }
@@ -601,8 +641,15 @@ impl Game {
             0
         }
     }
-    pub fn block_id_at(&self, pos: BlockPosition, world: i32) -> u8 {
-        if let Some(state) = self.block(pos, world) {
+    pub fn can_be_placed_at(&self, pos: BlockPosition) -> bool {
+        if let Some(world) = self.worlds.get(&pos.world) {
+            world.can_be_placed_at(pos)
+        } else {
+            false
+        }
+    }
+    pub fn block_id_at(&self, pos: BlockPosition) -> u8 {
+        if let Some(state) = self.block(pos, pos.world) {
             state.b_type
         } else {
             0
@@ -679,7 +726,7 @@ impl Game {
                 .insert_entity_event(entity, PlayerJoinEvent)
                 .unwrap();
             self.ecs
-                .insert_entity_event(entity, PlayerSpawnEvent)
+                .insert_entity_event(entity, PlayerSpawnEvent(true))
                 .unwrap();
         }
     }
@@ -697,17 +744,30 @@ impl Game {
             log::info!("No server operators in file.");
         }
         let mut worlds = AHashMap::new();
+        let dir = PathBuf::from(&CONFIGURATION.level_name);
+        let mut x = dir.clone();
+        x.push("players/");
+        fs::create_dir_all(x).unwrap();
+        let mut level_dat = dir.clone();
+        level_dat.push("level.dat");
+        let level_dat = LevelDat::from_file(level_dat, 0);
+        let level_dat = Arc::new(Mutex::new(level_dat));
+        let mut hell = dir.clone();
+        hell.push("DIM-1");
+        let mut sky = dir.clone();
+        sky.push("DIM1");
+        let main_world = crate::world::World::from_file_mcr(&CONFIGURATION.level_name, 0, level_dat.clone()).unwrap();
         worlds.insert(
             0i32,
-            crate::world::World::from_file_mcr(&CONFIGURATION.level_name, 0).unwrap(),
+            main_world,
         );
         worlds.insert(
             -1i32,
-            crate::world::World::from_file_mcr("local/temp_hell", -1).unwrap(),
+            crate::world::World::from_file_mcr(hell, -1, level_dat.clone()).unwrap(),
         );
         worlds.insert(
             1i32,
-            crate::world::World::from_file_mcr("local/temp_sky", 1).unwrap(),
+            crate::world::World::from_file_mcr(sky, 1, level_dat.clone()).unwrap(),
         );
         let mut commands = CommandSystem::new();
         commands.register(Command::new(
@@ -803,10 +863,12 @@ impl Game {
             vec![CommandArgumentTypes::Int],
             Box::new(|game, server, executor, mut args| {
                 let executor = game.ecs.entity(executor)?;
+                let pos = *executor.get::<Position>()?;
                 let time = args.get::<i32>(0)?;
-                game.time = *time as i64;
+                game.worlds.get_mut(&pos.world).unwrap().time = *time as i64;
+                //game.time = *time as i64;
                 let name = executor.get::<Username>()?.0.clone();
-                game.broadcast_to_ops(&name, &format!("Set the game time to {}", time));
+                game.broadcast_to_ops(&name, &format!("Set the time in DIM:{} to {}", pos.world, time));
                 Ok(0)
             }),
         ));
@@ -858,7 +920,7 @@ impl Game {
                     .worlds
                     .get(&world)
                     .ok_or(anyhow::anyhow!("Does not exist"))?;
-                chatbox.send_message(format!("Seed: [{}]", world.level_dat.world_seed).into());
+                chatbox.send_message(format!("Seed: [{}]", world.level_dat.lock().world_seed).into());
                 Ok(0)
             }),
         ));
@@ -887,6 +949,58 @@ impl Game {
             }),
         ));
         commands.register(Command::new(
+            "pvelocity",
+            "pvelocity",
+            4,
+            vec![CommandArgumentTypes::Int, CommandArgumentTypes::Int, CommandArgumentTypes::Int],
+            Box::new(|game, server, executor, mut args| {
+                let xv = *args.get::<i32>(0)?;
+                let yv = *args.get::<i32>(1)?;
+                let zv = *args.get::<i32>(2)?;
+                let executor = game.ecs.entity(executor)?;
+                let pos = *executor.get::<Position>()?;
+                let mut physics = executor.get_mut::<Physics>()?;
+                physics.add_velocity(xv as f64, yv as f64, zv as f64);
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "zombie",
+            "zombie",
+            4,
+            vec![CommandArgumentTypes::Int, CommandArgumentTypes::Int, CommandArgumentTypes::Int],
+            Box::new(|game, server, executor, mut args| {
+                let xv = *args.get::<i32>(0)?;
+                let yv = *args.get::<i32>(1)?;
+                let zv = *args.get::<i32>(2)?;
+                let executor = game.ecs.entity(executor)?;
+                let pos = *executor.get::<Position>()?;
+                let entity = ZombieEntityBuilder::build(game, pos);
+                let entity = game.spawn_entity(entity);
+                let mut physics = game.ecs.get_mut::<Physics>(entity)?;
+                physics.add_velocity(xv as f64, yv as f64, zv as f64);
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
+            "sanddrop",
+            "sanddrop",
+            4,
+            vec![CommandArgumentTypes::Int, CommandArgumentTypes::Int, CommandArgumentTypes::Int],
+            Box::new(|game, server, executor, mut args| {
+                let xv = *args.get::<i32>(0)?;
+                let yv = *args.get::<i32>(1)?;
+                let zv = *args.get::<i32>(2)?;
+                let executor = game.ecs.entity(executor)?;
+                let pos = *executor.get::<Position>()?;
+                let entity = FallingBlockEntityBuilder::build(game, pos, FallingBlockEntityData::Sand);
+                let entity = game.spawn_entity(entity);
+                let mut physics = game.ecs.get_mut::<Physics>(entity)?;
+                physics.add_velocity(xv as f64, yv as f64, zv as f64);
+                Ok(0)
+            }),
+        ));
+        commands.register(Command::new(
             "itemdrop",
             "itemdrop",
             4,
@@ -898,8 +1012,9 @@ impl Game {
                 let executor = game.ecs.entity(executor)?;
                 let pos = *executor.get::<Position>()?;
                 let entity = ItemEntityBuilder::build(game, pos, ItemStack::new(1, 1, 0));
+                let entity = game.spawn_entity(entity);
                 let mut physics = game.ecs.get_mut::<Physics>(entity)?;
-                physics.add_velocity(xv as f32, yv as f32, zv as f32);
+                physics.add_velocity(xv as f64, yv as f64, zv as f64);
                 Ok(0)
             }),
         ));
@@ -975,7 +1090,7 @@ impl Game {
                 game.worlds
                     .get_mut(&world)
                     .ok_or(anyhow::anyhow!("No such world"))?
-                    .level_dat
+                    .level_dat.lock()
                     .spawn_point = blockpos;
                 let name = entity_ref.get::<Username>()?.0.clone();
                 drop(entity_ref);
@@ -1018,7 +1133,7 @@ impl Game {
                 let name = executor.get::<Username>()?.0.clone();
                 let mut chatbox = executor.get_mut::<Chatbox>()?;
                 chatbox.send_message(format!("TPS: {}", game.tps).into());
-                chatbox.send_message(format!("Game time: {}", game.time).into());
+                //chatbox.send_message(format!("Game time: {}", game.time).into());
                 chatbox.send_message(format!("Game tick count: {}", game.ticks).into());
                 chatbox.send_message(
                     format!("Block entities: {}", game.ecs.count::<BlockEntity>()).into(),
@@ -1066,7 +1181,6 @@ impl Game {
             entity_spawn_callbacks: Vec::new(),
             chunk_entities: ChunkEntities::default(),
             commands: Rc::new(RefCell::new(commands)),
-            time: 0,
             console_entity: Entity::from_bits(0),
             scheduler: Rc::new(RefCell::new(Scheduler::new())),
             tps: 0.0,
@@ -1147,11 +1261,11 @@ impl Game {
                         player.get::<Username>().unwrap().0, /*borrow().username*/
                         e
                     );
-                    let client = server
+/*                     let client = server
                         .clients
                         .get(&player.get::<NetworkID>().unwrap())
                         .unwrap();
-                    client.disconnect("Bad packet error");
+                    client.disconnect("Bad packet error"); */
                 }
             })) {
                 //log::info!("Critical error handling packet from user {}.", player.clone().get_username());
@@ -1181,36 +1295,75 @@ impl Game {
             .get_mut(&id)
             .ok_or(anyhow::anyhow!("Client does not exist"))?;
         let world = self.worlds.get(&0).unwrap();
-        let pos: Position = world.level_dat.spawn_point.into();
+        let mut pd_dir = world.world_dir.clone();
+        let mut name = client.username().to_string();
+        name = name.replace("\\", "");
+        name = name.replace("/", "");
+        name = name.replace("..", "");
+        pd_dir.push("players/".to_owned() + &name + ".dat");
+        let player_dat = PlayerDat::from_file(&pd_dir);
+        let pos: Position = match player_dat {
+            Ok(ref dat) => {
+                Position { x: dat.pos[0], stance: 67.0, y: dat.pos[1], z: dat.pos[2], yaw: dat.rotation[0], pitch: dat.rotation[1], on_ground: dat.on_ground, world: dat.dimension, update: true }
+            },
+            Err(_) => world.level_dat.lock().spawn_point.into(),
+        };
         log::info!(
             "{} logging in with entity ID {} at {}",
             client.username(),
             id.0,
             pos
         );
-        client.write(ServerPlayPacket::LoginRequest(LoginRequest {
-            entity_id: id.0,
-            not_used: String16("ExoBetaServer".to_owned()),
-            map_seed: world.level_dat.world_seed as i64,
-            server_mode: CONFIGURATION.default_gamemode as i32,
-            dimension: world.id as i8,
-            difficulty: 0,
-            world_height: 128,
-            max_players: server.player_count.get_max() as u8,
-        }))?;
+        if let Ok(ref player_dat) = player_dat {
+            client.write(ServerPlayPacket::LoginRequest(LoginRequest {
+                entity_id: id.0,
+                not_used: String16("ExoBetaServer".to_owned()),
+                map_seed: world.level_dat.lock().world_seed as i64,
+                server_mode: player_dat.game_type as i32,
+                dimension: world.id as i8,
+                difficulty: 0,
+                world_height: 128,
+                max_players: server.player_count.get_max() as u8,
+            }))?;
+        } else {
+            client.write(ServerPlayPacket::LoginRequest(LoginRequest {
+                entity_id: id.0,
+                not_used: String16("ExoBetaServer".to_owned()),
+                map_seed: world.level_dat.lock().world_seed as i64,
+                server_mode: CONFIGURATION.default_gamemode as i32,
+                dimension: world.id as i8,
+                difficulty: 0,
+                world_height: 128,
+                max_players: server.player_count.get_max() as u8,
+            }))?;
+        }
+        let spos: Position = world.level_dat.lock().spawn_point.into();
         client.write(ServerPlayPacket::SpawnPosition(SpawnPosition {
-            x: pos.x.round() as i32,
-            y: pos.x.round() as i32,
-            z: pos.x.round() as i32,
+            x: spos.x.round() as i32,
+            y: spos.y.round() as i32,
+            z: spos.z.round() as i32,
         }))?;
+        let gamemode;
+        if let Ok(ref pdat) = player_dat {
+            gamemode = Gamemode::from_id(pdat.game_type as u8);
+        } else {
+            gamemode = Gamemode::from_id(CONFIGURATION.default_gamemode);
+        }
         let player = PlayerBuilder::create(
             self,
             Username(client.username().to_owned()),
             pos,
             id,
-            Gamemode::from_id(CONFIGURATION.default_gamemode).unwrap(),
+            gamemode.unwrap(),
+            &player_dat
         );
-        self.spawn_entity(player);
+        let e = self.spawn_entity(player);
+        if player_dat.is_err() {
+            let e = self.ecs.entity(e)?;
+            let player_dat = PlayerDat::from_entity(&e)?;
+            player_dat.to_file(pd_dir)?;
+        }
+        log::info!("HERE");
         broadcast_player_join(self, client.username());
         Ok(())
     }

@@ -16,6 +16,9 @@ use crate::{
 /// is aware of the position update.
 fn should_skip_movement(server: &Server, player: &EntityRef) -> SysResult<bool> {
     if let Some(client) = server.clients.get(&*player.get::<NetworkID>()?) {
+        if !client.knows_own_position() {
+            return Ok(true);
+        }
         let server_position = *player.get::<Position>()?;
         let client_position = client.client_known_position();
         if let Some(client_position) = client_position {
@@ -34,7 +37,7 @@ fn update_client_position(server: &Server, player: &EntityRef, pos: Position) ->
     }
     Ok(())
 }
-fn update_offground_height(player: &EntityRef, pos: Position) -> SysResult {
+fn update_offground_height(player: &EntityRef, prev: Position, pos: Position) -> SysResult {
     if pos.on_ground {
         let mut h = player.get_mut::<OffgroundHeight>()?;
         h.1 = h.0;
@@ -64,7 +67,7 @@ pub fn handle_player_position(
     pos.z = packet.z;
     pos.stance = packet.stance;
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, *pos)?;
+    update_offground_height(&player, previous_pos, *pos)?;
     update_client_position(server, &player, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
@@ -85,7 +88,7 @@ pub fn handle_player_position_and_look(
     pos.yaw = packet.yaw;
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, *pos)?;
+    update_offground_height(&player, previous_pos, *pos)?;
     update_client_position(server, &player, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
@@ -99,7 +102,7 @@ pub fn handle_player_look(server: &Server, player: EntityRef, packet: PlayerLook
     pos.yaw = packet.yaw;
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, *pos)?;
+    update_offground_height(&player, previous_pos, *pos)?;
     update_client_position(server, &player, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
@@ -108,7 +111,7 @@ pub fn handle_player_movement(player: EntityRef, packet: PlayerMovement) -> SysR
     let mut pos = player.get_mut::<Position>()?;
     let previous_pos = pos.clone();
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, *pos)?;
+    update_offground_height(&player, previous_pos, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
 }

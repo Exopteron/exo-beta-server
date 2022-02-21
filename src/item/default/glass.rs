@@ -13,6 +13,12 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 pub struct GlassBlock;
 
 impl Block for GlassBlock {
+    fn dropped_items(&self, state: BlockState, held_item: crate::item::inventory_slot::InventorySlot) -> Vec<ItemStack> {
+        Vec::new()
+    }
+    fn slipperiness(&self) -> f64 {
+        5.
+    }
     fn id(&self) -> BlockIdentifier {
         20
     }

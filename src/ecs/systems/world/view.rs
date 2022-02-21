@@ -97,7 +97,6 @@ fn send_loaded_chunks(game: &mut Game, server: &mut Server) -> SysResult {
                     client.send_chunk(&event.chunk);
                     let possy = *game.ecs.get::<Position>(player)?;
                     //log::info!("Spawning at {:?}!", possy);
-
                     spawn_client_if_needed(client, possy);
                 }
             }

@@ -13,6 +13,9 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 
 pub struct GenericBush(pub BlockIdentifier);
 impl Block for GenericBush {
+    fn hardness(&self) -> i32 {
+        1
+    }
     fn id(&self) -> BlockIdentifier {
         self.0
     }
@@ -34,6 +37,9 @@ impl Block for GenericBush {
         }
         Ok(())
     }
+    fn opaque(&self) -> bool {
+        false
+    }
     fn can_place_on(&self, world: i32, game: &mut Game, position: BlockPosition, face: Face) -> bool {
         self.is_valid_place(world, game, face.offset(position))
     }
@@ -43,7 +49,7 @@ impl Block for GenericBush {
 }
 impl GenericBush {
     fn is_valid_place(&self, world: i32, game: &mut Game, position: BlockPosition) -> bool {
-        let id = game.block_id_at(position.offset(0, -1, 0), world);
+        let id = game.block_id_at(position.offset(0, -1, 0));
         if id == 2 || id == 3 {
             return true;
         }

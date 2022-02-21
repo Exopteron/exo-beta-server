@@ -13,6 +13,9 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 pub struct IceBlock;
 
 impl Block for IceBlock {
+    fn slipperiness(&self) -> f64 {
+        0.98
+    }
     fn id(&self) -> BlockIdentifier {
         79
     }

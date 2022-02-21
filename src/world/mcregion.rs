@@ -89,7 +89,7 @@ impl MCRegionLoader {
                 }
             }
         }
-        let v = crate::world::chunks::compress_to_nibble(skylight).unwrap_or(Vec::new());
+        let v = crate::world::chunks::compress_to_nibble(skylight).unwrap_or_default();
         let v = vec_u8_into_i8(v);
         level_tag.insert_i8_vec("SkyLight", v);
         let v = crate::world::chunks::compress_to_nibble(blocklight).unwrap_or(Vec::new());

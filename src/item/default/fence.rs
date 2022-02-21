@@ -93,7 +93,7 @@ impl Block for FenceGateBlock {
         position: BlockPosition,
         mut state: BlockState,
         player: Entity,
-    ) -> ActionResult {
+    ) -> anyhow::Result<ActionResult> {
         if (state.b_metadata & 4) != 0 {
             state.b_metadata = (state.b_metadata as i8 & -5) as u8;
             game.set_block(position, state, world);
@@ -108,7 +108,7 @@ impl Block for FenceGateBlock {
         }
         let id = game.ecs.get::<NetworkID>(player).unwrap();
         server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, world, 0);
-        ActionResult::SUCCESS
+        Ok(ActionResult::SUCCESS)
     }
 }
 fn gate_orient(pos: &mut BlockPosition, placer_pos: &Position) -> u8 {

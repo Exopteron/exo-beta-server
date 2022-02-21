@@ -3,7 +3,7 @@ pub mod fluid;
 use anvil_region::position;
 use hecs::{Entity, EntityBuilder};
 
-use crate::{game::{BlockPosition, Game}, protocol::packets::Face, item::stack::ItemStack, events::block_interact::BlockPlacementEvent, world::chunks::BlockState, ecs::{systems::SysResult, EntityRef}, server::Server, aabb::AABB, block_entity::{BlockEntityNBTLoader, BlockEntityNBTLoaders}};
+use crate::{game::{BlockPosition, Game}, protocol::packets::Face, item::{stack::ItemStack, inventory_slot::InventorySlot}, events::block_interact::BlockPlacementEvent, world::chunks::BlockState, ecs::{systems::SysResult, EntityRef}, server::Server, aabb::AABB, block_entity::{BlockEntityNBTLoader, BlockEntityNBTLoaders}};
 
 use super::BlockIdentifier;
 pub enum ActionResult {
@@ -12,6 +12,15 @@ pub enum ActionResult {
 }
 pub struct BurnRate(pub i32, pub i32);
 pub trait Block {
+    fn hardness(&self) -> i32 {
+        15
+    }
+    fn dropped_items(&self, state: BlockState, held_item: InventorySlot) -> Vec<ItemStack> {
+        vec![ItemStack::new(self.id().into(), 1, state.b_metadata.into())]
+    }
+    fn slipperiness(&self) -> f64 {
+        0.6
+    }
     fn burn_rate(&self) -> Option<BurnRate> {
         None
     }
@@ -45,8 +54,8 @@ pub trait Block {
     fn can_place_on(&self, world: i32, game: &mut Game, position: BlockPosition, face: Face) -> bool {
         true
     }
-    fn interacted_with(&self, world: i32, game: &mut Game, server: &mut Server, position: BlockPosition, state: BlockState, player: Entity) -> ActionResult {
-        ActionResult::PASS
+    fn interacted_with(&self, world: i32, game: &mut Game, server: &mut Server, position: BlockPosition, state: BlockState, player: Entity) -> anyhow::Result<ActionResult> {
+        Ok(ActionResult::PASS)
     }
     fn can_place_over(&self) -> bool {
         false
@@ -71,6 +80,9 @@ pub trait Block {
     }
     fn opaque(&self) -> bool {
         true
+    }
+    fn on_inventory_closed(&self, game: &mut Game, server: &mut Server, state: BlockState, position: BlockPosition, player: Entity) -> SysResult {
+        Ok(())
     }
 }
 impl Debug for RegistryBlock {

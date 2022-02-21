@@ -14,8 +14,8 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 pub struct GrassBlock;
 
 impl Block for GrassBlock {
-    fn burn_rate(&self) -> Option<crate::item::item::block::BurnRate> {
-        Some(BurnRate(50, 50))   
+    fn dropped_items(&self, _state: BlockState, _held_item: crate::item::inventory_slot::InventorySlot) -> Vec<ItemStack> {
+        vec![ItemStack::new(3, 1, 0)]
     }
     fn id(&self) -> BlockIdentifier {
         2
@@ -23,16 +23,5 @@ impl Block for GrassBlock {
 
     fn item_stack_size(&self) -> i8 {
         64
-    }
-    fn neighbor_update(&self, world: i32, game: &mut Game, position: BlockPosition, mut state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
-/*         if game.block(position.offset(0, 1, 0), world).ok_or(anyhow::anyhow!("noblock"))?.is_solid() {
-            state.b_type = 3;
-            state.b_metadata = 0;
-            game.set_block(position, state, world);
-        } */
-        Ok(())
-    }
-    fn tick(&self, world: i32, game: &mut Game, state: BlockState, position: BlockPosition) {
-
     }
 }

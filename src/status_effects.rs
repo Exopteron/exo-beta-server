@@ -21,6 +21,10 @@ pub struct StatusEffectsManager {
 }
 
 impl StatusEffectsManager {
+    pub fn reset(&mut self) {
+        self.new_effects = VecDeque::new();
+        self.applied_effects = Vec::new();
+    }
     pub fn get_effects(&self) -> &Vec<StatusEffectObj> {
         &self.applied_effects
     }
@@ -54,8 +58,10 @@ impl StatusEffectsManager {
             let mut applied_effects = mem::take(&mut manager.applied_effects);
             drop(manager);
             for i in to_remove {
-                let mut effect = applied_effects.remove(i);
-                effect.on_remove(game, server, entity)?;
+                if applied_effects.len() >= i {
+                    let mut effect = applied_effects.remove(i);
+                    effect.on_remove(game, server, entity)?;
+                }
             }
             let mut manager = game.ecs.get_mut::<StatusEffectsManager>(entity)?;
             manager.applied_effects = applied_effects;

@@ -116,7 +116,7 @@ macro_rules! def_enum {
             ),* $(,)?
         }
     ) => {
-        #[derive(Debug, Clone)]
+        #[derive(Debug, Clone, Copy)]
         pub enum $ident {
             $(
                 $variant
@@ -193,6 +193,42 @@ macro_rules! def_enum {
             }
         }
     };
+}
+def_enum! {
+    ObjectVehicleKind (i8) {
+        1 = Boat,
+        10 = Minecart,
+        11 = StorageCart,
+        12 = PoweredCart,
+        50 = ActivatedTNT,
+        60 = Arrow,
+        61 = ThrownSnowball,
+        62 = ThrownEgg,
+        70 = FallingSand,
+        71 = FallingGravel,
+        90 = FishingFloat
+    }
+}
+def_enum! {
+    EnumMobType (i8) {
+        50 = Creeper,
+        51 = Skeleton,
+        52 = Spider,
+        53 = GiantZombie,
+        54 = Zombie,
+        55 = Slime,
+        56 = Ghast,
+        57 = ZombiePigman,
+        58 = Enderman,
+        59 = CaveSpider,
+        60 = Silverfish,
+        90 = Pig,
+        91 = Sheep,
+        92 = Cow,
+        93 = Hen,
+        94 = Squid,
+        95 = Wolf,
+    }
 }
 def_enum! {
     EntityStatusKind (i8) {
@@ -302,6 +338,14 @@ def_enum! {
         17 = Hunger,
         18 = Weakness,
         19 = Poison,
+    }
+}
+def_enum! {
+    WindowKind (i8) {
+        0 = Chest,
+        1 = Workbench,
+        2 = Furnace,
+        3 = Dispenser,
     }
 }
 def_enum! {

@@ -41,6 +41,32 @@ impl Inventory {
         slice.get(slot).map(Mutex::lock)
     }
 
+    pub fn try_item(&self, area: Area, slot: usize) -> Result<Option<MutexGuard<InventorySlot>>, ()> {
+        let x = self.t_int(area, slot);
+        if let Some(x) = x {
+            if x.is_some() {
+                Ok(x)
+            } else {
+                Err(())
+            }
+        } else {
+            Ok(None)
+        }
+    }
+    fn t_int(&self, area: Area, slot: usize) -> Option<Option<MutexGuard<InventorySlot>>> {
+        let slice = self.backing.area_slice(area)?;
+        slice.get(slot).map(Mutex::try_lock)
+    }
+    pub fn clear(&mut self) {
+        for area in self.backing.areas() {
+            if let Some(items) = self.backing.area_slice(*area) {
+                for item in items {
+                    let mut i = item.lock();
+                    *i = InventorySlot::Empty;
+                }
+            }
+        }
+    }
     pub fn to_vec(&self) -> Vec<InventorySlot> {
         let mut vec = Vec::new();
         for area in self.backing.areas() {

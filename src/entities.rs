@@ -1,17 +1,17 @@
-use std::ops::Deref;
+use std::{ops::Deref, rc::Rc, cell::RefCell};
 
 use hecs::EntityBuilder;
 
 use crate::{
     block_entity::{BlockEntity, BlockEntityLoader},
     ecs::{
-        entities::{player::Username, item::ItemEntityData},
+        entities::{player::Username, item::ItemEntityData, falling_block::FallingBlockEntityData},
         systems::{SysResult, SystemExecutor},
         EntityRef,
     },
-    game::{Game, Position},
-    network::ids::NetworkID,
-    server::Client, status_effects::StatusEffectsManager, item::inventory_slot::InventorySlot,
+    game::{Game, Position, Scheduler},
+    network::{ids::NetworkID, metadata::Metadata},
+    server::{Client, Server}, status_effects::StatusEffectsManager, item::inventory_slot::InventorySlot, protocol::packets::{ObjectVehicleKind, EnumMobType},
 };
 
 // feather license in FEATHER_LICENSE.md
@@ -25,6 +25,8 @@ pub enum EntityInit {
     Player,
     BlockEntity,
     Item,
+    FallingBlock,
+    Mob
 }
 
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
@@ -33,11 +35,11 @@ pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
 }
 /// Component that sends the spawn packet for an entity
 /// using its components.
-pub struct SpawnPacketSender(fn(&EntityRef, &Client) -> SysResult);
+pub struct SpawnPacketSender(fn(Rc<RefCell<Scheduler>>, u128, &EntityRef, &Client) -> SysResult);
 
 impl SpawnPacketSender {
-    pub fn send(&self, entity: &EntityRef, client: &Client) -> SysResult {
-        let res = (self.0)(entity, client);
+    pub fn send(&self, scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
+        let res = (self.0)(scheduler, ticks, entity, client);
         if let Ok(username) = entity.get::<Username>() {
             if let Ok(_) = entity.get::<Position>() {
                 if let Ok(_) = entity.get::<NetworkID>() {
@@ -81,12 +83,24 @@ fn add_spawn_packet(builder: &mut EntityBuilder, init: &EntityInit) {
         EntityInit::Player => spawn_player,
         EntityInit::BlockEntity => spawn_block_entity,
         EntityInit::Item => spawn_item_entity,
+        EntityInit::FallingBlock => spawn_falling_block,
+        EntityInit::Mob => spawn_mob,
         _ => spawn_living_entity,
     };
     builder.add(SpawnPacketSender(spawn_packet));
 }
-
-fn spawn_player(entity: &EntityRef, client: &Client) -> SysResult {
+fn spawn_falling_block(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
+    let network_id = *entity.get::<NetworkID>()?;
+    let pos = *entity.get::<Position>()?;
+    let block_type = entity.get::<FallingBlockEntityData>()?;
+    let kind = match *block_type {
+        FallingBlockEntityData::Gravel => ObjectVehicleKind::FallingGravel,
+        FallingBlockEntityData::Sand => ObjectVehicleKind::FallingSand,
+    };
+    client.spawn_object_vehicle(network_id, kind, pos);
+    Ok(())
+}
+fn spawn_player(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
     let network_id = *entity.get::<NetworkID>()?;
     let pos = *entity.get::<Position>()?;
     let name = &*entity.get::<Username>()?;
@@ -99,20 +113,41 @@ fn spawn_player(entity: &EntityRef, client: &Client) -> SysResult {
     client.send_entity_equipment(entity)?;
     Ok(())
 }
-fn spawn_item_entity(entity: &EntityRef, client: &Client) -> SysResult {
+fn spawn_item_entity(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
     let net_id = *entity.get::<NetworkID>()?;
     let pos = *entity.get::<Position>()?;
     let data = entity.get::<ItemEntityData>()?.deref().clone(); 
     client.spawn_dropped_item(net_id, pos, InventorySlot::Filled(data.0));
     Ok(())
 }
-fn spawn_block_entity(entity: &EntityRef, client: &Client) -> SysResult {
-    if let Ok(loader) = entity.get::<BlockEntityLoader>() {
-        loader.load(client, entity)?;
-    }
+fn spawn_block_entity(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
+    log::info!("Spawning be");
+    let mut sch = scheduler.borrow_mut();
+    let entity = entity.entity();
+    let client = client.id;
+    sch.schedule_task(ticks + 1, move |game| {
+        if let Ok(entity) = game.ecs.entity(entity) {
+            let s = game.objects.get::<Server>().unwrap();
+            if let Some(client) = s.clients.get(&client) {
+                if let Ok(loader) = entity.get::<BlockEntityLoader>() {
+                    log::info!("is a loader");
+                    loader.load(client, &entity);
+                }
+            }
+        }
+        None
+    });
     Ok(())
 }
-fn spawn_living_entity(entity: &EntityRef, client: &Client) -> SysResult {
+fn spawn_mob(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
+    let network_id = *entity.get::<NetworkID>()?;
+    let pos = *entity.get::<Position>()?;
+    let kind = *entity.get::<EnumMobType>()?;
+
+    client.spawn_mob(network_id, kind, pos, Metadata::new());
+    Ok(()) 
+}
+fn spawn_living_entity(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {
     unimplemented!();
     /*     let network_id = *entity.get::<NetworkId>()?;
     let uuid = *entity.get::<Uuid>()?;

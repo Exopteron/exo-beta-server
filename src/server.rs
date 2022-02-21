@@ -22,21 +22,26 @@ use crate::game::BlockPosition;
 use crate::game::ChunkCoords;
 use crate::game::Game;
 use crate::game::Position;
+use crate::item::inventory::reference::BackingWindow;
 use crate::item::inventory_slot::InventorySlot;
 use crate::item::stack::ItemStackType;
 use crate::item::window::Window;
 use crate::network::ids::NetworkID;
-use crate::network::ids::IDS;
 use crate::network::metadata::Metadata;
 use crate::network::Listener;
 use crate::player_count::PlayerCount;
 use crate::protocol::io::Slot;
 use crate::protocol::io::String16;
 use crate::protocol::packets::EntityEffectKind;
+use crate::protocol::packets::EnumMobType;
+use crate::protocol::packets::ObjectVehicleKind;
+use crate::protocol::packets::WindowKind;
+use crate::protocol::packets::server::AddObjectVehicle;
 use crate::protocol::packets::server::BlockAction;
 use crate::protocol::packets::server::BlockChange;
 use crate::protocol::packets::server::ChunkData;
 use crate::protocol::packets::server::ChunkDataKind;
+use crate::protocol::packets::server::CloseWindow;
 use crate::protocol::packets::server::CollectItem;
 use crate::protocol::packets::server::DestroyEntity;
 use crate::protocol::packets::server::EntityEffect;
@@ -46,10 +51,13 @@ use crate::protocol::packets::server::EntityLookAndRelativeMove;
 use crate::protocol::packets::server::EntityRelativeMove;
 use crate::protocol::packets::server::EntityStatus;
 use crate::protocol::packets::server::EntityTeleport;
+use crate::protocol::packets::server::EntityVelocity;
 use crate::protocol::packets::server::KeepAlive;
 use crate::protocol::packets::server::Kick;
+use crate::protocol::packets::server::MobSpawn;
 use crate::protocol::packets::server::NamedEntitySpawn;
 use crate::protocol::packets::server::NewState;
+use crate::protocol::packets::server::OpenWindow;
 use crate::protocol::packets::server::PickupSpawn;
 use crate::protocol::packets::server::PlayerListItem;
 use crate::protocol::packets::server::PlayerPositionAndLook;
@@ -117,6 +125,50 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
+    pub fn spawn_mob(&self, id: NetworkID, mob_type: EnumMobType, position: Position, metadata: Metadata) {
+        self.send_packet(MobSpawn {
+            eid: id.0,
+            mobtype: mob_type,
+            x: position.x.into(),
+            y: position.y.into(),
+            z: position.z.into(),
+            yaw: position.yaw.into(),
+            pitch: position.pitch.into(),
+            meta: metadata,
+        });
+    }
+    pub fn close_window(&self, window_id: i8) {
+        self.send_packet(CloseWindow {
+            wid: window_id,
+        });
+    }
+    pub fn open_window(&self, window_id: i8, inventory_type: WindowKind, title: String, num_slots: i8) {
+        self.send_packet(OpenWindow {
+            window_id,
+            inventory_type,
+            window_title: title.into(),
+            num_slots,
+        });
+    }
+    pub fn spawn_object_vehicle(&self, id: NetworkID, object_type: ObjectVehicleKind, position: Position) {
+        self.register_entity(id);
+        self.send_packet(AddObjectVehicle {
+            eid: id.0,
+            object_type,
+            x: position.x.into(),
+            y: position.y.into(),
+            z: position.z.into(),
+            fbeid: 0,
+        });
+    }
+    pub fn send_entity_velocity(&self, id: NetworkID, x: f64, y: f64, z: f64) {
+        self.send_packet(EntityVelocity {
+            eid: id.0,
+            velocity_x: (x * 8000.) as i16,
+            velocity_y: (y * 8000.) as i16,
+            velocity_z: (z * 8000.) as i16,
+        });
+    } 
     pub fn send_collect_item(&self, collected: NetworkID, collector: NetworkID) {
         self.send_packet(CollectItem {
             collected_eid: collected.0,
@@ -135,6 +187,7 @@ impl Client {
                 pitch: 0,
                 roll: 0,
             });
+            self.register_entity(eid);
         }
     }
     pub fn remove_entity_effect(&self, id: NetworkID, kind: EntityEffectKind) {
@@ -161,7 +214,7 @@ impl Client {
         });
     }
     pub fn update_sign(&self, position: BlockPosition, data: SignData) {
-        //log::info!("Updating sign at {:?} with {:?}", position, data);
+        log::info!("Updating sign at {:?} with {:?}", position, data);
         self.send_packet(UpdateSign {
             x: position.x,
             y: position.y as i16,
@@ -222,7 +275,7 @@ impl Client {
             return Ok(());
         }
         let hotbar_slot = entity.get::<HotbarSlot>()?.get();
-        let inventory = entity.get::<Window>()?;
+        let inventory = entity.get::<Window>()?.inner().clone();
         let slot = inventory.item(SLOT_HOTBAR_OFFSET + hotbar_slot)?;
         self.entity_equipment(id, 0, &slot);
         for i in 1..5 {
@@ -275,15 +328,19 @@ impl Client {
     }
     pub fn confirm_window_action(&self, window_id: i8, action_number: i16, is_accepted: bool) {
         self.send_packet(Transaction {
-            window_id: window_id,
+            window_id,
             action_number,
             accepted: is_accepted,
         });
     }
     pub fn send_window_items(&self, window: &Window) {
         log::trace!("Updating window for {}", self.username);
+        let mut id = 1;
+        if let BackingWindow::Player { .. } = window.inner() {
+            id = 0;
+        }
         let packet = WindowItems {
-            window_id: 0,
+            window_id: id,
             items: window.inner().to_vec(),
         };
         self.send_packet(packet);
@@ -339,6 +396,9 @@ impl Client {
         position: Position,
         prev_position: PreviousPosition,
     ) {
+        if !position.update {
+            return;
+        }
         if self.id == network_id {
             // This entity is the client. Only update
             // the position if it has changed from the client's
@@ -392,11 +452,11 @@ impl Client {
     }
 
     pub fn unload_entity(&self, id: NetworkID) {
-        log::info!("Unloading {:?} on {}", id, self.username);
+        log::trace!("Unloading {:?} on {}", id, self.username);
         self.sent_entities.borrow_mut().remove(&id);
         self.send_packet(DestroyEntity { eid: id.0 });
     }
-    fn register_entity(&self, network_id: NetworkID) {
+    pub fn register_entity(&self, network_id: NetworkID) {
         self.sent_entities.borrow_mut().insert(network_id);
     }
     pub fn send_player(&self, network_id: NetworkID, username: &Username, pos: Position) {
@@ -690,7 +750,6 @@ impl Server {
     }
     /// Removes a client.
     pub fn remove_client(&mut self, id: NetworkID) {
-        IDS.lock().unwrap().push(id.0);
         let client = self.clients.remove(&id);
         if let Some(client) = client {
             log::debug!("Removed client for {}", client.username());

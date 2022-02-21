@@ -1,4 +1,4 @@
-use glam::Vec3;
+use glam::{Vec3, DVec3};
 
 use crate::{
     game::{BlockPosition, Position},
@@ -17,7 +17,7 @@ impl AABBPool {
         let mut intersections = Vec::new();
         for aabb in self.list.iter() {
             if aabb.intersects(other) {
-                intersections.push(aabb.clone());
+                intersections.push(*aabb);
             }
         }
         intersections
@@ -82,6 +82,91 @@ pub struct AABB {
 }
 pub type SweeptestOutput = (f64, (f64, f64, f64));
 impl AABB {
+    pub fn add(&self, x: f64, y: f64, z: f64) -> AABB {
+        let mut d3 = self.minx;
+        let mut d4 = self.miny;
+        let mut d5 = self.minz;
+        let mut d6 = self.maxx;
+        let mut d7 = self.maxy;
+        let mut d8 = self.maxz;
+
+        if x < 0. {
+            d3 += x;
+        }
+        if x > 0. {
+            d6 += x;
+        }
+        if y < 0. {
+            d4 += y;
+        }
+        if y > 0. {
+            d7 += y;
+        }
+        if z < 0. {
+            d5 += z;
+        }
+        if z > 0. {
+            d8 += z;
+        }
+        AABB::new(d3, d4, d5, d6, d7, d8)
+    }
+    pub fn x_off(&self, aabb: &AABB, mut val: f64) -> f64 {
+        if aabb.maxy > self.miny && aabb.miny < self.maxy && aabb.maxz > self.minz && aabb.minz < self.maxz {
+            let mut double = 0.;
+            if val > 0. && aabb.maxx <= self.minx {
+                double = self.minx - aabb.maxx;
+                if double < val {
+                    val = double;
+                }
+            }
+
+            if val < 0. && aabb.minx >= self.maxx {
+                double = self.maxx - aabb.minx;
+                if double > val {
+                    val = double;
+                }
+            }
+        }
+        val
+    } 
+    pub fn y_off(&self, aabb: &AABB, mut val: f64) -> f64 {
+        if aabb.maxx > self.minx && aabb.minx < self.maxx && aabb.maxz > self.minz && aabb.minz < self.maxz {
+            let mut double = 0.;
+            if val > 0. && aabb.maxy <= self.miny {
+                double = self.miny - aabb.maxy;
+                if double < val {
+                    val = double;
+                }
+            }
+
+            if val < 0. && aabb.miny >= self.maxy {
+                double = self.maxy - aabb.miny;
+                if double > val {
+                    val = double;
+                }
+            }
+        }
+        val
+    } 
+    pub fn z_off(&self, aabb: &AABB, mut val: f64) -> f64 {
+        if aabb.maxx > self.minx && aabb.minx < self.maxx && aabb.maxy > self.miny && aabb.miny < self.maxy {
+            let mut double = 0.;
+            if val > 0. && aabb.maxz <= self.minz {
+                double = self.minz - aabb.maxz;
+                if double < val {
+                    val = double;
+                }
+            }
+
+            if val < 0. && aabb.minx >= self.maxz {
+                double = self.maxz - aabb.minz;
+                if double > val {
+                    val = double;
+                }
+            }
+        }
+        val
+    } 
     pub fn get_position(&self, size: &AABBSize, world: i32) -> Position {
         let x = self.minx - size.minx;
         let y = self.miny - size.miny;
@@ -147,7 +232,17 @@ impl AABB {
         }
         faces
     }
-    pub fn swept_aabb(b1: AABB, b2: AABB, velocity: Vec3) -> SweeptestOutput {
+    pub fn offset(&self, x: f64, y: f64, z: f64) -> Self {
+        let mut this = *self;
+        this.minx += x;
+        this.miny += y;
+        this.minz += z;
+        this.maxx += x;
+        this.maxy += y;
+        this.maxz += z;
+        this
+    }
+    pub fn swept_aabb(b1: AABB, b2: AABB, velocity: DVec3) -> SweeptestOutput {
         let mut normalx = 0.;
         let mut normaly = 0.;
         let mut normalz = 0.;

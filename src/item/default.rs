@@ -23,8 +23,16 @@ mod chest;
 mod lever;
 mod fire;
 mod portal;
+mod leaves;
+mod stick;
+mod falling_block;
+mod crafting_table;
+pub mod tools;
+mod farmland;
+mod foods;
+mod crops;
 use crate::{
-    ecs::{entities::player::Chatbox, systems::SysResult, EntityRef},
+    ecs::{entities::{player::Chatbox, falling_block::FallingBlockEntityData}, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
     game::{BlockPosition, Game, Position},
     item::stack::ItemStackType,
@@ -32,9 +40,9 @@ use crate::{
     world::chunks::BlockState,
 };
 
-use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock};
+use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}};
 
-use super::item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
+use super::{item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry}, inventory_slot::InventorySlot, stack::ItemStack};
 
 pub struct RedstoneTorchBlock {}
 impl Block for RedstoneTorchBlock {
@@ -303,9 +311,68 @@ impl Block for GenericBurnable {
         Some(BurnRate(50, 50))
     }
 }
+pub struct GenericItem(pub ItemIdentifier);
+impl Item for GenericItem {
+    fn id(&self) -> ItemIdentifier {
+        self.0
+    }
+
+    fn stack_size(&self) -> i8 {
+        64
+    }
+
+    fn durability(&self) -> Option<i16> {
+        None
+    }
+}
+pub struct GenericReplacable(pub BlockIdentifier);
+impl Block for GenericReplacable {
+    fn id(&self) -> BlockIdentifier {
+        self.0
+    }
+
+    fn item_stack_size(&self) -> i8 {
+        1
+    }
+
+    fn can_place_over(&self) -> bool {
+        true
+    }
+
+    fn is_solid(&self) -> bool {
+        false
+    }
+
+    fn collision_box(&self, state: BlockState, position: BlockPosition) -> Option<crate::aabb::AABB> {
+        None
+    }
+}
+pub struct StoneBlock;
+impl Block for StoneBlock {
+    fn id(&self) -> BlockIdentifier {
+        1
+    }
+
+    fn item_stack_size(&self) -> i8 {
+        64
+    }
+
+    fn dropped_items(&self, _state: BlockState, held_item: super::inventory_slot::InventorySlot) -> Vec<super::stack::ItemStack> {
+        let mut items = Vec::new();
+        if let InventorySlot::Filled(item) = held_item {
+            match item.item() {
+                ItemStackType::Item(i) => {
+                    if let Some(_) = i.tool_type() {
+                        items.push(ItemStack::new(4, 1, 0));
+                    }  
+                },
+                ItemStackType::Block(_) => (),
+            }
+        }
+        items
+    }
+}
 pub fn register_items(registry: &mut ItemRegistry) {
-    registry.register_block(GenericBurnable(1));
-    registry.register_block(GenericBurnable(3));
     registry.register_block(TorchBlock {});
     registry.register_block(AirBlock {});
     registry.register_block(RedstoneTorchBlock {});
@@ -353,6 +420,27 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_item(FlintAndSteelItem);
     registry.register_block(LogBlock);
     registry.register_block(PortalBlock);
+    registry.register_block(LeavesBlock);
+    registry.register_item(StickItem);
+    registry.register_item(GenericItem(265));
+    registry.register_block(FallingBlock(FallingBlockEntityData::Gravel));
+    registry.register_block(FallingBlock(FallingBlockEntityData::Sand));
+    registry.register_block(CraftingTable);
+    registry.register_block(FarmlandBlock);
+    registry.register_item(FoodItem(297, 5));
+    registry.register_item(WheatItem);
+    registry.register_item(WheatSeeds);
+    registry.register_block(CropBlock(59));
+    registry.register_block(GenericReplacable(8));
+    registry.register_block(GenericReplacable(9));
+    registry.register_block(StoneBlock);
+    registry.register_item(HoeItem(290, ToolMaterials::Wood));
+    registry.register_item(PickaxeItem(270, ToolMaterials::Wood));
+    registry.register_item(AxeItem(271, ToolMaterials::Wood));
+
+    registry.register_item(HoeItem(291, ToolMaterials::Stone));
+    registry.register_item(PickaxeItem(274, ToolMaterials::Stone));
+    registry.register_item(AxeItem(275, ToolMaterials::Stone));
     //registry.register_block(MovingWaterBlock(8));
     //registry.register_block(NotFlowingWaterBlock);
     //registry.register_item(WaterBucketItem);

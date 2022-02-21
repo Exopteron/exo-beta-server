@@ -27,10 +27,8 @@ impl StatusEffect for FireEffect {
         server: &mut Server,
         entity: hecs::Entity,
     ) -> SysResult {
-        let mut metadata = Metadata::new();
-        let mut bit_mask = EntityBitMask::empty();
-        bit_mask.set(EntityBitMask::ON_FIRE, true);
-        metadata.insert_byte_idx(bit_mask.bits(), META_INDEX_ENTITY_BITMASK);
+        let mut metadata = game.ecs.get_mut::<Metadata>(entity)?;
+        metadata.flags.set(EntityBitMask::ON_FIRE, true);
         let entityref = game.ecs.entity(entity)?;
         let network_id = *entityref.get::<NetworkID>()?;
         server.broadcast_nearby_with(*entityref.get::<Position>()?, |client| {
@@ -45,10 +43,8 @@ impl StatusEffect for FireEffect {
         server: &mut Server,
         entity: hecs::Entity,
     ) -> SysResult {
-        let mut metadata = Metadata::new();
-        let mut bit_mask = EntityBitMask::empty();
-        bit_mask.set(EntityBitMask::ON_FIRE, false);
-        metadata.insert_byte_idx(bit_mask.bits(), META_INDEX_ENTITY_BITMASK);
+        let mut metadata = game.ecs.get_mut::<Metadata>(entity)?;
+        metadata.flags.set(EntityBitMask::ON_FIRE, false);
         let entityref = game.ecs.entity(entity)?;
         let network_id = *entityref.get::<NetworkID>()?;
         server.broadcast_nearby_with(*entityref.get::<Position>()?, |client| {
@@ -102,10 +98,8 @@ impl StatusEffect for FireEffect {
         entityref: &EntityRef,
         client: &crate::server::Client,
     ) -> SysResult {
-        let mut metadata = Metadata::new();
-        let mut bit_mask = EntityBitMask::empty();
-        bit_mask.set(EntityBitMask::ON_FIRE, true);
-        metadata.insert_byte_idx(bit_mask.bits(), META_INDEX_ENTITY_BITMASK);
+        let mut metadata = entityref.get_mut::<Metadata>()?;
+        metadata.flags.set(EntityBitMask::ON_FIRE, true);
         let network_id = *entityref.get::<NetworkID>()?;
         client.send_entity_metadata(true, network_id, metadata.clone());
         Ok(())
@@ -120,6 +114,6 @@ impl FireEffect {
         }
     }
 }
-fn is_water(id: u8) -> bool {
+pub fn is_water(id: u8) -> bool {
     id == 8 || id == 9
 }

@@ -127,17 +127,18 @@ impl InventorySlot {
     }
 
     /// Transfers up to `n` items from 'self' to `other`.
-    pub fn transfer_to(&mut self, n: i8, other: &mut Self) {
+    pub fn transfer_to(&mut self, n: i8, other: &mut Self) -> i8 {
         if !self.is_mergable(other) {
-            return;
+            return 0;
         }
-
+        let mut num_sent = n;
         match (self.is_filled(), other.is_filled()) {
             (true, true) => {
                 let space_in_other = other.stack_size().unwrap() - other.count();
                 let moving = n.min(space_in_other).min(self.count());
                 let taken = self.try_take(moving);
                 other.add_count(taken.count());
+                num_sent = taken.count();
             }
             (true, false) => {
                 let taken = self.try_take(n);
@@ -145,6 +146,7 @@ impl InventorySlot {
             }
             (false, _) => {} // No items to move
         }
+        num_sent
     }
 
     /// Checks if the `InventorySlot` is empty.

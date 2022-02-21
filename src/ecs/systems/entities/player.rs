@@ -1,42 +1,91 @@
 use std::ops::Deref;
 
 use crate::{
+    aabb::AABBSize,
     ecs::{
-        entities::{player::{Player, Username, Chatbox, Gamemode, PreviousGamemode, OffgroundHeight}, living::{PreviousHealth, Hunger, Health, Dead, PreviousHunger, Regenerator}},
-        systems::{SystemExecutor, SysResult},
+        entities::{
+            item::ItemEntityBuilder,
+            living::{Dead, Health, Hunger, PreviousHealth, PreviousHunger, Regenerator},
+            player::{
+                Chatbox, Gamemode, HitCooldown, HotbarSlot, ItemInUse, OffgroundHeight, Player,
+                PreviousGamemode, Username, SLOT_HOTBAR_OFFSET,
+            },
+        },
+        systems::{SysResult, SystemExecutor},
     },
-    game::{Game, Position, DamageType},
+    entities::SpawnPacketSender,
+    events::{ChangeWorldEvent, EntityDeathEvent, PlayerSpawnEvent},
+    game::{DamageType, Game, Position},
+    item::{
+        inventory::{reference::Area, Inventory},
+        inventory_slot::InventorySlot,
+        item::ItemRegistry,
+        window::Window,
+    },
     network::ids::NetworkID,
-    server::Server, protocol::{packets::{server::ChatMessage, EntityStatusKind}, io::String16}, events::{EntityDeathEvent, PlayerSpawnEvent, ChangeWorldEvent}, item::{window::Window, item::ItemRegistry}, entities::SpawnPacketSender, translation::TranslationManager, aabb::AABBSize,
+    physics::Physics,
+    player_dat::PlayerDat,
+    protocol::{
+        io::String16,
+        packets::{server::ChatMessage, EntityStatusKind},
+    },
+    server::Server,
+    status_effects::StatusEffectsManager,
+    translation::TranslationManager,
 };
 
 pub fn init_systems(s: &mut SystemExecutor<Game>) {
-    s.add_system(check_fall_damage).add_system(regenerate);
-    s.group::<Server>().add_system(|game, server| {
-        let mut to_despawn = Vec::new();
-        for (p, (_, id, name)) in game.ecs.query::<(&Player, &NetworkID, &Username)>().iter() {
-            let client = server.clients.get(id).unwrap();
-            if client.is_disconnected() {
-                // TODO: broadcast disconnection event whatnot
-                to_despawn.push(p);
-                broadcast_player_leave(game, name);
-                server.remove_client(*id);
-                server.player_count.remove_player();
+    s.add_system(check_fall_damage)
+        .add_system(regenerate)
+        .add_system(hit_cooldown);
+    s.group::<Server>()
+        .add_system(|game, server| {
+            let mut to_despawn = Vec::new();
+            for (p, (_, id, name)) in game.ecs.query::<(&Player, &NetworkID, &Username)>().iter() {
+                let client = server.clients.get(id).unwrap();
+                if client.is_disconnected() {
+                    // TODO: broadcast disconnection event whatnot
+                    to_despawn.push(p);
+                    broadcast_player_leave(game, name);
+                    server.remove_client(*id);
+                    server.player_count.remove_player();
+                }
             }
-        }
-        for entity in to_despawn {
-            game.remove_entity(entity)?;
-        }
-        Ok(())
-    }).add_system(update_gamemode).add_system(update_health).add_system(spawn_listener).add_system(notify_pos);
+            for entity in to_despawn {
+                let entity_ref = game.ecs.entity(entity)?;
+                let world = game.worlds.get(&0).unwrap();
+                let mut pd_dir = world.world_dir.clone();
+                let mut username = entity_ref.get::<Username>()?.0.clone();
+                username = username.replace("\\", "");
+                username = username.replace("/", "");
+                username = username.replace("..", "");
+                pd_dir.push("players/".to_owned() + &username + ".dat");
+                PlayerDat::from_entity(&entity_ref)?.to_file(pd_dir)?;
+                drop(entity_ref);
+                game.remove_entity(entity)?;
+            }
+            Ok(())
+        })
+        .add_system(update_gamemode)
+        .add_system(update_health)
+        .add_system(spawn_listener)
+        .add_system(notify_pos)
+        .add_system(velocity)
+        .add_system(item_use_ticker);
 }
 fn broadcast_player_leave(game: &Game, username: &Username) {
     let translation = game.objects.get::<TranslationManager>().unwrap();
-    game.broadcast_chat(translation.translate("multiplayer.player.left", Some(vec![username.0.clone()])));
+    game.broadcast_chat(
+        translation.translate("multiplayer.player.left", Some(vec![username.0.clone()])),
+    );
 }
 
 fn update_gamemode(game: &mut Game, server: &mut Server) -> SysResult {
-    for (_, (gamemode, prev_gamemode, id)) in game.ecs.query::<(&Gamemode, &mut PreviousGamemode, &NetworkID)>().iter() {
+    for (_, (gamemode, prev_gamemode, id)) in game
+        .ecs
+        .query::<(&Gamemode, &mut PreviousGamemode, &NetworkID)>()
+        .iter()
+    {
         if gamemode.id() != prev_gamemode.id() {
             let client = server.clients.get(id).unwrap();
             client.set_gamemode(*gamemode);
@@ -45,25 +94,74 @@ fn update_gamemode(game: &mut Game, server: &mut Server) -> SysResult {
     }
     Ok(())
 }
+fn item_use_ticker(game: &mut Game, server: &mut Server) -> SysResult {
+    let mut entities = Vec::new();
+    for (entity, _) in game.ecs.query::<&ItemInUse>().iter() {
+        entities.push(entity);
+    }
+    for entity in entities {
+        let mut ticker = game.ecs.get_mut::<ItemInUse>(entity)?;
+        if ticker.0.is_filled() && ticker.1 == 0 {
+            let item = ticker.0.take_all();
+            if let InventorySlot::Filled(item) = item {
+                let entity = game.ecs.entity(entity)?;
+                let id = *entity.get::<NetworkID>()?;
+                let hotbar_slot = entity.get::<HotbarSlot>()?.get();
+                let inventory = entity.get::<Window>()?.inner().clone();
+                let slot_id = SLOT_HOTBAR_OFFSET + hotbar_slot;
+                let slot = inventory.item(slot_id)?;
+                drop(ticker);
+                let real_entity = entity.entity();
+                drop(entity);
+                match item.item() {
+                    crate::item::stack::ItemStackType::Item(item) => {
+                        item.on_eat(game, server, real_entity, slot, slot_id)?;
+                    }
+                    crate::item::stack::ItemStackType::Block(_) => (),
+                }
+            }
+        }
+    }
+    for (_, item_in_use) in game.ecs.query::<&mut ItemInUse>().iter() {
+        if !item_in_use.0.is_empty() && item_in_use.1 > 0 {
+            item_in_use.1 -= 1;
+        }
+    }
+    Ok(())
+}
 fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
     let mut entities_respawned = Vec::new();
-    for (entity, (_, networkid, window)) in game.ecs.query::<(&PlayerSpawnEvent, &NetworkID, &Window)>().iter() {
+    for (entity, (event, networkid, window)) in game
+        .ecs
+        .query::<(&PlayerSpawnEvent, &NetworkID, &Window)>()
+        .iter()
+    {
         let client = server.clients.get(networkid).unwrap();
         client.send_window_items(window);
-        entities_respawned.push(entity);
+        entities_respawned.push((entity, event.0));
     }
-    for entity in entities_respawned {
+    for (entity, first) in entities_respawned {
         let pref = game.ecs.entity(entity)?;
         let current_world = pref.get::<Position>()?.world;
-        let mut spawn_point = game.worlds.get(&current_world).unwrap().level_dat.spawn_point;
+        let mut spawn_point = game
+            .worlds
+            .get(&current_world)
+            .unwrap()
+            .level_dat
+            .lock()
+            .spawn_point;
         let netid = pref.get::<NetworkID>()?.deref().clone();
-        pref.get_mut::<Health>()?.0 = 20;
-        *pref.get_mut::<Position>()? = spawn_point.into();
+        if !first {
+            pref.get_mut::<Health>()?.0 = 20;
+            pref.get_mut::<Hunger>()?.0 = 20;
+            pref.get_mut::<StatusEffectsManager>()?.reset();
+            *pref.get_mut::<Position>()? = spawn_point.into();
+        }
         let spawnpacket = pref.get::<SpawnPacketSender>()?;
         server.broadcast_nearby_with(*pref.get::<Position>()?, |cl| {
             if cl.id != netid {
                 cl.unload_entity(netid);
-                if let Err(e) = spawnpacket.send(&pref, cl) {
+                if let Err(e) = spawnpacket.send(game.scheduler.clone(), game.ticks, &pref, cl) {
                     log::error!("Error sending spawn packet after respawn to user: {:?}", e);
                 }
             }
@@ -72,7 +170,11 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
     Ok(())
 }
 fn notify_pos(game: &mut Game, server: &mut Server) -> SysResult {
-    for (_, (event, id, pos)) in game.ecs.query::<(&ChangeWorldEvent, &NetworkID, &mut Position)>().iter() {
+    for (_, (event, id, pos)) in game
+        .ecs
+        .query::<(&ChangeWorldEvent, &NetworkID, &mut Position)>()
+        .iter()
+    {
         pos.world = event.new_dim;
         let mut newpos = pos.clone();
         newpos.world = event.old_dim;
@@ -88,7 +190,11 @@ fn notify_pos(game: &mut Game, server: &mut Server) -> SysResult {
     Ok(())
 }
 fn regenerate(game: &mut Game) -> SysResult {
-    for (e, (health, hunger, regenerator)) in game.ecs.query::<(&mut Health, &mut Hunger, &mut Regenerator)>().iter() {
+    for (e, (health, hunger, regenerator)) in game
+        .ecs
+        .query::<(&mut Health, &mut Hunger, &mut Regenerator)>()
+        .iter()
+    {
         if !game.ecs.get::<Dead>(e).is_ok() {
             if regenerator.0 == 0 {
                 if health.0 < 20 {
@@ -107,11 +213,21 @@ fn regenerate(game: &mut Game) -> SysResult {
 fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
     let mut make_dead = Vec::new();
     let mut hurt = Vec::new();
-    for (entity, (health, prev_health, hunger, prev_hunger, id)) in game.ecs.query::<(&Health, &mut PreviousHealth, &Hunger, &mut PreviousHunger, &NetworkID)>().iter() {
-        if health.0 != prev_health.0.0 || hunger.0 != prev_hunger.0.0 {
+    for (entity, (health, prev_health, hunger, prev_hunger, id)) in game
+        .ecs
+        .query::<(
+            &Health,
+            &mut PreviousHealth,
+            &Hunger,
+            &mut PreviousHunger,
+            &NetworkID,
+        )>()
+        .iter()
+    {
+        if health.0 != prev_health.0 .0 || hunger.0 != prev_hunger.0 .0 {
             let client = server.clients.get(id).unwrap();
             client.set_health(health, hunger);
-            if health.0 < prev_health.0.0 {
+            if health.0 < prev_health.0 .0 {
                 hurt.push(entity);
             }
             prev_health.0 = health.clone();
@@ -131,6 +247,17 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         game.ecs.insert_entity_event(dead, EntityDeathEvent)?;
         game.ecs.insert(dead, Dead)?;
         let entity_ref = game.ecs.entity(dead)?;
+        let pos = *entity_ref.get::<Position>()?;
+        let inventory = entity_ref.get::<Window>()?.inner().clone();
+        for item in inventory.to_vec() {
+            if let InventorySlot::Filled(item) = item {
+                let builder = ItemEntityBuilder::build(game, pos, item);
+                game.spawn_entity(builder);
+            }
+        }
+        let entity_ref = game.ecs.entity(dead)?;
+        let mut real_inv = entity_ref.get_mut::<Inventory>()?;
+        real_inv.clear();
         let health = entity_ref.get::<Health>()?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
@@ -145,7 +272,11 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
 
 fn check_fall_damage(game: &mut Game) -> SysResult {
     //log::info!("Running");
-    for (entity, (health, fall_start, pos, bounding_box)) in game.ecs.query::<(&mut Health, &OffgroundHeight, &Position, &AABBSize)>().iter() {
+    for (entity, (health, fall_start, pos, bounding_box)) in game
+        .ecs
+        .query::<(&mut Health, &OffgroundHeight, &Position, &AABBSize)>()
+        .iter()
+    {
         //log::info!("Found entity");
         if pos.on_ground {
             //log::info!("On ground");
@@ -160,13 +291,21 @@ fn check_fall_damage(game: &mut Game) -> SysResult {
                 }
                 if let Some(world) = game.worlds.get(&pos.world) {
                     // TODO check if absorbs fall
-                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block(9).unwrap()) {
+                    if world.collides_with(
+                        bounding_box,
+                        pos,
+                        ItemRegistry::global().get_block(9).unwrap(),
+                    ) {
                         do_dmg = false;
                     }
-                    if world.collides_with(bounding_box, pos, ItemRegistry::global().get_block(8).unwrap()) {
+                    if world.collides_with(
+                        bounding_box,
+                        pos,
+                        ItemRegistry::global().get_block(8).unwrap(),
+                    ) {
                         do_dmg = false;
                     }
-                    for block in world.get_collisions(bounding_box, pos) {
+                    for block in world.get_collisions(bounding_box, None, pos) {
                         if block.0.absorbs_fall() {
                             do_dmg = false;
                         }
@@ -177,6 +316,58 @@ fn check_fall_damage(game: &mut Game) -> SysResult {
                     health.damage(fall_damage.round() as i16, DamageType::Fall);
                 }
             }
+        }
+    }
+    Ok(())
+}
+fn hit_cooldown(game: &mut Game) -> SysResult {
+    for (_, hit_cooldown) in game.ecs.query::<&mut HitCooldown>().iter() {
+        if hit_cooldown.0 > 0 {
+            hit_cooldown.0 -= 1;
+        }
+    }
+    Ok(())
+}
+fn velocity(game: &mut Game, server: &mut Server) -> SysResult {
+    let mut entities = Vec::new();
+    for (entity, (_, velocity, id)) in game
+        .ecs
+        .query::<(&Player, &mut Physics, &NetworkID)>()
+        .iter()
+    {
+        let client = match server.clients.get(id) {
+            Some(c) => c,
+            None => continue,
+        };
+        if velocity.modified() {
+            let velocity = velocity.get_velocity();
+            if velocity.x + velocity.y + velocity.z != 0. {
+                client.send_entity_velocity(*id, velocity.x, velocity.y, velocity.z);
+            }
+        }
+        entities.push(entity);
+    }
+    for entity in entities {
+        let mut velocity_f = game.ecs.get_mut::<Physics>(entity)?.deref().clone();
+        //velocity_f.move_entity(game, entity, *velocity_f.get_velocity())?;
+        let mut velocity = game.ecs.get_mut::<Physics>(entity)?;
+        let pos = *game.ecs.get::<Position>(entity)?;
+        *velocity = velocity_f;
+        let velocity_vector = velocity.get_velocity_mut();
+        if velocity_vector.x + velocity_vector.y + velocity_vector.z != 0. {
+            velocity_vector.x *= 0.59;
+            velocity_vector.y *= 0.59;
+            velocity_vector.z *= 0.59;
+            if velocity_vector.x < 0.00001 {
+                velocity_vector.x = 0.;
+            }
+            if velocity_vector.y < 0.00001 {
+                velocity_vector.y = 0.;
+            }
+            if velocity_vector.z < 0.00001 {
+                velocity_vector.z = 0.;
+            }
+            velocity.set_modified(false);
         }
     }
     Ok(())

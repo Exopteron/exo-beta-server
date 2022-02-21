@@ -78,12 +78,12 @@ impl Block for TrapdoorBlock {
         position: BlockPosition,
         mut state: BlockState,
         player: Entity,
-    ) -> ActionResult {
+    ) -> anyhow::Result<ActionResult> {
         state.b_metadata ^= 4;
         game.set_block(position, state, world);
         let id = game.ecs.get::<NetworkID>(player).unwrap();
         server.broadcast_effect_from_entity(*id, SoundEffectKind::DoorToggle, position, world, 0);
-        ActionResult::SUCCESS
+        Ok(ActionResult::SUCCESS)
     }
 }
 fn trapdoor_orient(pos: &mut BlockPosition, face: &Face) -> u8 {

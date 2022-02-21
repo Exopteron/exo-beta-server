@@ -1,11 +1,21 @@
 use std::mem;
 
-use anyhow::{anyhow, bail};
 use crate::ecs::systems::SysResult;
+use crate::item::crafting::print_grid;
+use anyhow::{anyhow, bail};
 
-use super::{inventory::{reference::{BackingWindow as BackingWindow, Area}, WindowError}, inventory_slot::InventorySlot};
-use parking_lot::MutexGuard;
+use super::crafting::Grid;
 use super::inventory_slot::InventorySlot::Empty;
+use super::item::ItemRegistry;
+use super::stack::ItemStack;
+use super::{
+    inventory::{
+        reference::{Area, BackingWindow},
+        WindowError,
+    },
+    inventory_slot::InventorySlot,
+};
+use parking_lot::MutexGuard;
 
 /// A player's window. Wraps one or more inventories and handles
 /// conversion between protocol and slot indices.
@@ -21,7 +31,12 @@ pub struct Window {
     /// Current painting state (mouse drag)
     paint_state: Option<PaintState>,
 }
-
+fn unwrap_slot(slot: InventorySlot) -> Option<ItemStack> {
+    match slot {
+        InventorySlot::Filled(i) => Some(i),
+        _ => None,
+    }
+}
 impl Window {
     /// Creates a window from the backing window representation.
     pub fn new(inner: BackingWindow) -> Self {
@@ -31,29 +46,136 @@ impl Window {
             paint_state: None,
         }
     }
+    fn is_valid_recipe(&self) -> bool {
+        let closure: Box<dyn Fn() -> anyhow::Result<bool>> = Box::new(|| {
+            let mut grid = self.get_grid()?;
+            let solution = ItemRegistry::global().solver.solve(&mut grid);
+            let mut flag = false;
+            if let Some(solution) = solution {
+                if solution.id() != 35 {
+                    // temp fix
+                    flag = true;
+                }
+            }
+            Ok(flag)
+        });
+        closure().unwrap_or(false)
+    }
+    fn get_grid(&self) -> anyhow::Result<Grid> {
+        let mut grid = Grid::default();
+        match self.inner() {
+            BackingWindow::Player { player } => {
+                let mut items = Vec::new();
+                for i in 1..5 {
+                    items.push(self.item(i)?);
+                }
+                grid[0][0] = unwrap_slot(items[0].clone());
+                grid[0][1] = unwrap_slot(items[1].clone());
+                grid[1][0] = unwrap_slot(items[2].clone());
+                grid[1][1] = unwrap_slot(items[3].clone());
+                drop(items);
+            }
+            BackingWindow::Crafting {
+                crafting_table,
+                player,
+            } => {
+                let mut items = Vec::new();
+                for i in 1..10 {
+                    items.push(self.item(i)?);
+                }
+                grid[0][0] = unwrap_slot(items[0].clone());
+                grid[0][1] = unwrap_slot(items[1].clone());
+                grid[0][2] = unwrap_slot(items[2].clone());
+                grid[1][0] = unwrap_slot(items[3].clone());
+                grid[1][1] = unwrap_slot(items[4].clone());
+                grid[1][2] = unwrap_slot(items[5].clone());
 
-    /// Left-click a slot in the window.
-    pub fn left_click(&mut self, slot: usize) -> SysResult {
-        let slot = &mut *self.inner.item(slot)?;
-        let cursor_slot = &mut self.cursor_item;
-
-        // Cases:
-        // * Either the cursor slot or the clicked slot is empty; swap the two.
-        // * Both slots are present but are of different types; swap the two.
-        // * Both slots are present and have the same type; merge the two.
-
-        if slot.is_filled() && cursor_slot.is_filled() && cursor_slot.is_mergable(slot) {
-            slot.merge(cursor_slot);
-        } else {
-            mem::swap(cursor_slot, slot);
+                grid[2][0] = unwrap_slot(items[6].clone());
+                grid[2][1] = unwrap_slot(items[7].clone());
+                grid[2][2] = unwrap_slot(items[8].clone());
+                drop(items);
+            }
+            _ => return Err(anyhow::anyhow!("NO grid")),
         }
+        Ok(grid)
+    }
+    fn check_crafting(&mut self) -> anyhow::Result<bool> {
+        let mut grid = self.get_grid()?;
+        let solution = ItemRegistry::global().solver.solve(&mut grid);
+        let mut flag = false;
+        if let Some(solution) = solution {
+            if solution.id() != 35 {
+                // temp fix
+                *self.item(0)? = InventorySlot::Filled(solution);
+                flag = true;
+            }
+        }
+        if !flag {
+            *self.item(0)? = InventorySlot::Empty;
+        }
+        Ok(flag)
+    }
+    fn clear_grid(&self) -> SysResult {
+        if self.is_valid_recipe() {
+            match self.inner() {
+                BackingWindow::Player { .. } => {
+                    for i in 1..5 {
+                        self.item(i)?.try_take(1);
+                    }
+                }
+                BackingWindow::Crafting { .. } => {
+                    for i in 1..10 {
+                        self.item(i)?.try_take(1);
+                    }
+                }
+                _ => (),
+            }
+        }
+        Ok(())
+    }
+    /// Left-click a slot in the window.
+    pub fn left_click(&mut self, slot_idx: usize) -> SysResult {
+        let mut t = self.inner.item(slot_idx)?;
+        let slot = &mut *t;
+        let cursor_slot = &mut self.cursor_item;
+        let (_, area, _) = self.inner.index_to_slot(slot_idx).unwrap();
+        if can_insert(&area) {
+            // Cases:
+            // * Either the cursor slot or the clicked slot is empty; swap the two.
+            // * Both slots are present but are of different types; swap the two.
+            // * Both slots are present and have the same type; merge the two.
 
+            if slot.is_filled() && cursor_slot.is_filled() && cursor_slot.is_mergable(slot) {
+                slot.merge(cursor_slot);
+            } else {
+                mem::swap(cursor_slot, slot);
+            }
+        } else if slot.is_filled() && cursor_slot.is_filled() && cursor_slot.is_mergable(slot) {
+            cursor_slot.merge(slot);
+            if let Area::CraftingOutput = area {
+                self.clear_grid()?;
+            }
+        } else if cursor_slot.is_empty() {
+            *cursor_slot = mem::replace(slot, InventorySlot::Empty);
+            if let Area::CraftingOutput = area {
+                self.clear_grid()?;
+            }
+        }
+        drop(t);
+        if let Area::CraftingOutput = area {
+            self.check_crafting()?;
+        }
+        if let Area::CraftingInput = area {
+            self.check_crafting()?;
+        }
         Ok(())
     }
 
     /// Right-clicks a slot in the window.
     pub fn right_click(&mut self, slot_index: usize) -> SysResult {
-        let slot = &mut *self.inner.item(slot_index)?;
+        let (_, area, _) = self.inner.index_to_slot(slot_index).unwrap();
+        let mut t = self.inner.item(slot_index)?;
+        let slot = &mut *t;
         let cursor_slot = &mut self.cursor_item;
 
         // Cases:
@@ -63,21 +185,46 @@ impl Window {
 
         match (slot.is_filled(), cursor_slot.is_filled()) {
             (true, true) => {
-                if slot.is_mergable(cursor_slot) {
+                if slot.is_mergable(cursor_slot) && can_insert(&area) {
                     cursor_slot.transfer_to(1, slot);
-                } else {
+                } else if !can_insert(&area) && cursor_slot.is_mergable(slot) {
+                    let num_sent = slot.transfer_to(64, cursor_slot);
+                    if let Area::CraftingOutput = area {
+                        if num_sent > 0 {
+                            self.clear_grid()?;
+                        }
+                    }
+                } else if can_insert(&area) {
                     mem::swap(slot, cursor_slot);
+                } else {
+                    *cursor_slot = mem::replace(slot, InventorySlot::Empty);
+                    if let Area::CraftingOutput = area {
+                        self.clear_grid()?;
+                    }
                 }
             }
             (true, false) => {
-                *cursor_slot = slot.take_half();
+                if let Area::CraftingOutput = area {
+                    *cursor_slot = slot.take_all();
+                    self.clear_grid()?;
+                } else {
+                    *cursor_slot = slot.take_half();
+                }
             }
             (false, true) => {
-                *slot = cursor_slot.try_take(1);
+                if can_insert(&area) {
+                    *slot = cursor_slot.try_take(1);
+                }
             }
             (false, false) => {}
         }
-
+        drop(t);
+        if let Area::CraftingOutput = area {
+            self.check_crafting()?;
+        }
+        if let Area::CraftingInput = area {
+            self.check_crafting()?;
+        }
         Ok(())
     }
 
@@ -135,23 +282,14 @@ impl Window {
             } => self.shift_click_in_furnace(slot),
         }
     }
+    pub fn insert_item(&mut self, mut slot: InventorySlot) -> anyhow::Result<()> {
+        let slot_item = &mut slot;
 
-    fn shift_click_in_player_window(&mut self, slot: usize) -> SysResult {
-        let mut slot_item = &mut *self.inner.item(slot)?;
-
-        let (inventory, slot_area, _) = self.inner.index_to_slot(slot).unwrap();
-        let areas_to_try = [
-            Area::Helmet,
-            Area::Chestplate,
-            Area::Leggings,
-            Area::Boots,
-            Area::CraftingInput,
-            Area::Hotbar,
-            Area::Storage,
-        ];
+        let (inventory, slot_area, _) = self.inner.index_to_slot(10).unwrap();
+        let areas_to_try = [Area::Hotbar, Area::Storage];
 
         for &area in &areas_to_try {
-            if area == slot_area || !will_accept(area, slot_item) {
+            if !will_accept(area, slot_item) {
                 continue;
             }
 
@@ -168,18 +306,18 @@ impl Window {
                 return Ok(());
             }
         }
-
+        let mut i = 0;
         if slot_item.is_filled() {
             for &area in &areas_to_try {
-                if area == slot_area || !will_accept(area, slot_item) {
+                if !will_accept(area, slot_item) {
                     continue;
                 }
 
                 // If we still haven't moved all the items, transfer to any empty space
-                let mut i = 0;
+                i = 0;
                 while let Some(mut stack) = inventory.item(area, i) {
                     if stack.is_empty() {
-                        stack.merge(&mut slot_item);
+                        stack.merge(slot_item);
                     }
                     i += 1;
                 }
@@ -192,17 +330,241 @@ impl Window {
 
         Ok(())
     }
+    fn shift_click_in_player_window(&mut self, slot: usize) -> SysResult {
+        let mut t = self.inner.item(slot)?;
+        let slot_item = &mut *t;
 
-    fn shift_click_in_generic_window(&mut self, _slot: usize) -> SysResult {
-        todo!()
+        let (inventory, slot_area, _) = self.inner.index_to_slot(slot).unwrap();
+        let areas_to_try = [
+            Area::Helmet,
+            Area::Chestplate,
+            Area::Leggings,
+            Area::Boots,
+            Area::CraftingInput,
+            Area::Hotbar,
+            Area::Storage,
+        ];
+        let mut moved = false;
+        for &area in &areas_to_try {
+            if area == slot_area || !will_accept(area, slot_item) {
+                continue;
+            }
+
+            // Find slot with same type first
+            let mut i = 0;
+            while let Some(mut stack) = inventory.item(area, i) {
+                if slot_item.is_mergable(&stack) && stack.is_filled() {
+                    stack.merge(slot_item);
+                    moved = true;
+                }
+                i += 1;
+            }
+
+            if slot_item.is_empty() {
+                drop(t);
+                if let Area::CraftingOutput = slot_area {
+                    if moved {
+                        for i in 1..5 {
+                            self.item(i)?.try_take(1);
+                        }
+                    }
+                    if self.check_crafting()? {
+                        self.shift_click_in_player_window(slot)?;
+                    }
+                }
+                return Ok(());
+            }
+        }
+
+        if slot_item.is_filled() {
+            for &area in &areas_to_try {
+                if area == slot_area || !will_accept(area, slot_item) {
+                    continue;
+                }
+
+                // If we still haven't moved all the items, transfer to any empty space
+                let mut i = 0;
+                while let Some(mut stack) = inventory.item(area, i) {
+                    if stack.is_empty() {
+                        stack.merge(slot_item);
+                        moved = true;
+                    }
+                    i += 1;
+                }
+
+                if slot_item.is_empty() {
+                    break;
+                }
+            }
+        }
+        drop(t);
+        if let Area::CraftingOutput = slot_area {
+            if moved {
+                self.clear_grid()?;
+            }
+            if self.check_crafting()? {
+                self.shift_click_in_player_window(slot)?;
+            }
+        }
+
+        Ok(())
     }
 
-    fn shift_click_in_crafting_window(&mut self, _slot: usize) -> SysResult {
-        // TODO: If you shift click an item in the crafting table, then you craft
-        // as many as possible. So the items are crafted and put in Area::CraftingOutput
-        // We don't currently have a working crafting system, and once we have we probably
-        // need to change the function signature to get access to the crafting system.
-        todo!()
+    fn shift_click_in_generic_window(&mut self, slot: usize) -> SysResult {
+        let (_, slot_area, _) = self.inner.index_to_slot(slot).unwrap();
+        let (inventory, _, _) = self.inner.index_to_slot(28).unwrap();
+        let mut t = self.inner.item(slot)?;
+        println!("Past here");
+        let slot_item = &mut *t;
+        let areas_to_try = [Area::Hotbar, Area::Storage];
+        let mut moved = false;
+        for &area in &areas_to_try {
+            if !will_accept(area, slot_item) {
+                continue;
+            }
+
+            // Find slot with same type first
+            let mut i = 0;
+            loop {
+                match inventory.try_item(area, i) {
+                    Ok(v) => {
+                        if let Some(mut stack) = v {
+                            if slot_item.is_mergable(&stack) && stack.is_filled() {
+                                stack.merge(slot_item);
+                                moved = true;
+                            }
+                            i += 1;
+                        } else {
+                            break;
+                        }
+                    }
+                    Err(_) => {
+                        i += 1;
+                        continue;
+                    }
+                }
+            }
+
+            if slot_item.is_empty() {
+                drop(t);
+                return Ok(());
+            }
+        }
+
+        if slot_item.is_filled() {
+            //log::info!("Filled");
+            for &area in &areas_to_try {
+                if !will_accept(area, slot_item) {
+                    continue;
+                }
+
+                // If we still haven't moved all the items, transfer to any empty space
+                let mut i = 0;
+                loop {
+                    match inventory.try_item(area, i) {
+                        Ok(v) => {
+                            if let Some(mut stack) = v {
+                                if stack.is_empty() {
+                                    stack.merge(slot_item);
+                                    moved = true;
+                                }
+                                i += 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        Err(_) => {
+                            i += 1;
+                            continue;
+                        }
+                    }
+                }
+                if slot_item.is_empty() {
+                    break;
+                }
+            }
+        }
+        drop(t);
+        Ok(())
+    }
+
+    fn shift_click_in_crafting_window(&mut self, slot: usize) -> SysResult {
+        let (_, slot_area, _) = self.inner.index_to_slot(slot).unwrap();
+        let (inventory, _, _) = self.inner.index_to_slot(12).unwrap();
+        let mut t = self.inner.item(slot)?;
+        let slot_item = &mut *t;
+        let areas_to_try = [
+            Area::Helmet,
+            Area::Chestplate,
+            Area::Leggings,
+            Area::Boots,
+            Area::CraftingInput,
+            Area::Hotbar,
+            Area::Storage,
+        ];
+        let mut moved = false;
+        for &area in &areas_to_try {
+            if area == slot_area || !will_accept(area, slot_item) {
+                continue;
+            }
+
+            // Find slot with same type first
+            let mut i = 0;
+            while let Some(mut stack) = inventory.item(area, i) {
+                if slot_item.is_mergable(&stack) && stack.is_filled() {
+                    stack.merge(slot_item);
+                    moved = true;
+                }
+                i += 1;
+            }
+
+            if slot_item.is_empty() {
+                drop(t);
+                if let Area::CraftingOutput = slot_area {
+                    if moved {
+                        self.clear_grid()?;
+                    }
+                    if self.check_crafting()? {
+                        self.shift_click_in_crafting_window(slot)?;
+                    }
+                }
+                return Ok(());
+            }
+        }
+
+        if slot_item.is_filled() {
+            //log::info!("Filled");
+            for &area in &areas_to_try {
+                if area == slot_area || !will_accept(area, slot_item) {
+                    continue;
+                }
+
+                // If we still haven't moved all the items, transfer to any empty space
+                let mut i = 0;
+                while let Some(mut stack) = inventory.item(area, i) {
+                    if stack.is_empty() {
+                        stack.merge(slot_item);
+                        moved = true;
+                    }
+                    i += 1;
+                }
+
+                if slot_item.is_empty() {
+                    break;
+                }
+            }
+        }
+        drop(t);
+        if let Area::CraftingOutput = slot_area {
+            if moved {
+                self.clear_grid()?;
+            }
+            if self.check_crafting()? {
+                self.shift_click_in_crafting_window(slot)?;
+            }
+        }
+
+        Ok(())
     }
 
     fn shift_click_in_furnace(&mut self, _slot: usize) -> SysResult {
@@ -288,6 +650,11 @@ impl Window {
     /// Gets the item currently held in the cursor.
     pub fn cursor_item(&self) -> &InventorySlot {
         &self.cursor_item
+    }
+
+    /// Mutably borrows the item currently held in the cursor.
+    pub fn cursor_item_mut(&mut self) -> &mut InventorySlot {
+        &mut self.cursor_item
     }
 
     pub fn item(&self, index: usize) -> Result<MutexGuard<InventorySlot>, WindowError> {
@@ -412,4 +779,11 @@ impl PaintState {
 enum Mouse {
     Left,
     Right,
+}
+
+fn can_insert(area: &Area) -> bool {
+    match area {
+        Area::CraftingOutput => false,
+        _ => true,
+    }
 }

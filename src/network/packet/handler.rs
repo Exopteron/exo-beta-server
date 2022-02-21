@@ -73,10 +73,10 @@ pub fn handle_packet(
             interaction::handle_held_item_change(server, pref, p)?;
         }
         ClientPlayPacket::CreativeInventoryAction(p) => {
-            inventory::handle_creative_inventory_action(pref, p, server)?;
+            inventory::handle_creative_inventory_action(game, player, p, server)?;
         }
         ClientPlayPacket::WindowClick(p) => {
-            inventory::handle_click_window(server, pref, p)?;
+            inventory::handle_click_window(server, game, player, p)?;
         }
         ClientPlayPacket::PlayerDigging(p) => {
             interaction::handle_player_digging(game, server, p, player)?;
@@ -84,20 +84,26 @@ pub fn handle_packet(
         ClientPlayPacket::PlayerBlockPlacement(p) => {
             interaction::handle_player_block_placement(game, server, p, player)?;
         }
+        ClientPlayPacket::UseEntity(p) => {
+            interaction::handle_use_entity(game, server, player, p)?;
+        }
         ClientPlayPacket::Respawn(_) => {
             let netid = *game.ecs.get::<NetworkID>(player)?.deref();
             game.ecs
-            .insert_entity_event(player, PlayerSpawnEvent)
+            .insert_entity_event(player, PlayerSpawnEvent(false))
             .unwrap();
-            if let Err(_) = game.ecs.remove::<Dead>(player) {
+            if game.ecs.remove::<Dead>(player).is_err() {
 
             }
             let world = game.worlds.get(&game.ecs.get::<Position>(player)?.world).unwrap();
             let pref = game.ecs.entity(player)?;
-            server.clients.get(&netid).unwrap().notify_respawn(&pref, world.level_dat.world_seed)?;
+            server.clients.get(&netid).unwrap().notify_respawn(&pref, world.level_dat.lock().world_seed)?;
         }
         ClientPlayPacket::UpdateSign(p) => {
             interaction::handle_update_sign(game, server, player, p)?;
+        }
+        ClientPlayPacket::CloseWindow(p) => {
+            inventory::handle_close_window(server, game, player, p)?;
         }
         _ => {}
     }
@@ -147,8 +153,8 @@ fn player_moved(player: Entity, game: &mut Game, prev_position: Position) -> Sys
     let position = *game.ecs.get::<Position>(player)?;
     let aabb = *game.ecs.get::<AABBSize>(player)?;
     let world = game.worlds.get(&position.world).unwrap();
-    let mut current_collisions = world.get_collisions(&aabb, &position);
-    let prev_collisions = world.get_collisions(&aabb, &prev_position);
+    let mut current_collisions = world.get_collisions(&aabb, None, &position);
+    let prev_collisions = world.get_collisions(&aabb, None, &prev_position);
     current_collisions.retain(|v| {
         !prev_collisions.contains(v)
     });

@@ -31,8 +31,8 @@ impl Block for NotFlowingWaterBlock {
         neighbor_state: crate::world::chunks::BlockState,
     ) -> crate::ecs::systems::SysResult {
         if !matches!(offset, Face::Invalid) {
-            let neighbor = game.block_id_at(offset.offset(position), world);
-            if game.block_id_at(position, world) == self.id() {
+            let neighbor = game.block_id_at(offset.offset(position));
+            if game.block_id_at(position) == self.id() {
                 state.b_type -= 1;
                 game.set_block(position, state, world);
                 let s = game.scheduler.clone();

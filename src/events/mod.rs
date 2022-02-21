@@ -1,4 +1,4 @@
-use hecs::EntityBuilder;
+use hecs::{EntityBuilder, Entity};
 
 use crate::{world::{view::View, chunk_lock::ChunkHandle}, game::ChunkCoords};
 
@@ -67,8 +67,13 @@ impl ViewUpdateEvent {
 #[derive(Debug)]
 pub struct PlayerJoinEvent;
 
+
 #[derive(Debug)]
-pub struct PlayerSpawnEvent;
+pub struct EntityAttackedByEntityEvent {
+    pub attacker: Entity
+}
+#[derive(Debug)]
+pub struct PlayerSpawnEvent(pub bool);
 /// Triggered when a chunk is loaded.
 #[derive(Debug)]
 pub struct ChunkLoadEvent {

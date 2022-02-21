@@ -74,7 +74,7 @@ pub trait FluidBlock {
                 if game.is_solid_block(position.offset(0, -1, 0), world) {
                     let _ = ();
                     var10 = 0;
-                } else if self.is_water(game.block_id_at(position.offset(0, -1, 0), world))
+                } else if self.is_water(game.block_id_at(position.offset(0, -1, 0)))
                     && game.block_meta_at(position.offset(0, -1, 0), world) == 0
                 {
                     var10 = 0;
@@ -89,7 +89,7 @@ pub trait FluidBlock {
                 if var10 < 0 {
                     game.set_block_nb(position, BlockState::air(), world, false, false);
                 } else {
-                    let bid = game.block_id_at(position, world);
+                    let bid = game.block_id_at(position);
                     game.set_block(position, BlockState::new(bid, var10 as u8), world);
                     // RESCHEDULE
                     *reschedule = Some(game.ticks + 5);
@@ -138,7 +138,7 @@ pub trait FluidBlock {
     // SOLID
     fn flow_into_block(&self, world: i32, game: &mut Game, position: BlockPosition, par5: i32) {
         if self.liquid_can_displace_block(world, game, position) {
-            let var6 = game.block_id_at(position, world);
+            let var6 = game.block_id_at(position);
             if var6 > 0 {}
             game.set_block_nb(position, BlockState::new(self.id(), par5 as u8), world, false, false);
         }
@@ -174,7 +174,7 @@ pub trait FluidBlock {
                 }
                 let position = BlockPosition::new(var9, position.y, var11, world);
                 if !self.block_blocks_flow(world, game, position)
-                    && !self.is_water(game.block_id_at(position, world))
+                    && !self.is_water(game.block_id_at(position))
                     || game.block_meta_at(position, world) != 0
                 {
                     if !self.block_blocks_flow(world, game, position.offset(0, -1, 0)) {
@@ -216,7 +216,7 @@ pub trait FluidBlock {
             }
             let position = BlockPosition::new(var6, position.y, var8, world);
             if !self.block_blocks_flow(world, game, position)
-                && (!self.is_water(game.block_id_at(position, world))
+                && (!self.is_water(game.block_id_at(position))
                     || game.block_meta_at(position, world) != 0)
             {
                 if self.block_blocks_flow(world, game, position.offset(0, -1, 0)) {
@@ -241,7 +241,7 @@ pub trait FluidBlock {
     }
     /// SOLID
     fn block_blocks_flow(&self, world: i32, game: &mut Game, position: BlockPosition) -> bool {
-        let var5 = game.block_id_at(position, world);
+        let var5 = game.block_id_at(position);
         if var5 == 0 {
             return false;
         }
@@ -254,7 +254,7 @@ pub trait FluidBlock {
         game: &mut Game,
         position: BlockPosition,
     ) -> bool {
-        let id = game.block_id_at(position, world);
+        let id = game.block_id_at(position);
         if self.is_water(id) {
             return false;
         }
@@ -339,7 +339,7 @@ where
     ) {
         let s = game.scheduler.clone();
         let mut scheduler = s.borrow_mut();
-        if game.block_id_at(position, world) == 8 {
+        if game.block_id_at(position) == 8 {
             scheduler.schedule_task(game.ticks + 5, move |game| {
                 if let Some(block) = game.block(position, world) {
                     if let Ok(b) = block.registry_type() {

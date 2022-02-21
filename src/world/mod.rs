@@ -5,12 +5,13 @@ use std::{
     collections::{HashMap, HashSet},
     mem::{replace, take},
     sync::{atomic::AtomicBool, Arc},
-    time::Instant, path::PathBuf, fs::File,
+    time::Instant, path::PathBuf, fs::{File, self},
 };
 pub mod worker;
 use ahash::AHashMap;
 use hecs::Entity;
 use nbt::{decode::read_compound_tag, CompoundTag, encode::write_compound_tag};
+use parking_lot::Mutex;
 use retain_mut::RetainMut;
 
 use crate::{
@@ -53,17 +54,26 @@ pub struct World {
     pub loading_chunks: HashSet<ChunkCoords>,
     canceled_chunk_loads: HashSet<ChunkCoords>,
     shutdown: Arc<AtomicBool>,
-    pub level_dat: LevelDat,
+    pub level_dat: AtomicLevelDat,
     pub world_dir: PathBuf,
+    pub time: i64,
 }
 impl World {
+    pub fn can_be_placed_at(&self, pos: BlockPosition) -> bool {
+        if let Some(block) = self.block_at(pos) {
+            if let Ok(block) = block.registry_type() {
+                return block.can_place_over();
+            }
+        }
+        false
+    }
     pub fn collides_with(
         &self,
         aabb: &AABBSize,
         position: &Position,
         predicate: AtomicRegistryBlock,
     ) -> bool {
-        for (check, _, _) in self.get_collisions(aabb, position) {
+        for (check, _, _) in self.get_collisions(aabb, None, position) {
             if check == predicate {
                 return true;
             }
@@ -137,9 +147,56 @@ impl World {
         }
         blocks
     }
+    pub fn get_colliding_bbs(
+        &self,
+        aabb: &AABBSize,
+        check_aabb: Option<AABB>,
+        position: &Position,
+    ) -> Vec<AABB> {
+        let mut blocks = Vec::new();
+        //log::info!("Called get col");
+        let mut registry = ItemRegistry::global();
+        for x in (position.x - 3.0 + aabb.minx).floor() as i32
+            ..(position.x + 3.0 + aabb.maxx).floor() as i32
+        {
+            for y in (position.y - 3.0 + aabb.miny).floor() as i32
+                ..(position.y + 3.0 + aabb.maxy).floor() as i32
+            {
+                for z in (position.z - 3.0 + aabb.minz).floor() as i32
+                    ..(position.z + 3.0 + aabb.maxz).floor() as i32
+                {
+                    let p = BlockPosition::new(x, y, z, position.world);
+                    if let Some(state) = self.block_at(p) {
+                        if !state.is_air() {
+                            if let Some(block) = registry.get_block(state.b_type) {
+                                blocks.push((block, state, p));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        let aabb = if let Some(aabb) = check_aabb {
+            aabb
+        } else {
+            aabb.get(position)
+        };
+        let mut aabbs = Vec::with_capacity(blocks.len());
+        blocks.retain(|(block, state, pos)| {
+            if let Some(bounding_box) = block.collision_box(*state, *pos) {
+                if bounding_box.intersects(&aabb) {
+                    aabbs.push(bounding_box);
+                    return true;
+                }
+            }
+            false
+        });
+        aabbs
+    }
     pub fn get_collisions(
         &self,
         aabb: &AABBSize,
+        check_aabb: Option<AABB>,
         position: &Position,
     ) -> Vec<(AtomicRegistryBlock, BlockState, BlockPosition)> {
         let mut blocks = Vec::new();
@@ -156,14 +213,20 @@ impl World {
                 {
                     let p = BlockPosition::new(x, y, z, position.world);
                     if let Some(state) = self.block_at(p) {
-                        if let Some(block) = registry.get_block(state.b_type) {
-                            blocks.push((block, state, p));
+                        if !state.is_air() {
+                            if let Some(block) = registry.get_block(state.b_type) {
+                                blocks.push((block, state, p));
+                            }
                         }
                     }
                 }
             }
         }
-        let aabb = aabb.get(position);
+        let aabb = if let Some(aabb) = check_aabb {
+            aabb
+        } else {
+            aabb.get(position)
+        };
         blocks.retain(|(block, state, pos)| {
             if let Some(bounding_box) = block.collision_box(*state, *pos) {
                 if bounding_box.intersects(&aabb) {
@@ -275,16 +338,14 @@ impl World {
             self.chunk_worker.queue_load(req);
         }
     }
-    pub fn from_file_mcr(dir: &str, world_type: i8) -> anyhow::Result<Self> {
+    pub fn from_file_mcr(dir: impl Into<PathBuf>, world_type: i8, level_dat: AtomicLevelDat) -> anyhow::Result<Self> {
+        let dir = dir.into();
         log::info!("Loading world from {:?}", dir);
-        let dir = PathBuf::from(dir);
-        let mut level_dat = dir.clone();
-        level_dat.push("level.dat");
-        let level_dat = LevelDat::from_file(level_dat, world_type as i32);
         let shutdown = Arc::new(AtomicBool::new(false));
-        let generator = WorldgenRegistry::get().get_generator(&CONFIGURATION.chunk_generator.name(), level_dat.world_seed, world_type).ok_or(anyhow::anyhow!("No such generator"))?;
+        let seed = level_dat.lock().world_seed;
+        let generator = WorldgenRegistry::get().get_generator(&CONFIGURATION.chunk_generator.name(), seed, world_type).ok_or(anyhow::anyhow!("No such generator"))?;
         let world = Self {
-            chunk_worker: ChunkWorker::new(dir.clone(), level_dat.world_seed, generator, shutdown.clone()),
+            chunk_worker: ChunkWorker::new(dir.clone(), seed, generator, shutdown.clone()),
             chunk_map: ChunkMap::new(),
             loading_chunks: HashSet::new(),
             canceled_chunk_loads: HashSet::new(),
@@ -292,7 +353,8 @@ impl World {
             cache: ChunkCache::new(),
             id: world_type as i32,
             level_dat,
-            world_dir: dir
+            world_dir: dir,
+            time: 0,
         };
         log::info!("Using world generator {:?}", CONFIGURATION.chunk_generator.name());
         Ok(world)
@@ -342,7 +404,7 @@ impl ChunkLoadManager {
     }
 }
 
-
+pub type AtomicLevelDat = Arc<Mutex<LevelDat>>;
 pub struct LevelDat {
     pub spawn_point: BlockPosition,
     pub world_seed: u64,

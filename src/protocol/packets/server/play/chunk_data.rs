@@ -56,7 +56,7 @@ impl Readable for ChunkData {
     fn read(buffer: &mut std::io::Cursor<&[u8]>, version: ProtocolVersion) -> anyhow::Result<Self>
     where
         Self: Sized {
-        unreachable!();
+        unimplemented!();
     }
 }
 impl Writeable for ChunkData {

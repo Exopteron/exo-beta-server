@@ -8,9 +8,9 @@ use num_derive::{FromPrimitive, ToPrimitive};
 use crate::{
     ecs::{systems::SysResult, Ecs},
     entities::{EntityInit, PreviousPosition},
-    game::{ChunkCoords, Game, Position, DamageType},
-    network::ids::NetworkID,
-    world::{chunks::Chunk, view::View}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}, commands::PermissionLevel, configuration::{CONFIGURATION, OpManager}, aabb::AABBSize, status_effects::StatusEffectsManager,
+    game::{ChunkCoords, Game, Position, DamageType, BlockPosition},
+    network::{ids::NetworkID, metadata::Metadata},
+    world::{chunks::Chunk, view::View, LevelDat}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window, stack::ItemStack, inventory_slot::InventorySlot}, commands::PermissionLevel, configuration::{CONFIGURATION, OpManager}, aabb::AABBSize, status_effects::StatusEffectsManager, physics::Physics, player_dat::PlayerDat,
 };
 
 use super::living::{Health, Hunger, PreviousHealth, PreviousHunger, Regenerator};
@@ -173,6 +173,15 @@ impl PreviousGamemode {
 
 #[derive(Clone, Debug)]
 pub struct OffgroundHeight(pub f32, pub f32);
+
+#[derive(Clone, Debug)]
+pub struct HitCooldown(pub u128);
+
+#[derive(Clone, Debug)]
+pub struct ItemInUse(pub InventorySlot, pub u128);
+
+#[derive(Clone, Debug)]
+pub struct BlockInventoryOpen(pub BlockPosition);
 pub struct PlayerBuilder {}
 impl PlayerBuilder {
     pub fn create(
@@ -181,6 +190,7 @@ impl PlayerBuilder {
         position: Position,
         id: NetworkID,
         gamemode: Gamemode,
+        player_dat: &anyhow::Result<PlayerDat>,
     ) -> EntityBuilder {
         let op_manager = game.objects.get::<OpManager>().unwrap();
         let perm_level = match op_manager.is_op(&username.0) {
@@ -192,7 +202,19 @@ impl PlayerBuilder {
         let window = Window::new(BackingWindow::Player {
             player: inventory.new_handle(),
         });
+        if let Ok(player_dat) = player_dat {
+            for item in player_dat.inventory.iter() {
+                if let Ok(mut w_item) = window.item(item.slot as usize) {
+                    *w_item = InventorySlot::Filled((*item).into());
+                }
+            }
+        }
         let mut builder = game.create_entity_builder(position, EntityInit::Player);
+        builder.add(ItemInUse(InventorySlot::Empty, 0));
+        builder.add(inventory);
+        builder.add(Metadata::new());
+        builder.add(HitCooldown(0));
+        builder.add(Physics::new(false, 0.1));
         builder.add(StatusEffectsManager::default());
         builder.add(Player);
         builder.add(position);
@@ -206,10 +228,17 @@ impl PlayerBuilder {
         builder.add(gamemode);
         builder.add(window);
         builder.add(PermissionLevel(perm_level));
-        builder.add(Health(20, DamageType::None));
-        builder.add(PreviousHealth(Health(20, DamageType::None)));
-        builder.add(Hunger(20, 0.0));
-        builder.add(PreviousHunger(Hunger(20, 0.0)));
+        if let Ok(p) = player_dat {
+            builder.add(Health(p.health, DamageType::None));
+            builder.add(PreviousHealth(Health(-1, DamageType::None)));
+            builder.add(Hunger(p.food_level as i16, p.food_saturation));
+            builder.add(PreviousHunger(Hunger(-1, p.food_saturation)));
+        } else {
+            builder.add(Health(20, DamageType::None));
+            builder.add(PreviousHealth(Health(20, DamageType::None)));
+            builder.add(Hunger(20, 0.0));
+            builder.add(PreviousHunger(Hunger(20, 0.0)));
+        }
         builder.add(OffgroundHeight(0., 0.));
         builder.add(Regenerator(0));
         builder.add(AABBSize::new(-0.3, 0.05, -0.3, 0.3, 1.6, 0.3));
