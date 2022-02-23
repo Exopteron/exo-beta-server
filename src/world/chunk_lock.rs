@@ -13,7 +13,7 @@ pub type ChunkHandle = Arc<ChunkLock>;
 #[derive(Debug)]
 pub struct ChunkLock {
     loaded: AtomicBool,
-    lock: RwLock<Chunk>,
+    pub lock: RwLock<Chunk>,
 }
 impl ChunkLock {
     pub fn new(chunk: Chunk, loaded: bool) -> Self {

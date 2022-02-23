@@ -5,7 +5,7 @@ pub mod zombie;
 
 /// Represents an entity's health
 #[derive(Clone, Debug, PartialEq)]
-pub struct Health(pub i16, pub DamageType);
+pub struct Health(pub i16, pub DamageType, pub bool);
 impl Health {
     pub fn damage(&mut self, amount: i16, damage_type: DamageType) {
         if self.0 > 0 {

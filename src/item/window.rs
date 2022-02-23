@@ -568,7 +568,7 @@ impl Window {
     }
 
     fn shift_click_in_furnace(&mut self, _slot: usize) -> SysResult {
-        todo!()
+        Ok(())
     }
 
     fn shift_click_in_blast_furnace(&mut self, _slot: usize) -> SysResult {
@@ -784,6 +784,7 @@ enum Mouse {
 fn can_insert(area: &Area) -> bool {
     match area {
         Area::CraftingOutput => false,
+        Area::FurnaceOutput => false,
         _ => true,
     }
 }

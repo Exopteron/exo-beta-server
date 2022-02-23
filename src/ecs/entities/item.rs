@@ -20,7 +20,7 @@ impl ItemEntityBuilder {
         builder.add(ItemEntity);
         builder.add(NetworkID::new());
         builder.add(AABBSize::new(-0.3, 0., -0.3, 0.3, 0.3, 0.3));
-        builder.add(Physics::new(true, 0.1));
+        builder.add(Physics::new(true, 0.1, 0.));
         builder.add(Life(0));
         builder
     }

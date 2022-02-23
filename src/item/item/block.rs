@@ -84,6 +84,9 @@ pub trait Block {
     fn on_inventory_closed(&self, game: &mut Game, server: &mut Server, state: BlockState, position: BlockPosition, player: Entity) -> SysResult {
         Ok(())
     }
+    fn opacity(&self) -> u8 {
+        15
+    }
 }
 impl Debug for RegistryBlock {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

@@ -1,6 +1,6 @@
 use hecs::Entity;
 
-use crate::{protocol::packets::{client::EntityAction, EntityActionKind}, game::Game, ecs::{entities::player::{Sneaking, Sprinting}, systems::SysResult}, events::{SneakEvent, SprintEvent}};
+use crate::{protocol::packets::{client::EntityAction, EntityActionKind}, game::Game, ecs::{entities::player::{Sneaking, Sprinting}, systems::SysResult}, events::{SneakEvent, SprintEvent}, network::metadata::Metadata, entities::metadata::EntityBitMask};
 
 ///  From [wiki](https://wiki.vg/Protocol#Entity_Action)
 ///  Sent by the client to indicate that it has performed certain actions:
@@ -38,6 +38,9 @@ pub fn handle_entity_action(game: &mut Game, player: Entity, packet: EntityActio
                 game.ecs
                     .insert_entity_event(player, SprintEvent::new(start_sprinting))?;
                 game.ecs.get_mut::<Sprinting>(player)?.0 = start_sprinting;
+                let mut meta = game.ecs.get_mut::<Metadata>(player)?;
+                meta.flags.set(EntityBitMask::SPRINTING, start_sprinting);
+                meta.dirty = true;
             }
         }
     }

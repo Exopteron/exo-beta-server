@@ -24,6 +24,8 @@ bitflags! {
         const ON_FIRE = 0x01;
         const CROUCHED = 0x02;
         const RIDING = 0x04;
+        const SPRINTING = 0x08;
+        const EATING = 0x10;
     }
 }
 

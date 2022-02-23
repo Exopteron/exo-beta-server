@@ -1,4 +1,4 @@
-use std::ops::Deref;
+use std::{ops::Deref, f64::consts::PI};
 
 use glam::{Vec3, DVec3};
 use hecs::Entity;
@@ -6,7 +6,7 @@ use hecs::Entity;
 use crate::{ecs::{systems::{SystemExecutor, SysResult}, entities::{living::zombie::ZombieEntity, player::Player}}, game::{Game, BlockPosition, Position}, events::EntityDeathEvent, physics::Physics, entities::PreviousPosition, server::Server, network::ids::NetworkID};
 
 pub fn init_systems(s: &mut SystemExecutor<Game>) {
-    s.add_system(zombie_physics).add_system(fling);
+    s.add_system(fling).add_system(zombie_physics);
     s.group::<Server>().add_system(temp);
 }
 fn fling(game: &mut Game) -> SysResult {
@@ -17,7 +17,7 @@ fn fling(game: &mut Game) -> SysResult {
     for e in entities {
         let mut v = game.ecs.entity(e)?.get_mut::<usize>()?;
         *v += 1;
-        if *v > 50 {
+        if /* *v > 50 ||*/ true {
             *v = 0;
             let mut pos = *game.ecs.entity(e)?.get::<Position>()?;
             let mut closest = (1000., Position::default());
@@ -29,14 +29,18 @@ fn fling(game: &mut Game) -> SysResult {
             }
             let a = DVec3::new(pos.x, pos.y, pos.z);
             let b = DVec3::new(closest.1.x, closest.1.y, closest.1.z);
-            let vector = b - a;
+            let orig_vector = b - a;
+            let d = a - b;
             let num = (pos.x.powf(2.) + pos.y.powf(2.) + pos.z.powf(2.)).sqrt();
-            let vector = vector / num;
-            let mult = 65. * vector;
-            pos.x += mult.x;
-            pos.y += mult.y;
-            pos.z += mult.z;
+            let vector = orig_vector / num;
+            let mult = 3. * vector;
+            pos.pitch = ((d.y.atan2((d.x * d.x + d.z * d.z).sqrt()) * 180.) / PI) as f32;
+            pos.yaw = ((((d.z.atan2(d.x) * 180.) / PI) - 90.) + 180.) as f32;
+            pos.yaw %= 360.;
+            pos.pitch %= 360.;
             *game.ecs.entity(e)?.get_mut::<Position>()? = pos;
+            let mut physics = game.ecs.entity(e)?.get_mut::<Physics>()?;
+            physics.add_velocity(mult.x, 0., mult.z);
         }
     }
     Ok(())
@@ -63,6 +67,7 @@ fn temp(game: &mut Game, server: &mut Server) -> SysResult {
                     prev,
                 );
             });
+            entity_ref.get_mut::<PreviousPosition>()?.0 = position;
         }
     }
     Ok(())
@@ -81,8 +86,8 @@ fn zombie_physics(game: &mut Game) -> SysResult {
         let entity_ref = game.ecs.entity(entity)?;
         if entity_ref.get::<EntityDeathEvent>().is_err() {
             let mut fakephysics = entity_ref.get_mut::<Physics>()?.deref().clone();
-            let pos = *entity_ref.get::<Position>()?;
             fakephysics.add_velocity(0., -0.03, 0.);
+            let pos = *entity_ref.get::<Position>()?;
             drop(entity_ref);
             fakephysics.move_entity(game, entity, *fakephysics.get_velocity())?;
             let entity_ref = game.ecs.entity(entity)?;

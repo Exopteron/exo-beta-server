@@ -1,9 +1,15 @@
-use super::{crafting::{Solver, ShapelessRecipe, ShapedRecipe, Grid, normalize}, stack::ItemStack};
+use super::{crafting::{Solver, ShapelessRecipe, ShapedRecipe, Grid, normalize}, stack::ItemStack, furnace::FurnaceSolver};
 
+pub fn register_furnace(recipes: &mut FurnaceSolver) {
+    recipes.add_item(4, ItemStack::new(1, 1, 0));
+
+    recipes.add_item(15, ItemStack::new(265, 1, 0));
+}
 pub fn register(recipes: &mut Solver) {
     let planks = ItemStack::new(5, 1, 0);
     let sticks = ItemStack::new(280, 1, 0);
     let wheat = ItemStack::new(296, 1, 0);
+    let cobble = ItemStack::new(4, 1, 0);
     recipes.register_shapeless(ShapelessRecipe::new_from_vec(vec![ItemStack::new(17, 1, 0)], ItemStack::new(5, 4, 0))); // Planks
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), None, None],[Some(planks.clone()), None, None],[None, None, None]], ItemStack::new(280, 4, 0)));
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), Some(planks.clone()), None],[Some(planks.clone()), Some(planks.clone()), None],[None, None, None]], ItemStack::new(58, 1, 0)));
@@ -15,6 +21,8 @@ pub fn register(recipes: &mut Solver) {
 
 
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), Some(planks.clone()), Some(planks.clone())],[Some(planks.clone()), None, Some(planks.clone())],[Some(planks.clone()), Some(planks.clone()), Some(planks.clone())]], ItemStack::new(54, 1, 0))); // chest
+
+    recipes.register_shaped(ShapedRecipe::new([[Some(cobble.clone()), Some(cobble.clone()), Some(cobble.clone())],[Some(cobble.clone()), None, Some(cobble.clone())],[Some(cobble.clone()), Some(cobble.clone()), Some(cobble.clone())]], ItemStack::new(61, 1, 0))); // furnace
 }
 
 fn pickaxe_shape(item: ItemStack) -> Grid {

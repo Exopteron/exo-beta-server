@@ -31,4 +31,7 @@ impl Item for PickaxeItem {
         }
         Ok(())
     }
+    fn damage_amount(&self) -> i16 {
+        2 + self.1.harvest_level() as i16
+    }
 }

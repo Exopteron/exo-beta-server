@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::{atomic::AtomicBool, Arc}, time::Instant};
+use std::{path::PathBuf, sync::{atomic::AtomicBool, Arc}, time::Instant, mem};
 
 use anyhow::bail;
 use flume::{Sender, Receiver};
@@ -8,7 +8,7 @@ use crate::{game::{ChunkCoords, BlockPosition}, ecs::systems::world::light::{Lig
 
 use self::region::RegionWorker;
 
-use super::{chunks::Chunk, chunk_lock::ChunkHandle, generation::WorldGenerator};
+use super::{chunks::Chunk, chunk_lock::ChunkHandle, generation::WorldGenerator, light::LightPropagator};
 
 mod region;
 #[derive(Debug)]
@@ -62,21 +62,18 @@ impl ChunkWorker {
     /// Helper function for poll_loaded_chunk. Attemts to receive a freshly generated chunk.
     /// Function signature identical to that of poll_loaded_chunk for ease of use.
     fn try_recv_gen(&mut self, light: &mut LightPropagationManager) -> Result<Option<LoadedChunk>, anyhow::Error> {
-        let chunk = match self.recv_gen.try_recv() {
+        let mut chunk = match self.recv_gen.try_recv() {
             Ok(l) => l,
             Err(e) => match e {
                 flume::TryRecvError::Empty => return Ok(None),
                 flume::TryRecvError::Disconnected => bail!("chunkgen channel died"),
             },
         };
-        for x in 0..16 {
-            for z in 0..16 {
-                if let Some(y) = chunk.chunk.heightmaps.light_blocking.height(x, z) {
-                    let pos = BlockPosition::new((x + (chunk.pos.x as usize) * 16) as i32, (y + 0) as i32, (z + (chunk.pos.z as usize) * 16) as i32, chunk.pos.world);
-                    //light.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
-                }
-            }
-        }
+        light.push(LightPropagationRequest::ChunkSky { position: chunk.pos, world: chunk.pos.world });
+        // let v = mem::take(&mut chunk.light);
+        // for v in v {
+        //     light.push(v);
+        // }
         Ok(Some(chunk))
     }
     pub fn drop_sender(&mut self) {
@@ -119,7 +116,6 @@ impl ChunkWorker {
                             }
                             let mut chunk = gen.generate_chunk(pos, seed);
                             chunk.heightmaps.recalculate(Chunk::block_at_fn(&chunk.data));
-                            //chunk.calculate_full_skylight();
                             send_gen.send(LoadedChunk { pos, chunk, tile_entity_data: Vec::new() }).unwrap()
                         });
                         self.try_recv_gen(light) // check for generated chunks

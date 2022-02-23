@@ -19,7 +19,7 @@ fn epic_system(game: &mut Game) -> SysResult {
         let entity_ref = game.ecs.entity(entity)?;
         if entity_ref.get::<EntityDeathEvent>().is_err() {
             let mut fakephysics = entity_ref.get_mut::<Physics>()?.deref().clone();
-            fakephysics.add_velocity(0., -0.03, 0.);
+            fakephysics.add_velocity(0., -0.05, 0.);
             drop(entity_ref);
             fakephysics.move_entity(game, entity, *fakephysics.get_velocity())?;
             let entity_ref = game.ecs.entity(entity)?;

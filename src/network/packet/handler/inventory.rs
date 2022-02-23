@@ -66,7 +66,7 @@ pub fn handle_creative_inventory_action(
         let client = server.clients.get(&client_id).unwrap();
         client.send_window_items(&window);
         let world = player.get::<Position>()?.world;
-        server.broadcast_equipment_change(&player, world)?;
+        server.broadcast_equipment_change(&player)?;
     } else if let InventorySlot::Filled(item) = clicked_item {
         let pos = *player.get::<Position>()?;
         drop(player);
@@ -142,7 +142,7 @@ pub fn handle_click_window(
     client.send_window_items(&*window);
     drop(window);
     let world = player.get::<Position>()?.world;
-    server.broadcast_equipment_change(&player, world)?;
+    server.broadcast_equipment_change(&player)?;
     drop(player);
     sync_inventories(&mut game.ecs, server, player_entity)?;
     result

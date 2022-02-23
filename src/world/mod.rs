@@ -264,7 +264,7 @@ impl World {
         nlh: bool,
     ) -> bool {
         if pos.within_border(CONFIGURATION.world_border) {
-            return self.chunk_map.set_block_at(self.id, light, pos, block, nlh);
+            return self.chunk_map.set_block_at(self.id, Some(light), pos, block, nlh);
         }
         false
     }

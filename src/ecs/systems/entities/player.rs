@@ -22,7 +22,7 @@ use crate::{
         item::ItemRegistry,
         window::Window,
     },
-    network::ids::NetworkID,
+    network::{ids::NetworkID, metadata::Metadata},
     physics::Physics,
     player_dat::PlayerDat,
     protocol::{
@@ -71,7 +71,20 @@ pub fn init_systems(s: &mut SystemExecutor<Game>) {
         .add_system(spawn_listener)
         .add_system(notify_pos)
         .add_system(velocity)
-        .add_system(item_use_ticker);
+        .add_system(item_use_ticker)
+        .add_system(update_metadata);
+}
+
+fn update_metadata(game: &mut Game, server: &mut Server) -> SysResult {
+    for (entity, (id, position, meta)) in game.ecs.query::<(&NetworkID, &Position, &mut Metadata)>().iter() {
+        if meta.dirty {
+            server.broadcast_nearby_with(*position, |client| {
+                client.send_entity_metadata(true, *id, meta.clone());
+            });
+            meta.dirty = false;
+        }
+    }
+    Ok(())
 }
 fn broadcast_player_leave(game: &Game, username: &Username) {
     let translation = game.objects.get::<TranslationManager>().unwrap();
@@ -150,7 +163,7 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
             .level_dat
             .lock()
             .spawn_point;
-        let netid = pref.get::<NetworkID>()?.deref().clone();
+        let netid = *pref.get::<NetworkID>()?;
         if !first {
             pref.get_mut::<Health>()?.0 = 20;
             pref.get_mut::<Hunger>()?.0 = 20;
@@ -166,6 +179,10 @@ fn spawn_listener(game: &mut Game, server: &mut Server) -> SysResult {
                 }
             }
         });
+        drop(spawnpacket);
+        if game.ecs.remove::<Dead>(entity).is_err() {
+
+        }
     }
     Ok(())
 }
@@ -216,7 +233,7 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
     for (entity, (health, prev_health, hunger, prev_hunger, id)) in game
         .ecs
         .query::<(
-            &Health,
+            &mut Health,
             &mut PreviousHealth,
             &Hunger,
             &mut PreviousHunger,
@@ -224,10 +241,12 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         )>()
         .iter()
     {
-        if health.0 != prev_health.0 .0 || hunger.0 != prev_hunger.0 .0 {
-            let client = server.clients.get(id).unwrap();
-            client.set_health(health, hunger);
-            if health.0 < prev_health.0 .0 {
+        if health.0 != prev_health.0 .0 || hunger.0 != prev_hunger.0.0 || health.2 {
+            if let Some(client) = server.clients.get(id) {
+                client.set_health(health, hunger);
+            }
+            if health.0 < prev_health.0.0 || health.2 {
+                health.2 = false;
                 hurt.push(entity);
             }
             prev_health.0 = health.clone();
@@ -266,6 +285,16 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         }
         log::info!("Sending dead");
         server.broadcast_entity_status(*pos, pos.world, *id, EntityStatusKind::EntityDead);
+        drop(real_inv);
+        drop(health);
+        drop(pos);
+        drop(id);
+        if entity_ref.get::<Player>().is_err() {
+            game.schedule_at(game.ticks + 20, move |game| {
+                game.remove_entity(dead);
+                None
+            });
+        }
     }
     Ok(())
 }

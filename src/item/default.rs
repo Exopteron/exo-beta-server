@@ -31,6 +31,7 @@ pub mod tools;
 mod farmland;
 mod foods;
 mod crops;
+mod ore;
 use crate::{
     ecs::{entities::{player::Chatbox, falling_block::FallingBlockEntityData}, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
@@ -40,7 +41,7 @@ use crate::{
     world::chunks::BlockState,
 };
 
-use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}};
+use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem, sword::SwordItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}, ore::OreBlock};
 
 use super::{item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry}, inventory_slot::InventorySlot, stack::ItemStack};
 
@@ -284,6 +285,9 @@ impl Block for AirBlock {
     fn opaque(&self) -> bool {
         false
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 }
 pub struct LogBlock;
 impl Block for LogBlock {
@@ -345,6 +349,9 @@ impl Block for GenericReplacable {
 
     fn collision_box(&self, state: BlockState, position: BlockPosition) -> Option<crate::aabb::AABB> {
         None
+    }
+    fn opacity(&self) -> u8 {
+        3
     }
 }
 pub struct StoneBlock;
@@ -441,6 +448,11 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_item(HoeItem(291, ToolMaterials::Stone));
     registry.register_item(PickaxeItem(274, ToolMaterials::Stone));
     registry.register_item(AxeItem(275, ToolMaterials::Stone));
+    registry.register_burnability(17, 300); // log
+    registry.register_block(OreBlock(15, ToolMaterials::Stone, || ItemStack::new(15, 1, 0))); // iron ore
+    registry.register_item(SwordItem(267, ToolMaterials::Iron)); // iron sword
+    registry.register_item(GenericItem(338)); // cane
+    registry.register_item(GenericItem(347)); // clock
     //registry.register_block(MovingWaterBlock(8));
     //registry.register_block(NotFlowingWaterBlock);
     //registry.register_item(WaterBucketItem);

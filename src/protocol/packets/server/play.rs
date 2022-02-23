@@ -239,4 +239,9 @@ packets! {
         pitch RotationFraction360;
         meta Metadata;
     }
+    UpdateProgressBar {
+        wid i8;
+        progressbar ProgressBarKind;
+        value i16;
+    }
 }

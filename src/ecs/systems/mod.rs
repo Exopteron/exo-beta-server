@@ -7,7 +7,7 @@ use std::{
 
 use crate::{game::{Game, Position}, server::Server, configuration::CONFIGURATION, SHUTDOWN, network::ids::NetworkID};
 pub mod chat;
-mod entities;
+pub mod entities;
 pub mod stdin;
 pub mod tablist;
 pub mod world;

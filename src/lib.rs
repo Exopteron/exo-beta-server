@@ -44,6 +44,7 @@ pub async fn main() -> anyhow::Result<()> {
     item_registry.set();
     let mut recipes = ItemRegistry::global().deref().clone();
     item::recipes::register(&mut recipes.solver);
+    item::recipes::register_furnace(&mut recipes.furnace);
     recipes.set();
     if let Some(str) = &CONFIGURATION.vanilla_jar {
         JVMSetup::setup(str).unwrap();

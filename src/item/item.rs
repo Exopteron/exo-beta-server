@@ -10,7 +10,7 @@ use crate::{game::{BlockPosition, Game}, protocol::packets::Face, ecs::systems::
 
 use self::block::{AtomicRegistryBlock, RegistryBlock, Block};
 
-use super::{stack::ItemStack, inventory_slot::InventorySlot, crafting::Solver, default::tools::ToolMaterials};
+use super::{stack::ItemStack, inventory_slot::InventorySlot, crafting::Solver, default::tools::ToolMaterials, furnace::FurnaceSolver};
 pub mod block;
 // featerlicense in FEATHER_LICENSE.md
 static mut ITEM_REGISTRY: Option<Arc<ItemRegistry>> = None;
@@ -40,6 +40,9 @@ pub trait Item {
     fn on_dig_with(&self, game: &mut Game, server: &mut Server, digger: Entity, item: &mut MutexGuard<InventorySlot>, slot: usize, target: BlockUseTarget) -> SysResult {
         Ok(())
     }
+    fn damage_amount(&self) -> i16 {
+        1
+    }
 }
 impl Debug for RegistryItem {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -58,7 +61,9 @@ pub type AtomicRegistryItem = Arc<RegistryItem>;
 pub struct ItemRegistry {
     items: AHashMap<ItemIdentifier, AtomicRegistryItem>,
     blocks: AHashMap<BlockIdentifier, AtomicRegistryBlock>,
+    burnability: AHashMap<ItemIdentifier, i16>,
     pub solver: Solver,
+    pub furnace: FurnaceSolver,
 }
 
 impl ItemRegistry {
@@ -76,8 +81,16 @@ impl ItemRegistry {
         Self {
             items: AHashMap::new(),
             blocks: AHashMap::default(),
-            solver: recipe_solver
+            burnability: AHashMap::new(),
+            solver: recipe_solver,
+            furnace: FurnaceSolver::default(),
         }
+    }
+    pub fn register_burnability(&mut self, item: ItemIdentifier, time: i16) {
+        self.burnability.insert(item, time);
+    }
+    pub fn get_burnability(&self, item: ItemIdentifier) -> i16 {
+        self.burnability.get(&item).copied().unwrap_or(0)
     }
     pub fn register_block(&mut self, block: impl Block + Sync + Send + 'static) {
         if self.blocks.contains_key(&block.id()) {

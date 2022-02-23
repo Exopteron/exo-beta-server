@@ -31,7 +31,7 @@ impl FallingBlockEntityBuilder {
         builder.add(FallingBlockEntity);
         builder.add(NetworkID::new());
         builder.add(AABBSize::new(0., 0., 0., 0.5, 0.5, 0.5));
-        builder.add(Physics::new(true, 0.1));
+        builder.add(Physics::new(true, 0.1, 0.));
         builder.add(Life(0));
         builder
     }

@@ -195,6 +195,12 @@ macro_rules! def_enum {
     };
 }
 def_enum! {
+    ProgressBarKind (i16) {
+        0i16 = ProgressArrow,
+        1i16 = FireIcon,
+    }
+}
+def_enum! {
     ObjectVehicleKind (i8) {
         1 = Boat,
         10 = Minecart,

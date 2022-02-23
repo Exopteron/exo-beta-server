@@ -12,10 +12,11 @@ pub struct Physics {
     velocity: DVec3,
     active: bool,
     speed: f64,
+    step_height: f64,
 }
 impl Physics {
-    pub fn new(active: bool, speed: f64) -> Self {
-        Self { velocity: DVec3::new(0., 0., 0.), active, speed, modified: false }
+    pub fn new(active: bool, speed: f64, step_height: f64) -> Self {
+        Self { velocity: DVec3::new(0., 0., 0.), active, speed, modified: false, step_height }
     }
     pub fn set_modified(&mut self, val: bool) {
         self.modified = val;
@@ -42,6 +43,7 @@ impl Physics {
         let mut position = entityref.get_mut::<Position>()?;
         let world = game.worlds.get(&position.world).ok_or(anyhow::anyhow!("No world"))?;
         let mut real_aabb = aabb.get(&position);
+        let ym = movement.y;
         let mut d6 = movement.x;
         let mut d7 = movement.y;
         let mut d8 = movement.z;
@@ -49,7 +51,18 @@ impl Physics {
         for item in list.iter() {
             movement.y = item.y_off(&real_aabb, movement.y as f64);   
         }
+        // if movement.y > ym {
+        //     log::info!("Greater {}", movement.y);
+        //     let x = movement.y - ym.max(0.);
+        //     log::info!("x {}", x);
+        //     if x > self.step_height {
+        //         movement.y = 0.;
+        //     }
+        // } else {
+        //     log::info!("Less");
+        // }
         real_aabb = real_aabb.offset(0., movement.y, 0.);
+        let flag = position.on_ground;
         let flag1 = position.on_ground || d7 != movement.y && d7 < 0.;
         for item in list.iter() {
             movement.x = item.x_off(&real_aabb, movement.x);
@@ -61,7 +74,10 @@ impl Physics {
         }
         real_aabb = real_aabb.offset(0., 0., movement.z);
         if self.active {
+            let clone = *position;
             *position = real_aabb.get_position(&*aabb, position.world);
+            position.yaw = clone.yaw;
+            position.pitch = clone.pitch;
         }
         position.on_ground = d7 != movement.y && d7 < 0.;
         Ok(())

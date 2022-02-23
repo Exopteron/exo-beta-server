@@ -171,7 +171,7 @@ impl PreviousGamemode {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Copy)]
 pub struct OffgroundHeight(pub f32, pub f32);
 
 #[derive(Clone, Debug)]
@@ -182,6 +182,12 @@ pub struct ItemInUse(pub InventorySlot, pub u128);
 
 #[derive(Clone, Debug)]
 pub struct BlockInventoryOpen(pub BlockPosition);
+
+#[derive(Clone, Debug)]
+pub struct LastPositionUpdate(pub u128);
+
+#[derive(Clone, Debug)]
+pub struct Blocking(pub bool);
 pub struct PlayerBuilder {}
 impl PlayerBuilder {
     pub fn create(
@@ -214,7 +220,7 @@ impl PlayerBuilder {
         builder.add(inventory);
         builder.add(Metadata::new());
         builder.add(HitCooldown(0));
-        builder.add(Physics::new(false, 0.1));
+        builder.add(Physics::new(false, 0.1, 0.));
         builder.add(StatusEffectsManager::default());
         builder.add(Player);
         builder.add(position);
@@ -228,14 +234,16 @@ impl PlayerBuilder {
         builder.add(gamemode);
         builder.add(window);
         builder.add(PermissionLevel(perm_level));
+        builder.add(LastPositionUpdate(game.ticks));
+        builder.add(Blocking(false));
         if let Ok(p) = player_dat {
-            builder.add(Health(p.health, DamageType::None));
-            builder.add(PreviousHealth(Health(-1, DamageType::None)));
+            builder.add(Health(p.health, DamageType::None, false));
+            builder.add(PreviousHealth(Health(-1, DamageType::None, false)));
             builder.add(Hunger(p.food_level as i16, p.food_saturation));
             builder.add(PreviousHunger(Hunger(-1, p.food_saturation)));
         } else {
-            builder.add(Health(20, DamageType::None));
-            builder.add(PreviousHealth(Health(20, DamageType::None)));
+            builder.add(Health(20, DamageType::None, false));
+            builder.add(PreviousHealth(Health(20, DamageType::None, false)));
             builder.add(Hunger(20, 0.0));
             builder.add(PreviousHunger(Hunger(20, 0.0)));
         }

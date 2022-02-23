@@ -376,12 +376,14 @@ pub enum DamageType {
 impl DamageType {
     pub fn string(&self) -> String {
         match self {
-            DamageType::Void => "fell into the void.",
-            DamageType::Fall => "fell to their doom.",
-            DamageType::Fire => "burned to death.",
-            _ => "died",
+            DamageType::Void => "fell into the void.".to_string(),
+            DamageType::Fall => "fell to their doom.".to_string(),
+            DamageType::Fire => "burned to death.".to_string(),
+            DamageType::Player { damager } => {
+                format!("was slain by {}", damager)
+            },
+            _ => "died".to_string(),
         }
-        .to_string()
     }
 }
 #[derive(Clone, Copy, Debug, PartialEq, Hash)]

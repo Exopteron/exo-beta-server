@@ -31,4 +31,7 @@ impl Item for AxeItem {
         }
         Ok(())
     }
+    fn damage_amount(&self) -> i16 {
+        3 + self.1.harvest_level() as i16
+    }
 }

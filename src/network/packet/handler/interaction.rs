@@ -16,7 +16,7 @@ use crate::{
         entities::{
             item::{ItemEntity, ItemEntityBuilder},
             living::Health,
-            player::{Gamemode, HitCooldown, HotbarSlot, Username, SLOT_HOTBAR_OFFSET, ItemInUse},
+            player::{Gamemode, HitCooldown, HotbarSlot, Username, SLOT_HOTBAR_OFFSET, ItemInUse, Player, OffgroundHeight, Blocking},
         },
         systems::{world::block::update::BlockUpdateManager, SysResult},
         EntityRef,
@@ -53,7 +53,7 @@ pub fn handle_held_item_change(
 
     slot.set(new_id)?;
     drop(slot);
-    server.broadcast_equipment_change(&player, world)?;
+    server.broadcast_equipment_change(&player)?;
     Ok(())
 }
 pub fn drop_item(game: &mut Game, item: ItemStack, position: Position) -> SysResult {
@@ -199,7 +199,9 @@ pub fn handle_player_digging(
                             let mut pos: Position = pos.into();
                             pos.x += 0.5;
                             pos.y += 0.5;
-                            let builder = ItemEntityBuilder::build(game, pos, drop);
+                            pos.z += 0.5;
+                            let mut builder = ItemEntityBuilder::build(game, pos, drop);
+                            builder.get_mut::<Physics>().unwrap().add_velocity(0., 0.1, 0.);
                             game.spawn_entity(builder);
                         }
                     }
@@ -233,7 +235,7 @@ pub fn handle_player_digging(
             drop(client_id);
             drop(hotbar_slot);
             let world = entity_ref.get::<Position>()?.world;
-            server.broadcast_equipment_change(&entity_ref, world)?;
+            server.broadcast_equipment_change(&entity_ref)?;
             match taken {
                 InventorySlot::Filled(item) => {
                     let pos = *entity_ref.get::<Position>()?;
@@ -257,7 +259,7 @@ pub fn handle_player_digging(
             item.1 = 0;
             drop(entity_ref);
             drop(item);
-            if let InventorySlot::Filled(item) = item2.0 {
+            if let InventorySlot::Filled(item) = &*slot {
                 match item.item() {
                     ItemStackType::Item(i) => {
                         i.on_stop_using(game, server, player, slot, slot_id)?;
@@ -464,7 +466,7 @@ pub fn handle_player_block_placement(
                         drop(slot);
                         client.send_window_items(&inventory);
                         drop(inventory);
-                        server.broadcast_equipment_change(&entity_ref, world)?;
+                        server.broadcast_equipment_change(&entity_ref)?;
                     }
                     let id = match event.held_item.item() {
                         ItemStackType::Item(_) => return Ok(()),
@@ -543,7 +545,33 @@ pub fn handle_update_sign(
     }
     Ok(())
 }
-
+fn calculate_damage(game: &mut Game, attacker: Entity, target: Entity) -> SysResult<i16> {
+    let entity_ref = game.ecs.entity(attacker)?;
+    let blocking = game.ecs.get::<Blocking>(target).map(|v| v.0).unwrap_or(false);
+    let inventory = entity_ref.get_mut::<Window>()?;
+    let hotbar_slot = entity_ref.get::<HotbarSlot>()?;
+    let slot = inventory.item(SLOT_HOTBAR_OFFSET + hotbar_slot.get())?;
+    let mut damage: f64 = 1.;
+    if let InventorySlot::Filled(item) = &*slot {
+        if let Some(i) = ItemRegistry::global().get_item(item.id()) {
+            damage = i.damage_amount() as f64;
+        }
+    }
+    drop(slot);
+    drop(entity_ref);
+    let pos = *game.ecs.get::<Position>(attacker)?;
+    let off_g = *game.ecs.get::<OffgroundHeight>(attacker)?;
+    let height = off_g.0 - pos.y as f32;
+    if height > 0.0 {
+        log::info!("Critical");
+        damage *= 1.5;
+    }
+    if blocking {
+        log::info!("Blocking");
+        damage *= 0.5;
+    }
+    Ok(damage.floor() as i16)
+}
 pub fn handle_use_entity(
     game: &mut Game,
     server: &mut Server,
@@ -554,18 +582,38 @@ pub fn handle_use_entity(
 
     if let Some(entity) = game.entity_by_network_id(target) {
         if packet.left_click && !is_creative(game, entity) {
-            let mut cooldown = game.ecs.get_mut::<HitCooldown>(player)?;
-            if cooldown.0 == 0 {
+            let mut cooldown = game.ecs.get_mut::<HitCooldown>(player)?.0;
+            if cooldown == 0 {
+                let mut damage = calculate_damage(game, player, entity)?;
                 let name = game.ecs.get::<Username>(player)?.0.clone();
                 let mut health = game.ecs.get_mut::<Health>(entity)?;
-                health.damage(1, DamageType::Player { damager: name });
                 let pos = *game.ecs.get::<Position>(player)?;
+                health.damage(damage, DamageType::Player { damager: name });
+                health.2 = true;
+                let e_pos = *game.ecs.get::<Position>(entity)?;
                 if let Ok(mut velocity) = game.ecs.get_mut::<Physics>(entity) {
-                    let c1 = -(((pos.yaw * PI) / 180.).sin()) * 0.3;
-                    let c2 = ((pos.yaw * PI) / 180.).cos() * 0.3;
-                    velocity.add_velocity(c1.into(), 0.3, c2.into());
+                    if game.ecs.get::<Player>(entity).is_ok() {
+                        log::info!("Player");
+                        let mut c1 = -(((pos.yaw * PI) / 180.).sin()) * 0.3;
+                        let mut c2 = ((pos.yaw * PI) / 180.).cos() * 0.3;
+                        let y = match e_pos.on_ground {
+                            true => 0.3,
+                            false => 0.
+                        };
+                        velocity.add_velocity(c1.into(), y, c2.into());
+                    } else {
+                        log::info!("Not player");
+                        let mut c1 = -(((pos.yaw * PI) / 180.).sin()) * 1.;
+                        let mut c2 = ((pos.yaw * PI) / 180.).cos() * 1.;
+                        let v = velocity.get_velocity_mut();
+                        let y = match e_pos.on_ground {
+                            true => 0.6,
+                            false => 0.
+                        };
+                        velocity.add_velocity(c1.into(), y, c2.into());
+                    }
                 }
-                cooldown.0 = 7;
+                game.ecs.get_mut::<HitCooldown>(player)?.0 = 10;
             }
         }
     }

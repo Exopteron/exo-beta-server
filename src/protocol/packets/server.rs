@@ -63,4 +63,5 @@ packet_enum!(ServerPlayPacket {
     0x64 = OpenWindow,
     0x65 = CloseWindow,
     0x18 = MobSpawn,
+    0x69 = UpdateProgressBar,
 });

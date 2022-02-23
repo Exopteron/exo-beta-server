@@ -178,7 +178,7 @@ fn pickup_items(game: &mut Game, server: &mut Server) -> SysResult {
             ))?;
             client.send_window_items(&inventory);
             drop(inventory);
-            server.broadcast_equipment_change(&entity_ref, world)?;
+            server.broadcast_equipment_change(&entity_ref)?;
             drop(hotbar_slot);
             drop(entity_ref);
             let id = *game.ecs.get::<NetworkID>(entity)?;

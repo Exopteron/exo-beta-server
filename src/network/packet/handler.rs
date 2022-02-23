@@ -12,6 +12,7 @@ use crate::entities::SpawnPacketSender;
 use crate::events::PlayerSpawnEvent;
 use crate::game::{BlockPosition, ChunkCoords, DamageType, Game, Message, Position};
 use crate::network::ids::NetworkID;
+use crate::physics::Physics;
 use crate::protocol::ClientPlayPacket;
 use crate::server::Server;
 use crate::translation::TranslationManager;
@@ -92,9 +93,6 @@ pub fn handle_packet(
             game.ecs
             .insert_entity_event(player, PlayerSpawnEvent(false))
             .unwrap();
-            if game.ecs.remove::<Dead>(player).is_err() {
-
-            }
             let world = game.worlds.get(&game.ecs.get::<Position>(player)?.world).unwrap();
             let pref = game.ecs.entity(player)?;
             server.clients.get(&netid).unwrap().notify_respawn(&pref, world.level_dat.lock().world_seed)?;
@@ -151,6 +149,11 @@ fn handle_chat_message(
 
 fn player_moved(player: Entity, game: &mut Game, prev_position: Position) -> SysResult {
     let position = *game.ecs.get::<Position>(player)?;
+    // let mut physics = game.ecs.get_mut::<Physics>(player)?;
+    // let dist_x = prev_position.x - position.x;
+    // let dist_y = prev_position.y - position.y;
+    // let dist_z = prev_position.z - position.z;
+
     let aabb = *game.ecs.get::<AABBSize>(player)?;
     let world = game.worlds.get(&position.world).unwrap();
     let mut current_collisions = world.get_collisions(&aabb, None, &position);

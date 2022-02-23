@@ -152,6 +152,10 @@ impl ItemStack {
         Self { item, count, meta, null_flag: false }
     }
 
+    pub fn new_regless(item_id: i16, count: i8, meta: i16, item: ItemStackType) -> Self {
+        Self { item, count, meta, null_flag: false }
+    }
+
     /// Returns whether the given item stack has
     /// the same type as (but not necessarily the same
     /// amount as) `self`.

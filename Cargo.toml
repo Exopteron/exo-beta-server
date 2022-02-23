@@ -73,6 +73,7 @@ retain_mut = "0.1.5"
 moveslice = "*"
 hemnbt = { package = "hematite-nbt", version = "0.5.2" }
 nibble_vec = "0.1.0"
+oneshot = "*"
 
 [profile.dev.package.worldgen]
 opt-level = 3

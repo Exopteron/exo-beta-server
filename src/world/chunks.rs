@@ -248,30 +248,30 @@ impl Chunk {
             }
         }
     }
-    pub fn global_skylight_requests(&mut self) -> Vec<LightPropagationRequest> {
-        let mut requests = Vec::new();
-        for x in 0..16 {
-            for z in 0..16 {
-                for y in 0..CHUNK_HEIGHT {
-                    if let Some(mut b) = self.block_at(x, y as usize, z) {
-                        b.b_skylight = 0;
-                        self.set_block_at_nlh(x, y as usize, z, b);
-                    }
-                }
-                if let Some(y) = self.heightmaps.light_blocking.height(x, z) {
-                    for y in y..128 {
-                        if let Some(mut b) = self.block_at(x, y, z) {
-                            b.b_skylight = 15;
-                            self.set_block_at_nlh(x, y, z, b);
-                        }
-                    }
-                    let pos = BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, y as i32, (z + (self.pos.z as usize) * 16) as i32, self.pos.world);
-                    requests.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
-                }
-            }
-        }
-        requests
-    }
+    // pub fn global_skylight_requests(&mut self) -> Vec<LightPropagationRequest> {
+    //     let mut requests = Vec::new();
+    //     for x in 0..16 {
+    //         for z in 0..16 {
+    //             for y in 0..CHUNK_HEIGHT {
+    //                 if let Some(mut b) = self.block_at(x, y as usize, z) {
+    //                     b.b_skylight = 0;
+    //                     self.set_block_at_nlh(x, y as usize, z, b);
+    //                 }
+    //             }
+    //             if let Some(y) = self.heightmaps.light_blocking.height(x, z) {
+    //                 for y in y..128 {
+    //                     if let Some(mut b) = self.block_at(x, y, z) {
+    //                         b.b_skylight = 15;
+    //                         self.set_block_at_nlh(x, y, z, b);
+    //                     }
+    //                 }
+    //                 let pos = BlockPosition::new((x + (self.pos.x as usize) * 16) as i32, y as i32, (z + (self.pos.z as usize) * 16) as i32, self.pos.world);
+    //                 requests.push(LightPropagationRequest { position: pos, world: 0, level: 15, skylight: true }); //TODO: unhardcodeworld
+    //             }
+    //         }
+    //     }
+    //     requests
+    // }
     pub fn calculate_skylight(&mut self, x: usize, z: usize) -> Option<BlockPosition> {
         if let Some(y) = self.heightmaps.light_blocking.height(x, z) {
             for y in y..128 {

@@ -53,7 +53,7 @@ impl ChunkMap {
             .flatten()
     }
 
-    pub fn set_block_at(&self, world: i32, light: &mut LightPropagationManager, pos: BlockPosition, block: BlockState, nlh: bool) -> bool {
+    pub fn set_block_at(&self, world: i32, mut light: Option<&mut LightPropagationManager>, pos: BlockPosition, block: BlockState, nlh: bool) -> bool {
         if check_coords(pos).is_none() {
             return false;
         }
@@ -65,9 +65,10 @@ impl ChunkMap {
                 chunk.set_block_at(x, y, z, block);
             }
             if !nlh {
-                for request in chunk.global_skylight_requests() {
-                    light.push(request);
-                }
+                light.as_mut().unwrap().push(LightPropagationRequest::ChunkSky { position: chunk.position(), world });
+                // for request in chunk.global_skylight_requests() {
+                //     light.as_mut().unwrap().push(request);
+                // }
             }
             return true;
         }
@@ -91,7 +92,7 @@ impl ChunkMap {
     }
 }
 
-fn check_coords(pos: BlockPosition) -> Option<()> {
+pub fn check_coords(pos: BlockPosition) -> Option<()> {
     if pos.y >= 0 && pos.y < CHUNK_HEIGHT as i32 {
         Some(())
     } else {

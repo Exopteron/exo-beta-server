@@ -6,3 +6,4 @@ pub mod window;
 pub mod default;
 pub mod crafting;
 pub mod recipes;
+pub mod furnace;

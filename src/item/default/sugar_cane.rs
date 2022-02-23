@@ -22,7 +22,7 @@ use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, Ite
 pub struct SugarCane;
 impl Block for SugarCane {
     fn dropped_items(&self, state: BlockState, held_item: crate::item::inventory_slot::InventorySlot) -> Vec<ItemStack> {
-        vec![ItemStack::new(self.id() as i16, 1, 0)]
+        vec![ItemStack::new(338, 1, 0)]
     }
     fn hardness(&self) -> i32 {
         1

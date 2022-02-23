@@ -71,7 +71,7 @@ impl Block for ChestBlock {
         server.broadcast_nearby_with(position.into(), |cl| {
             cl.send_block_action(position, 1, 1);
         });
-        let chest = game.block_entity_at(position).unwrap();
+        let chest = game.block_entity_at(position).ok_or(anyhow::anyhow!("a"))?;
         game.ecs
             .insert(player_entity, BlockInventoryOpen(position))?;
         let mut chest_items = game.ecs.get_mut::<ChestData>(chest)?;
@@ -227,7 +227,7 @@ impl ChestBlock {
             client.send_window_items(&w);
             drop(player);
         }
-        let be = game.block_entity_at(position).unwrap();
+        let be = game.block_entity_at(position).ok_or(anyhow::anyhow!("G"))?;
         let chest = game.ecs.get::<ChestData>(be)?.0.new_handle();
         for item in chest.to_vec() {
             if let InventorySlot::Filled(stack) = item {

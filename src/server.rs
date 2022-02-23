@@ -35,6 +35,7 @@ use crate::protocol::io::String16;
 use crate::protocol::packets::EntityEffectKind;
 use crate::protocol::packets::EnumMobType;
 use crate::protocol::packets::ObjectVehicleKind;
+use crate::protocol::packets::ProgressBarKind;
 use crate::protocol::packets::WindowKind;
 use crate::protocol::packets::server::AddObjectVehicle;
 use crate::protocol::packets::server::BlockAction;
@@ -71,6 +72,7 @@ use crate::protocol::packets::server::SoundEffect;
 use crate::protocol::packets::server::TimeUpdate;
 use crate::protocol::packets::server::Transaction;
 use crate::protocol::packets::server::UpdateHealth;
+use crate::protocol::packets::server::UpdateProgressBar;
 use crate::protocol::packets::server::UpdateSign;
 use crate::protocol::packets::server::WindowItems;
 use crate::protocol::packets::EntityAnimationType;
@@ -125,6 +127,13 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
+    pub fn update_progress_bar(&self, window_id: i8, progress_bar: ProgressBarKind, value: i16) {
+        self.send_packet(UpdateProgressBar {
+            wid: window_id,
+            progressbar: progress_bar,
+            value,
+        });
+    }
     pub fn spawn_mob(&self, id: NetworkID, mob_type: EnumMobType, position: Position, metadata: Metadata) {
         self.send_packet(MobSpawn {
             eid: id.0,
@@ -162,11 +171,33 @@ impl Client {
         });
     }
     pub fn send_entity_velocity(&self, id: NetworkID, x: f64, y: f64, z: f64) {
+        let mut d = x;
+        let mut d1 = y;
+        let mut d2 = z;
+        let mut d3 = 3.89;
+        if d < -d3 {
+            d = -d3;
+        }
+        if d1 < -d3 {
+            d1 = -d3;
+        }
+        if d2 < -d3 {
+            d2 = -d3;
+        }
+        if d > d3 {
+            d = d3;
+        }
+        if d1 > d3 {
+            d1 = d3;
+        }
+        if d2 > d3 {
+            d2 = d3;
+        }
         self.send_packet(EntityVelocity {
             eid: id.0,
-            velocity_x: (x * 8000.) as i16,
-            velocity_y: (y * 8000.) as i16,
-            velocity_z: (z * 8000.) as i16,
+            velocity_x: (d * 8000.) as i16,
+            velocity_y: (d1 * 8000.) as i16,
+            velocity_z: (d2 * 8000.) as i16,
         });
     } 
     pub fn send_collect_item(&self, collected: NetworkID, collector: NetworkID) {
@@ -278,9 +309,11 @@ impl Client {
         let inventory = entity.get::<Window>()?.inner().clone();
         let slot = inventory.item(SLOT_HOTBAR_OFFSET + hotbar_slot)?;
         self.entity_equipment(id, 0, &slot);
+        let mut iter = 4;
         for i in 1..5 {
             let slot = inventory.item(i + 4)?;
-            self.entity_equipment(id, i as i16, &slot);
+            self.entity_equipment(id, iter as i16, &slot);
+            iter -= 1;
         }
         Ok(())
     }
@@ -663,8 +696,8 @@ impl Server {
             c.send_effect(position, effect.clone(), data);
         });
     }
-    pub fn broadcast_equipment_change(&self, player: &EntityRef, world: i32) -> SysResult {
-        let id = player.get::<NetworkID>()?.deref().clone();
+    pub fn broadcast_equipment_change(&self, player: &EntityRef) -> SysResult {
+        let id = *player.get::<NetworkID>()?;
         self.broadcast_nearby_with(*player.get::<Position>()?, |cl| {
             if cl.id != id {
                 if let Err(e) = cl.send_entity_equipment(&player) {
