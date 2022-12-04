@@ -34,7 +34,7 @@ impl Block for FarmlandBlock {
     }
     fn neighbor_update(&self, _world: i32, game: &mut Game, position: BlockPosition, mut state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
         let above = position.offset(0, 1, 0);
-        if game.is_solid_block(above, above.world) {
+        if game.is_solid_block(above) {
             state.b_type = 3;
             state.b_metadata = 0;
             game.set_block(position, state, position.world);

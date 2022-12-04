@@ -55,8 +55,8 @@ impl Item for DoorItem {
                     }
                     _ => (),
                 }
-                let num1 = game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1, target.world), target.world) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1, target.world), target.world) as u8;
-                let num2 = game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1, target.world), target.world) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1, target.world), target.world) as u8;
+                let num1 = game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1, target.world)) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1, target.world)) as u8;
+                let num2 = game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1, target.world)) as u8 +  game.is_solid_block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1, target.world)) as u8;
                 let f = game.block(BlockPosition::new(block_pos.x - b0, block_pos.y, block_pos.z - b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x - b0, block_pos.y + 1, block_pos.z - b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64;
                 let f1 = game.block(BlockPosition::new(block_pos.x + b0, block_pos.y, block_pos.z + b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64 || game.block(BlockPosition::new(block_pos.x + b0, block_pos.y + 1, block_pos.z + b1, target.world), target.world).unwrap_or(BlockState::air()).b_type == 64;
                 let mut f2 = false;
@@ -108,7 +108,7 @@ impl Block for DoorBlock {
                         f = true;
                     }
                 }
-                if !game.is_solid_block(Face::NegativeY.offset(position), world) {
+                if !game.is_solid_block(Face::NegativeY.offset(position)) {
                     game.break_block(position, world);
                     f = true;
                     if game.block_id_at(Face::PositiveY.offset(position)) == self.id() {

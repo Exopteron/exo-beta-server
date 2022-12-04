@@ -15,7 +15,7 @@ impl ZombieEntityBuilder {
         builder.add(ZombieEntity);
         builder.add(EnumMobType::Zombie);
         builder.add(NetworkID::new());
-        builder.add(AABBSize::new(-0.3, 0.1, -0.3, 0.3, 1.6, 0.3));
+        builder.add(AABBSize::new(-0.3, 0.05, -0.3, 0.3, 1.6, 0.3));
         builder.add(Physics::new(true, 0.1, 1.));
         builder.add(Hunger(20, 0.0));
         builder.add(PreviousHunger(Hunger(20, 0.0)));

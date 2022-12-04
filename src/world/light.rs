@@ -380,6 +380,7 @@ impl LightPropagator {
         }
     }
     fn propagate(&mut self, game: &mut LightThreadManager) {
+        return;
         let mut registry = ItemRegistry::global();
         while !self.queue.is_empty() {
             //log::info!("In queue");
@@ -434,7 +435,7 @@ pub fn propagate_light(
     sky_light: bool,
 ) {
     //log::info!("Called");
-    if game.is_solid_block(position, world) {
+    if game.is_solid_block(position) {
         log::info!("Solid");
         return;
     }

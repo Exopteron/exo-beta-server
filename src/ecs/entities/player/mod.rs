@@ -188,6 +188,41 @@ pub struct LastPositionUpdate(pub u128);
 
 #[derive(Clone, Debug)]
 pub struct Blocking(pub bool);
+
+
+#[derive(Clone, Debug)]
+pub struct Sleeping {
+    bed_pos: Option<BlockPosition>,
+    sleeping: bool,
+    changed_flag: bool
+}
+impl Sleeping {
+    pub fn new() -> Self {
+        Self { bed_pos: None, sleeping: false, changed_flag: false }
+    }
+    pub fn unset_sleeping(&mut self) {
+        self.bed_pos = None;
+        self.sleeping = false;
+        self.changed_flag = true;
+    }
+    pub fn set_sleeping(&mut self, chunk: BlockPosition) {
+        self.bed_pos = Some(chunk);
+        self.sleeping = true;
+        self.changed_flag = true;
+    }
+    pub fn changed(&self) -> bool {
+        self.changed_flag
+    }
+    pub fn reset_changed(&mut self) {
+        self.changed_flag = false;
+    }
+    pub fn is_sleeping(&self) -> bool {
+        self.sleeping
+    }
+    pub fn bed_coords(&self) -> Option<BlockPosition> {
+        self.bed_pos
+    } 
+}
 pub struct PlayerBuilder {}
 impl PlayerBuilder {
     pub fn create(
@@ -236,6 +271,7 @@ impl PlayerBuilder {
         builder.add(PermissionLevel(perm_level));
         builder.add(LastPositionUpdate(game.ticks));
         builder.add(Blocking(false));
+        builder.add(Sleeping::new());
         if let Ok(p) = player_dat {
             builder.add(Health(p.health, DamageType::None, false));
             builder.add(PreviousHealth(Health(-1, DamageType::None, false)));

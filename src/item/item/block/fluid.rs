@@ -71,7 +71,7 @@ pub trait FluidBlock {
                 }
             }
             if num_adjacent_sources >= 2 {
-                if game.is_solid_block(position.offset(0, -1, 0), world) {
+                if game.is_solid_block(position.offset(0, -1, 0)) {
                     let _ = ();
                     var10 = 0;
                 } else if self.is_water(game.block_id_at(position.offset(0, -1, 0)))
@@ -245,7 +245,7 @@ pub trait FluidBlock {
         if var5 == 0 {
             return false;
         }
-        game.is_solid_block(position, world)
+        game.is_solid_block(position)
     }
     /// SOLID
     fn liquid_can_displace_block(

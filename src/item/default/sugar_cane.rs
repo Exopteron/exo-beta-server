@@ -64,7 +64,7 @@ impl Block for SugarCane {
     fn neighbor_update(&self, world: i32, game: &mut Game, position: BlockPosition, state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
         if !self.can_place_on(world, game, position, Face::Invalid) {
             game.break_block(position, world);
-            let dropped_item = ItemEntityBuilder::build(game, position.into(), ItemStack::new(self.id() as i16, 1, 0));
+            let dropped_item = ItemEntityBuilder::build(game, position.into(), ItemStack::new(338, 1, 0));
             game.spawn_entity(dropped_item);
         }
         Ok(())

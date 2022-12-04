@@ -74,6 +74,7 @@ use crate::protocol::packets::server::Transaction;
 use crate::protocol::packets::server::UpdateHealth;
 use crate::protocol::packets::server::UpdateProgressBar;
 use crate::protocol::packets::server::UpdateSign;
+use crate::protocol::packets::server::UseBed;
 use crate::protocol::packets::server::WindowItems;
 use crate::protocol::packets::EntityAnimationType;
 use crate::protocol::packets::EntityStatusKind;
@@ -127,6 +128,13 @@ pub struct Client {
     client_known_position: Cell<Option<Position>>,
 }
 impl Client {
+    pub fn use_bed(&self, id: NetworkID, position: BlockPosition, in_bed: bool) {
+        self.send_packet(UseBed {
+            eid: id.0,
+            in_bed: !in_bed as u8 as i8,
+            pos: position
+        });
+    }
     pub fn update_progress_bar(&self, window_id: i8, progress_bar: ProgressBarKind, value: i16) {
         self.send_packet(UpdateProgressBar {
             wid: window_id,
@@ -394,6 +402,12 @@ impl Client {
             online: false,
             ping: 0,
         });
+    }
+    pub fn wake_up_sleeping(&self) {
+        self.send_packet(SendEntityAnimation {
+            eid: self.id.0,
+            animation: EntityAnimationType::LeaveBed
+        })
     }
     pub fn send_entity_animation(&self, network_id: NetworkID, animation: EntityAnimationType) {
         if self.id == network_id {

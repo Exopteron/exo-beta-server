@@ -8,7 +8,7 @@ use crate::{
             living::{Dead, Health, Hunger, PreviousHealth, PreviousHunger, Regenerator},
             player::{
                 Chatbox, Gamemode, HitCooldown, HotbarSlot, ItemInUse, OffgroundHeight, Player,
-                PreviousGamemode, Username, SLOT_HOTBAR_OFFSET,
+                PreviousGamemode, Username, SLOT_HOTBAR_OFFSET, Sleeping,
             },
         },
         systems::{SysResult, SystemExecutor},
@@ -27,7 +27,7 @@ use crate::{
     player_dat::PlayerDat,
     protocol::{
         io::String16,
-        packets::{server::ChatMessage, EntityStatusKind},
+        packets::{server::ChatMessage, EntityStatusKind, client::Animation, EntityAnimationType},
     },
     server::Server,
     status_effects::StatusEffectsManager,
@@ -72,7 +72,39 @@ pub fn init_systems(s: &mut SystemExecutor<Game>) {
         .add_system(notify_pos)
         .add_system(velocity)
         .add_system(item_use_ticker)
-        .add_system(update_metadata);
+        .add_system(update_metadata)
+        .add_system(update_sleeping);
+}
+fn update_sleeping(game: &mut Game, server: &mut Server) -> SysResult {
+    let mut num_sleeping = 0;
+    for (_, (_, id, sleeping, pos)) in game.ecs.query::<(&Player, &NetworkID, &mut Sleeping, &mut Position)>().iter() {
+        if sleeping.changed() {
+            let client = server.clients.get(id).unwrap();
+            if sleeping.is_sleeping() {
+                server.broadcast_nearby_with(*pos, |client| {
+                    client.use_bed(*id, sleeping.bed_coords().unwrap(), true);
+                });
+            } else {
+                server.broadcast_nearby_with(*pos, |cl| {
+                    cl.send_entity_animation(*id, EntityAnimationType::LeaveBed);
+                });
+                client.wake_up_sleeping();
+            }
+            sleeping.reset_changed();
+        }
+        if sleeping.is_sleeping() {
+            num_sleeping += 1;
+        }
+    }
+    if num_sleeping == server.player_count.get() {
+        for (_, (_, id, sleeping, pos)) in game.ecs.query::<(&Player, &NetworkID, &mut Sleeping, &mut Position)>().iter() {
+            let client = server.clients.get(id).unwrap();
+            sleeping.unset_sleeping();
+            client.wake_up_sleeping();
+        }
+        game.worlds.get_mut(&0).unwrap().time = 1000 as i64;
+    }
+    Ok(())
 }
 
 fn update_metadata(game: &mut Game, server: &mut Server) -> SysResult {

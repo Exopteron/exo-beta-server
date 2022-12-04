@@ -244,4 +244,9 @@ packets! {
         progressbar ProgressBarKind;
         value i16;
     }
+    UseBed {
+        eid i32;
+        in_bed i8;
+        pos BlockPosition;
+    }
 }

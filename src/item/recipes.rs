@@ -4,6 +4,8 @@ pub fn register_furnace(recipes: &mut FurnaceSolver) {
     recipes.add_item(4, ItemStack::new(1, 1, 0));
 
     recipes.add_item(15, ItemStack::new(265, 1, 0));
+
+    recipes.add_item(12, ItemStack::new(20, 1, 0));
 }
 pub fn register(recipes: &mut Solver) {
     let planks = ItemStack::new(5, 1, 0);

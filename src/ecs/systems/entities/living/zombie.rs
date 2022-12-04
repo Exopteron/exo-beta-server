@@ -40,7 +40,7 @@ fn fling(game: &mut Game) -> SysResult {
             pos.pitch %= 360.;
             *game.ecs.entity(e)?.get_mut::<Position>()? = pos;
             let mut physics = game.ecs.entity(e)?.get_mut::<Physics>()?;
-            physics.add_velocity(mult.x, 0., mult.z);
+            physics.add_velocity(mult.x, 0.0, mult.z);
         }
     }
     Ok(())

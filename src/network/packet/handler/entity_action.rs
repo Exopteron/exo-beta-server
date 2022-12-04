@@ -1,6 +1,16 @@
 use hecs::Entity;
 
-use crate::{protocol::packets::{client::EntityAction, EntityActionKind}, game::Game, ecs::{entities::player::{Sneaking, Sprinting}, systems::SysResult}, events::{SneakEvent, SprintEvent}, network::metadata::Metadata, entities::metadata::EntityBitMask};
+use crate::{
+    ecs::{
+        entities::player::{Sneaking, Sprinting, Sleeping},
+        systems::SysResult,
+    },
+    entities::metadata::EntityBitMask,
+    events::{SneakEvent, SprintEvent},
+    game::Game,
+    network::metadata::Metadata,
+    protocol::packets::{client::EntityAction, EntityActionKind},
+};
 
 ///  From [wiki](https://wiki.vg/Protocol#Entity_Action)
 ///  Sent by the client to indicate that it has performed certain actions:
@@ -29,7 +39,9 @@ pub fn handle_entity_action(game: &mut Game, player: Entity, packet: EntityActio
             }
         }
         EntityActionKind::LeaveBed => {
-            
+            println!("Leave bed");
+            let mut sleeping = game.ecs.get_mut::<Sleeping>(player)?;
+            sleeping.unset_sleeping();
         }
         EntityActionKind::StartSprinting | EntityActionKind::StopSprinting => {
             let start_sprinting = matches!(packet.action_id, EntityActionKind::StartSprinting);

@@ -26,12 +26,16 @@ pub mod commands;
 use anyhow::anyhow;
 use logging::file::LogManager;
 use std::cell::RefCell;
+use std::env::args;
 use std::io::Read;
 pub mod jvm;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn main() -> anyhow::Result<()> {
+    println!("C");
+    println!("B");
     std::fs::create_dir_all("local/")?;
+    println!("A");
     let appender = logging::setup_logging();
     let start = Instant::now();
     let mut manager = PluginManager::new();

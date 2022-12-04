@@ -27,11 +27,13 @@ mod leaves;
 mod stick;
 mod falling_block;
 mod crafting_table;
+mod redstone;
 pub mod tools;
 mod farmland;
 mod foods;
 mod crops;
 mod ore;
+mod bed;
 use crate::{
     ecs::{entities::{player::Chatbox, falling_block::FallingBlockEntityData}, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
@@ -41,7 +43,7 @@ use crate::{
     world::chunks::BlockState,
 };
 
-use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem, sword::SwordItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}, ore::OreBlock};
+use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem, sword::SwordItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}, ore::OreBlock, redstone::{RedstoneItem, RedstoneDustBlock}, bed::{BedItem, BedBlock}};
 
 use super::{item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry}, inventory_slot::InventorySlot, stack::ItemStack};
 
@@ -430,6 +432,7 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_block(LeavesBlock);
     registry.register_item(StickItem);
     registry.register_item(GenericItem(265));
+    registry.register_item(GenericItem(263));
     registry.register_block(FallingBlock(FallingBlockEntityData::Gravel));
     registry.register_block(FallingBlock(FallingBlockEntityData::Sand));
     registry.register_block(CraftingTable);
@@ -450,9 +453,14 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_item(AxeItem(275, ToolMaterials::Stone));
     registry.register_burnability(17, 300); // log
     registry.register_block(OreBlock(15, ToolMaterials::Stone, || ItemStack::new(15, 1, 0))); // iron ore
+    registry.register_block(OreBlock(15, ToolMaterials::Stone, || ItemStack::new(263, 3, 0))); // iron ore
     registry.register_item(SwordItem(267, ToolMaterials::Iron)); // iron sword
     registry.register_item(GenericItem(338)); // cane
     registry.register_item(GenericItem(347)); // clock
+    registry.register_item(RedstoneItem {}); // clock
+    registry.register_block(RedstoneDustBlock); // clock
+    registry.register_item(BedItem); // bed
+    registry.register_block(BedBlock); // bed
     //registry.register_block(MovingWaterBlock(8));
     //registry.register_block(NotFlowingWaterBlock);
     //registry.register_item(WaterBucketItem);

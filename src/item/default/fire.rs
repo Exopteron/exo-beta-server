@@ -117,7 +117,7 @@ impl Block for FireBlock {
             });
             if !flag
                 && !Self::burnable_surround(world, game, position)
-                && (game.is_solid_block(position.offset(0, -1, 0), world) || state.b_metadata > 3)
+                && (game.is_solid_block(position.offset(0, -1, 0)) || state.b_metadata > 3)
             {
                 game.break_block(position, world);
                 return;
@@ -173,11 +173,11 @@ impl Block for FireBlock {
         face: Face,
     ) -> bool {
         let pos = face.offset(position);
-        game.is_solid_block(pos, world) || Self::burnable_surround(world, game, pos)
+        game.is_solid_block(pos) || Self::burnable_surround(world, game, pos)
     }
 
     fn neighbor_update(&self, world: i32, game: &mut Game, position: BlockPosition, state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
-        if !game.is_solid_block(position.offset(0, -1, 0), world) && !Self::burnable_surround(world, game, position) {
+        if !game.is_solid_block(position.offset(0, -1, 0)) && !Self::burnable_surround(world, game, position) {
             game.break_block(position, world);
         }
         Ok(())

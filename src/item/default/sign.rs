@@ -39,7 +39,7 @@ impl Item for SignItem {
             if matches!(target.face, Face::Invalid) || matches!(target.face, Face::NegativeY) {
                 return Ok(());
             }
-            if !game.is_solid_block(target.position, target.world) {
+            if !game.is_solid_block(target.position) {
                 return Ok(());
             }
             match target.face {
@@ -61,11 +61,11 @@ impl Item for SignItem {
                     target.position.x += 1;
                 }
             }
-            if game.is_solid_block(target.position, target.world) {
+            if game.is_solid_block(target.position) {
                 return Ok(());
             }
             if matches!(target.face, Face::PositiveY) {
-                let pos = game.ecs.get::<Position>(user)?.deref().clone();
+                let pos = *game.ecs.get::<Position>(user)?;
                 game.set_block(target.position, BlockState::new(63, (fd(((((pos.yaw + 180.0) * 16.0) / 360.0) as f64) + 0.5) & 0xf) as u8), target.world);
             } else {
                 game.set_block(target.position, BlockState::new(68, ((target.face as i8) - 1) as u8), target.world);
@@ -103,25 +103,25 @@ impl Block for SignBlock {
         if !matches!(offset, Face::Invalid) {
             let mut f = false;
             if self.id == 63 {
-                if !game.is_solid_block(Face::NegativeY.offset(position), world)
+                if !game.is_solid_block(Face::NegativeY.offset(position))
                 {
                     f = true;
                 }    
             } else {
                 f = true;
-                if state.b_metadata == 2 && game.is_solid_block(Face::PositiveZ.offset(position), world)
+                if state.b_metadata == 2 && game.is_solid_block(Face::PositiveZ.offset(position))
                 {
                     f = false;
                 }
-                if state.b_metadata == 3 && game.is_solid_block(Face::NegativeX.offset(position), world)
+                if state.b_metadata == 3 && game.is_solid_block(Face::NegativeX.offset(position))
                 {
                     f = false;
                 }
-                if state.b_metadata == 4 && game.is_solid_block(Face::PositiveX.offset(position), world)
+                if state.b_metadata == 4 && game.is_solid_block(Face::PositiveX.offset(position))
                 {
                     f = false;
                 }
-                if state.b_metadata == 5 && game.is_solid_block(Face::NegativeX.offset(position), world)
+                if state.b_metadata == 5 && game.is_solid_block(Face::NegativeX.offset(position))
                 {
                     f = false;
                 }

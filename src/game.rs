@@ -628,8 +628,8 @@ impl Game {
         commands.execute(self, server, executor, command)
     }
     /// Checks if the block at the given position is solid.
-    pub fn is_solid_block(&self, pos: BlockPosition, world: i32) -> bool {
-        if let Some(world) = self.worlds.get(&world) {
+    pub fn is_solid_block(&self, pos: BlockPosition) -> bool {
+        if let Some(world) = self.worlds.get(&pos.world) {
             if let Some(block) = world.block_at(pos) {
                 return block.is_solid();
             }

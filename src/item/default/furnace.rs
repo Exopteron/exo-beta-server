@@ -51,7 +51,7 @@ impl Block for FurnaceBlock {
         server.broadcast_nearby_with(position.into(), |cl| {
             cl.send_block_action(position, 1, 1);
         });
-        let chest = game.block_entity_at(position).unwrap();
+        let chest = game.block_entity_at(position).expect("There should be a block entity here");
         game.ecs
             .insert(player_entity, BlockInventoryOpen(position))?;
         let mut chest_items = game.ecs.get_mut::<FurnaceData>(chest)?;

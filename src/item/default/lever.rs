@@ -42,22 +42,22 @@ impl Block for LeverBlock {
         let placer_pos = game.ecs.get::<Position>(entity).unwrap().deref().clone();
         let j1 = item.damage_taken() & 8;
         let mut b0 = -1;
-        if matches!(face, Face::NegativeY) && game.is_solid_block(position.offset(0, 1, 0), world) {
+        if matches!(face, Face::NegativeY) && game.is_solid_block(position.offset(0, 1, 0)) {
             b0 = 0;
         }
-        if matches!(face, Face::PositiveY) && game.is_solid_block(position.offset(0, -1, 0), world) {
+        if matches!(face, Face::PositiveY) && game.is_solid_block(position.offset(0, -1, 0)) {
             b0 = 5;
         }
-        if matches!(face, Face::NegativeZ) && game.is_solid_block(position.offset(0, 0, 1), world) {
+        if matches!(face, Face::NegativeZ) && game.is_solid_block(position.offset(0, 0, 1)) {
             b0 = 4;
         }
-        if matches!(face, Face::PositiveZ) && game.is_solid_block(position.offset(0, 0, -1), world) {
+        if matches!(face, Face::PositiveZ) && game.is_solid_block(position.offset(0, 0, -1)) {
             b0 = 3;
         }
-        if matches!(face, Face::NegativeX) && game.is_solid_block(position.offset(1, 0, 0), world) {
+        if matches!(face, Face::NegativeX) && game.is_solid_block(position.offset(1, 0, 0)) {
             b0 = 2;
         }
-        if matches!(face, Face::PositiveX) && game.is_solid_block(position.offset(-1, 0, 0), world) {
+        if matches!(face, Face::PositiveX) && game.is_solid_block(position.offset(-1, 0, 0)) {
             b0 = 1;
         }
         let b0 = b0 + j1;
@@ -101,28 +101,28 @@ impl Block for LeverBlock {
         if self.is_attached(world, game, position) {
             let i1 = state.b_metadata & 7;
             let mut f = false;
-            if !game.is_solid_block(position.offset(-1, 0, 0), world) && i1 == 1 {
+            if !game.is_solid_block(position.offset(-1, 0, 0)) && i1 == 1 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(1, 0, 0), world) && i1 == 2 {
+            if !game.is_solid_block(position.offset(1, 0, 0)) && i1 == 2 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(0, 0, -1), world) && i1 == 3 {
+            if !game.is_solid_block(position.offset(0, 0, -1)) && i1 == 3 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(0, 0, 1), world) && i1 == 4 {
+            if !game.is_solid_block(position.offset(0, 0, 1)) && i1 == 4 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(0, -1, 0), world) && i1 == 5 {
+            if !game.is_solid_block(position.offset(0, -1, 0)) && i1 == 5 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(0, -1, 0), world) && i1 == 6 {
+            if !game.is_solid_block(position.offset(0, -1, 0)) && i1 == 6 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(0, 1, 0), world) && i1 == 0 {
+            if !game.is_solid_block(position.offset(0, 1, 0)) && i1 == 0 {
                 f = true;
             }
-            if !game.is_solid_block(position.offset(0, 1, 0), world) && i1 == 7 {
+            if !game.is_solid_block(position.offset(0, 1, 0)) && i1 == 7 {
                 f = true;
             }
             if f {
@@ -139,19 +139,19 @@ impl Block for LeverBlock {
         face: Face,
     ) -> bool {
         let position = face.offset(position);
-        if game.is_solid_block(position.offset(-1, 0, 0), world) {
+        if game.is_solid_block(position.offset(-1, 0, 0)) {
             return true;
         }
-        if game.is_solid_block(position.offset(1, 0, 0), world) {
+        if game.is_solid_block(position.offset(1, 0, 0)) {
             return true;
         }
-        if game.is_solid_block(position.offset(0, 0, -1), world) {
+        if game.is_solid_block(position.offset(0, 0, -1)) {
             return true;
         }
-        if game.is_solid_block(position.offset(0, 0, 1), world) {
+        if game.is_solid_block(position.offset(0, 0, 1)) {
             return true;
         }
-        return game.is_solid_block(position.offset(0, -1, 0), world)
+        return game.is_solid_block(position.offset(0, -1, 0))
     }
 
     fn id(&self) -> BlockIdentifier {

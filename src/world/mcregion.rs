@@ -2,6 +2,7 @@ use anvil_region::position::RegionChunkPosition;
 use anvil_region::position::RegionPosition;
 use anvil_region::provider::FolderRegionProvider;
 use anvil_region::provider::RegionProvider;
+use anyhow::bail;
 use nbt::encode::write_zlib_compound_tag;
 use nbt::CompoundTag;
 use once_cell::sync::OnceCell;
@@ -68,16 +69,27 @@ impl MCRegionLoader {
         let mut root_tag = CompoundTag::new();
         let mut level_tag = CompoundTag::new();
         level_tag.insert_compound_tag_vec("TileEntities", tile_entities);
-        let mut chunk = match chunk.try_read() {
-            Some(chunk) => chunk,
-            None => {
-                return Err(anyhow::anyhow!("Couldn't grab chunk"));
+        let mut chunk = {
+            let mut x = None;
+            for _ in 0..3 {
+                x = match chunk.try_read() {
+                    Some(chunk) => Some(chunk),
+                    None => {
+                        continue;
+                    }
+                };
+                break;
+            }
+            if let Some(x) = x {
+                x
+            } else {
+                bail!("Couldn't grab chunk after 3 tries")
             }
         };
         let mut block_data = Vec::with_capacity(chunk.data.len());
-        let mut metadata = Vec::with_capacity(chunk.data.len() / 2);
-        let mut skylight = Vec::with_capacity(chunk.data.len() / 2);
-        let mut blocklight = Vec::with_capacity(chunk.data.len() / 2);
+        let mut metadata = Vec::with_capacity(chunk.data.len());
+        let mut skylight = Vec::with_capacity(chunk.data.len());
+        let mut blocklight = Vec::with_capacity(chunk.data.len());
         for x in 0..16 {
             for z in 0..16 {
                 for y in 0..128 {
@@ -92,11 +104,11 @@ impl MCRegionLoader {
         let v = crate::world::chunks::compress_to_nibble(skylight).unwrap_or_default();
         let v = vec_u8_into_i8(v);
         level_tag.insert_i8_vec("SkyLight", v);
-        let v = crate::world::chunks::compress_to_nibble(blocklight).unwrap_or(Vec::new());
+        let v = crate::world::chunks::compress_to_nibble(blocklight).unwrap_or_default();
         let v = vec_u8_into_i8(v);
         level_tag.insert_i8_vec("BlockLight", v);
         //log::info!("Block len: {:?}", block_data.len());
-        let metadata = crate::world::chunks::compress_to_nibble(metadata).unwrap_or(Vec::new());
+        let metadata = crate::world::chunks::compress_to_nibble(metadata).unwrap_or_default();
         let metadata = vec_u8_into_i8(metadata);
         level_tag.insert_i8_vec("Data", metadata);
         level_tag.insert_i8_vec("Blocks", block_data);

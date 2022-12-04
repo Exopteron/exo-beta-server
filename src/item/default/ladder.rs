@@ -61,22 +61,22 @@ impl Block for LadderBlock {
         position = face.offset(position);
         let mut meta = 0;
         if (meta == 0 || matches!(face, Face::NegativeZ))
-            && game.is_solid_block(Face::PositiveZ.offset(position), world)
+            && game.is_solid_block(Face::PositiveZ.offset(position))
         {
             meta = 2;
         }
         if (meta == 0 || matches!(face, Face::PositiveZ))
-            && game.is_solid_block(Face::NegativeZ.offset(position), world)
+            && game.is_solid_block(Face::NegativeZ.offset(position))
         {
             meta = 3;
         }
         if (meta == 0 || matches!(face, Face::NegativeX))
-            && game.is_solid_block(Face::PositiveX.offset(position), world)
+            && game.is_solid_block(Face::PositiveX.offset(position))
         {
             meta = 4;
         }
         if (meta == 0 || matches!(face, Face::PositiveX))
-            && game.is_solid_block(Face::NegativeX.offset(position), world)
+            && game.is_solid_block(Face::NegativeX.offset(position))
         {
             meta = 5;
         }
@@ -99,19 +99,19 @@ impl Block for LadderBlock {
     ) -> SysResult {
         if !matches!(offset, Face::Invalid) {
             let mut f = false;
-            if state.b_metadata == 2 && game.is_solid_block(Face::PositiveZ.offset(position), world)
+            if state.b_metadata == 2 && game.is_solid_block(Face::PositiveZ.offset(position))
             {
                 f = true;
             }
-            if state.b_metadata == 3 && game.is_solid_block(Face::NegativeX.offset(position), world)
+            if state.b_metadata == 3 && game.is_solid_block(Face::NegativeX.offset(position))
             {
                 f = true;
             }
-            if state.b_metadata == 4 && game.is_solid_block(Face::PositiveX.offset(position), world)
+            if state.b_metadata == 4 && game.is_solid_block(Face::PositiveX.offset(position))
             {
                 f = true;
             }
-            if state.b_metadata == 5 && game.is_solid_block(Face::NegativeX.offset(position), world)
+            if state.b_metadata == 5 && game.is_solid_block(Face::NegativeX.offset(position))
             {
                 f = true;
             }
@@ -132,16 +132,16 @@ impl Block for LadderBlock {
         face: Face,
     ) -> bool {
         let position = face.offset(position);
-        if game.is_solid_block(Face::NegativeX.offset(position), world) {
+        if game.is_solid_block(Face::NegativeX.offset(position)) {
             return true;
         }
-        if game.is_solid_block(Face::PositiveX.offset(position), world) {
+        if game.is_solid_block(Face::PositiveX.offset(position)) {
             return true;
         }
-        if game.is_solid_block(Face::NegativeZ.offset(position), world) {
+        if game.is_solid_block(Face::NegativeZ.offset(position)) {
             return true;
         }
-        return game.is_solid_block(Face::PositiveZ.offset(position), world);
+        return game.is_solid_block(Face::PositiveZ.offset(position));
     }
     fn opaque(&self) -> bool {
         false

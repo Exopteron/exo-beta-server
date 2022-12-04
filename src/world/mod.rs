@@ -3,20 +3,23 @@ pub mod generation;
 pub mod view;
 use std::{
     collections::{HashMap, HashSet},
+    fs::{self, File},
     mem::{replace, take},
+    path::PathBuf,
     sync::{atomic::AtomicBool, Arc},
-    time::Instant, path::PathBuf, fs::{File, self},
+    time::Instant,
 };
 pub mod worker;
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use hecs::Entity;
-use nbt::{decode::read_compound_tag, CompoundTag, encode::write_compound_tag};
+use nbt::{decode::read_compound_tag, encode::write_compound_tag, CompoundTag};
 use parking_lot::Mutex;
 use retain_mut::RetainMut;
-
+pub mod nibblearray;
 use crate::{
-    aabb::{AABBSize, AABB, SweeptestOutput},
+    aabb::{AABBSize, SweeptestOutput, AABB},
     block_entity::{BlockEntity, BlockEntityNBTLoaders, BlockEntitySaver},
+    configuration::CONFIGURATION,
     ecs::{
         entities::player::{ChunkLoadQueue, Player},
         systems::{world::light::LightPropagationManager, SysResult},
@@ -25,7 +28,8 @@ use crate::{
     events::ChunkLoadEvent,
     game::{BlockPosition, ChunkCoords, Game, Position},
     item::item::{block::AtomicRegistryBlock, ItemRegistry},
-    world::{worker::SaveRequest, generation::WorldgenRegistry}, configuration::CONFIGURATION, protocol::packets::Face,
+    protocol::packets::Face,
+    world::{generation::WorldgenRegistry, worker::SaveRequest},
 };
 
 pub mod chunk_entities;
@@ -121,7 +125,11 @@ impl World {
         });
         blocks
     }
-    pub fn get_possible_collisions(&self, aabb: &AABBSize, position: &Position) -> Vec<(AtomicRegistryBlock, BlockState, BlockPosition)> {
+    pub fn get_possible_collisions(
+        &self,
+        aabb: &AABBSize,
+        position: &Position,
+    ) -> Vec<(AtomicRegistryBlock, BlockState, BlockPosition)> {
         let mut blocks = Vec::new();
         //log::info!("Called get col");
         let registry = ItemRegistry::global();
@@ -156,16 +164,20 @@ impl World {
         let mut blocks = Vec::new();
         //log::info!("Called get col");
         let mut registry = ItemRegistry::global();
-        for x in (position.x - 3.0 + aabb.minx).floor() as i32
-            ..(position.x + 3.0 + aabb.maxx).floor() as i32
-        {
-            for y in (position.y - 3.0 + aabb.miny).floor() as i32
-                ..(position.y + 3.0 + aabb.maxy).floor() as i32
-            {
-                for z in (position.z - 3.0 + aabb.minz).floor() as i32
-                    ..(position.z + 3.0 + aabb.maxz).floor() as i32
-                {
-                    let p = BlockPosition::new(x, y, z, position.world);
+
+        let test = aabb.get(position);
+        let i = test.minx.floor() as i32;
+        let j = (test.maxx + 1.0).floor() as i32;
+        let k = test.miny.floor() as i32;
+
+        let l = (test.maxy + 1.0).floor() as i32;
+        let i1 = test.minz.floor() as i32;
+        let j1 = (test.maxz + 1.0).floor() as i32;
+
+        for k1 in i - 10..j + 10 {
+            for l1 in i1 - 10..j1 + 10 {
+                for i2 in k - 10..l + 10 {
+                    let p = BlockPosition::new(k1, i2, l1, position.world);
                     if let Some(state) = self.block_at(p) {
                         if !state.is_air() {
                             if let Some(block) = registry.get_block(state.b_type) {
@@ -264,7 +276,9 @@ impl World {
         nlh: bool,
     ) -> bool {
         if pos.within_border(CONFIGURATION.world_border) {
-            return self.chunk_map.set_block_at(self.id, Some(light), pos, block, nlh);
+            return self
+                .chunk_map
+                .set_block_at(self.id, Some(light), pos, block, nlh);
         }
         false
     }
@@ -338,12 +352,18 @@ impl World {
             self.chunk_worker.queue_load(req);
         }
     }
-    pub fn from_file_mcr(dir: impl Into<PathBuf>, world_type: i8, level_dat: AtomicLevelDat) -> anyhow::Result<Self> {
+    pub fn from_file_mcr(
+        dir: impl Into<PathBuf>,
+        world_type: i8,
+        level_dat: AtomicLevelDat,
+    ) -> anyhow::Result<Self> {
         let dir = dir.into();
         log::info!("Loading world from {:?}", dir);
         let shutdown = Arc::new(AtomicBool::new(false));
         let seed = level_dat.lock().world_seed;
-        let generator = WorldgenRegistry::get().get_generator(&CONFIGURATION.chunk_generator.name(), seed, world_type).ok_or(anyhow::anyhow!("No such generator"))?;
+        let generator = WorldgenRegistry::get()
+            .get_generator(&CONFIGURATION.chunk_generator.name(), seed, world_type)
+            .ok_or(anyhow::anyhow!("No such generator"))?;
         let world = Self {
             chunk_worker: ChunkWorker::new(dir.clone(), seed, generator, shutdown.clone()),
             chunk_map: ChunkMap::new(),
@@ -356,7 +376,10 @@ impl World {
             world_dir: dir,
             time: 0,
         };
-        log::info!("Using world generator {:?}", CONFIGURATION.chunk_generator.name());
+        log::info!(
+            "Using world generator {:?}",
+            CONFIGURATION.chunk_generator.name()
+        );
         Ok(world)
     }
     pub fn pos_to_index(x: i32, y: i32, z: i32) -> Option<(i32, i32, i32)> {
@@ -371,7 +394,7 @@ impl World {
     pub fn is_chunk_loaded(&self, pos: &ChunkCoords) -> bool {
         self.chunk_map.0.contains_key(pos)
     }
-    pub fn loaded_chunks(&self) -> Vec<ChunkCoords> {
+    pub fn loaded_chunks(&self) -> AHashSet<ChunkCoords> {
         self.chunk_map.0.keys().cloned().collect()
     }
 }
@@ -418,17 +441,28 @@ impl LevelDat {
                 let spawn_x = tag.get_i32("SpawnX").unwrap_or(0);
                 let spawn_y = tag.get_i32("SpawnY").unwrap_or(75);
                 let spawn_z = tag.get_i32("SpawnZ").unwrap_or(0);
-                let seed = tag.get_i64("RandomSeed").unwrap_or(CONFIGURATION.world_seed.seed as i64) as u64;
-                Some(Self { spawn_point: BlockPosition::new(spawn_x, spawn_y, spawn_z, world_type), world_seed: seed })
+                let seed =
+                    tag.get_i64("RandomSeed")
+                        .unwrap_or(CONFIGURATION.world_seed.seed as i64) as u64;
+                Some(Self {
+                    spawn_point: BlockPosition::new(spawn_x, spawn_y, spawn_z, world_type),
+                    world_seed: seed,
+                })
             });
             let x = x();
             if let Some(x) = x {
                 x
             } else {
-                Self { spawn_point: BlockPosition::new(0, 75, 0, world_type), world_seed: CONFIGURATION.world_seed.seed as u64 }
+                Self {
+                    spawn_point: BlockPosition::new(0, 75, 0, world_type),
+                    world_seed: CONFIGURATION.world_seed.seed as u64,
+                }
             }
         } else {
-            Self { spawn_point: BlockPosition::new(0, 75, 0, world_type), world_seed: CONFIGURATION.world_seed.seed as u64 }
+            Self {
+                spawn_point: BlockPosition::new(0, 75, 0, world_type),
+                world_seed: CONFIGURATION.world_seed.seed as u64,
+            }
         }
     }
     pub fn to_file(&self, file: impl Into<PathBuf>) -> anyhow::Result<()> {
