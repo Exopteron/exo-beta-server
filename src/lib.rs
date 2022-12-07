@@ -19,6 +19,7 @@ pub mod translation;
 pub mod world;
 pub mod status_effects;
 pub mod physics;
+pub mod entity_loader;
 mod player_dat;
 use configuration::CONFIGURATION;
 use feather_tick_loop::TickLoop;
@@ -29,6 +30,7 @@ use std::cell::RefCell;
 use std::env::args;
 use std::io::Read;
 pub mod jvm;
+pub mod sleep;
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 pub async fn main() -> anyhow::Result<()> {
@@ -40,6 +42,7 @@ pub async fn main() -> anyhow::Result<()> {
     let start = Instant::now();
     let mut manager = PluginManager::new();
     let mut loaders = BlockEntityNBTLoaders::default();
+    let mut reg_loaders = RegEntityNBTLoaders::default();
     let mut recipes = Solver::new();
     let mut item_registry = ItemRegistry::new(recipes);
     manager.register_items(&mut item_registry);
@@ -79,12 +82,15 @@ pub async fn main() -> anyhow::Result<()> {
         Ok(())
     }); */
     let mut game = game::Game::new(manager);
+    game.insert_object(loaders);
+    game.insert_object(reg_loaders);
     game.insert_object(Scheduler::new());
     game.insert_object(OpManager::new());
-    ecs::systems::default_systems(&mut game, &mut systems);
-    let plugins = game.plugins.clone();
-    let mut plugins = plugins.borrow_mut();
-    plugins.load_all(&mut game, &mut systems);
+    game.insert_object(SleepManager::new());
+    ecs::systems::default_systems(&mut game, &mut systems)?;
+    // let plugins = game.plugins.clone();
+    // let mut plugins = plugins.borrow_mut();
+    // plugins.load_all(&mut game, &mut systems);
     let server = server::Server::bind().await?;
     server.register(&mut game);
     game.insert_object(translation);
@@ -92,7 +98,7 @@ pub async fn main() -> anyhow::Result<()> {
     log::info!("---SYSTEMS---\n{:#?}\n", systems_list);
     game.systems = Arc::new(RefCell::new(systems));
     game.insert_object(BlockUpdateManager::new());
-    game.insert_object(loaders);
+
     log::info!(
         "Done! ({}ms) For command help, run \"help\".",
         start.elapsed().as_millis()
@@ -132,6 +138,7 @@ use crate::configuration::OpManager;
 use crate::ecs::entities::player::{Username, Player};
 use crate::ecs::systems::world::block::update::BlockUpdateManager;
 use crate::ecs::systems::SystemExecutor;
+use crate::entity_loader::RegEntityNBTLoaders;
 use crate::game::{Game, Scheduler};
 use crate::item::crafting::{Solver, ShapelessRecipe};
 use crate::item::default;
@@ -141,6 +148,7 @@ use crate::jvm::JVMSetup;
 use crate::player_dat::PlayerDat;
 use crate::plugins::PluginManager;
 use crate::server::Server;
+use crate::sleep::SleepManager;
 use crate::translation::TranslationManager;
 use crate::world::generation::WorldgenRegistry;
 use crate::world::generation::mcvanillagenerator::VanillaWorldGenerator;

@@ -26,10 +26,11 @@ impl Block for GlassBlock {
     fn item_stack_size(&self) -> i8 {
         64
     }
-    fn is_solid(&self) -> bool {
-        false
-    }
+
     fn opaque(&self) -> bool {
         false
+    }
+    fn opacity(&self) -> u8 {
+        0
     }
 }

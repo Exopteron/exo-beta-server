@@ -444,6 +444,7 @@ pub fn handle_player_block_placement(
                                         None
                                     }
                                 } else {
+                                    println!("Cant overwrit");
                                     None
                                 }
                             } else {
@@ -480,7 +481,7 @@ pub fn handle_player_block_placement(
                     };
                     game.set_block(event.location, block, world);
                     let mut update_manager = game.objects.get_mut::<BlockUpdateManager>()?;
-                    update_manager.add((event.location, world));
+                    update_manager.add((event.location, world, true, true));
                 } else {
                     let entity_ref = game.ecs.entity(player)?;
                     let client_id = entity_ref.get::<NetworkID>()?;

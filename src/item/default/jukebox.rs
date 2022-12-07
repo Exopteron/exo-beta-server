@@ -106,7 +106,7 @@ impl Block for JukeboxBlock {
                 let mut note_block_data = JukeboxData(0);
                 note_block_data.0 = tag
                     .get_i32("Record")
-                    .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+                    .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
                 log::info!("Note: {}", note_block_data.0);
                 ItemRegistry::global().get_block(84).unwrap().block_entity(
                     builder,

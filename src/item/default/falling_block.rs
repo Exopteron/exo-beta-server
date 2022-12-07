@@ -39,9 +39,9 @@ impl Block for FallingBlock {
 impl FallingBlock {
     pub fn try_fall(kind: FallingBlockEntityData, game: &mut Game, pos: BlockPosition) {
         if game.block_id_at(pos) == kind.block_id() && Self::can_fall(game, pos.offset(0, -1, 0)) && pos.y >= 0 {
-            game.set_block_nb(pos, BlockState::air(), pos.world, true, false);
+            game.set_block_nb(pos, BlockState::air(), pos.world, true, false, true);
             game.schedule_next_tick(move |g| {
-                g.set_block_nb(pos, BlockState::air(), pos.world, false, true);
+                g.set_block_nb(pos, BlockState::air(), pos.world, false, true, false);
                 None
             });
             let mut pos: Position = pos.into();

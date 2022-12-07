@@ -1,10 +1,10 @@
 // feather license in FEATHER_LICENSE.md
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, sync::Arc, backtrace};
 
 use ahash::AHashMap;
 use parking_lot::{RwLockWriteGuard, RwLockReadGuard};
 
-use crate::{game::{BlockPosition, ChunkCoords}, ecs::systems::world::light::{LightPropagationManager, LightPropagationRequest}};
+use crate::{game::{BlockPosition, ChunkCoords}, ecs::systems::world::light::{LightPropagationManager, LightPropagationRequest}, item::item::ItemRegistry};
 
 use super::{chunk_lock::{ChunkHandle, ChunkLock}, BlockState, chunks::Chunk};
 pub const CHUNK_HEIGHT: i32 = 128;
@@ -59,6 +59,7 @@ impl ChunkMap {
         }
         let (x, y, z) = chunk_relative_pos(pos.into());
         if let Some(mut chunk) = self.chunk_at_mut(pos.to_chunk_coords()) {
+            let original_block = chunk.block_at(x, y, z);
             if nlh {
                 chunk.set_block_at_nlh(x, y, z, block);
             } else {
@@ -66,6 +67,9 @@ impl ChunkMap {
             }
             if !nlh {
                 light.as_mut().unwrap().push(LightPropagationRequest::ChunkSky { position: chunk.position(), world });
+
+                let l_emittance = original_block.and_then(|v| ItemRegistry::global().get_block(v.b_type)).map(|v| v.light_emittance()).unwrap_or(0);
+                light.as_mut().unwrap().push(LightPropagationRequest::BlockLight { position: pos, was_source: l_emittance });
                 // for request in chunk.global_skylight_requests() {
                 //     light.as_mut().unwrap().push(request);
                 // }

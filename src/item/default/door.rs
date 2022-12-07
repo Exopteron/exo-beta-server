@@ -92,6 +92,10 @@ impl Block for DoorBlock {
     fn opaque(&self) -> bool {
         false
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
+
     fn neighbor_update(&self, world: i32, game: &mut crate::game::Game, position: BlockPosition, state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
         if !matches!(offset, Face::Invalid) {
             if (state.b_metadata & 8) != 0 {

@@ -63,6 +63,8 @@ fn update_chunks(
     position: Position,
     waiting_chunks: &mut WaitingChunks,
 ) -> SysResult {
+
+    
     // Send chunks that are in the new view but not the old view.
     for &pos in &event.new_chunks {
         let world = game.worlds.get(&position.world).expect("World does not exist?");
@@ -78,7 +80,6 @@ fn update_chunks(
     for &pos in &event.old_chunks {
         client.unload_chunk(pos);
     }
-    //log::info!("Spawning from here at {:?}!", position);
     spawn_client_if_needed(client, position);
 
     Ok(())
@@ -106,6 +107,7 @@ fn send_loaded_chunks(game: &mut Game, server: &mut Server) -> SysResult {
 }
 
 fn spawn_client_if_needed(client: &Client, pos: Position) {
+    //println!("Knows own position: {} known chunks {}", client.knows_own_position(), client.known_chunks());
     if !client.knows_own_position() && client.known_chunks() >= 9 * 9 {
         log::info!("Sent all chunks to {}; now spawning at {:?}", client.username(), pos);
         client.update_own_position(pos);

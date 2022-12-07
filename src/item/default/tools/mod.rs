@@ -2,6 +2,7 @@ pub mod hoe;
 pub mod pickaxe;
 pub mod axe;
 pub mod sword;
+pub mod shovel;
 #[derive(Clone, Copy, PartialEq)]
 pub enum ToolMaterials {
     Wood,

@@ -12,6 +12,7 @@ pub fn register(recipes: &mut Solver) {
     let sticks = ItemStack::new(280, 1, 0);
     let wheat = ItemStack::new(296, 1, 0);
     let cobble = ItemStack::new(4, 1, 0);
+    let iron = ItemStack::new(265, 1, 0);
     recipes.register_shapeless(ShapelessRecipe::new_from_vec(vec![ItemStack::new(17, 1, 0)], ItemStack::new(5, 4, 0))); // Planks
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), None, None],[Some(planks.clone()), None, None],[None, None, None]], ItemStack::new(280, 4, 0)));
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), Some(planks.clone()), None],[Some(planks.clone()), Some(planks.clone()), None],[None, None, None]], ItemStack::new(58, 1, 0)));
@@ -20,6 +21,9 @@ pub fn register(recipes: &mut Solver) {
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), Some(planks.clone()), Some(planks.clone())],[Some(planks.clone()), Some(planks.clone()), Some(planks.clone())],[None, Some(sticks.clone()), None]], ItemStack::new(323, 1, 0))); // sign
 
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), Some(planks.clone()), None],[Some(planks.clone()), Some(planks.clone()), None],[Some(planks.clone()), Some(planks.clone()), None]], ItemStack::new(324, 1, 0))); // door
+
+
+    recipes.register_shaped(ShapedRecipe::new([[Some(iron.clone()), None, Some(iron.clone())],[None, Some(iron.clone()), None],[None, None, None]], ItemStack::new(325, 1, 0))); // bucket
 
 
     recipes.register_shaped(ShapedRecipe::new([[Some(planks.clone()), Some(planks.clone()), Some(planks.clone())],[Some(planks.clone()), None, Some(planks.clone())],[Some(planks.clone()), Some(planks.clone()), Some(planks.clone())]], ItemStack::new(54, 1, 0))); // chest
@@ -33,11 +37,28 @@ fn pickaxe_shape(item: ItemStack) -> Grid {
     grid
 }
 
+
+fn shovel_shape(item: ItemStack) -> Grid {
+    let sticks = ItemStack::new(280, 1, 0);
+    let grid = [[None, Some(item.clone()), None], [None, Some(sticks.clone()), None], [None, Some(sticks.clone()), None]];
+    grid
+}
+
+
 fn register_tools(recipes: &mut Solver) {
     register_axes(recipes);
     register_hoes(recipes);
     register_pickaxes(recipes);
+    register_shovels(recipes);
 }
+fn register_shovels(recipes: &mut Solver) {
+    let planks = ItemStack::new(5, 1, 0);
+    recipes.register_shaped(ShapedRecipe::new(shovel_shape(planks.clone()), ItemStack::new(269, 1, 0)));
+
+    let cobble = ItemStack::new(4, 1, 0);
+    recipes.register_shaped(ShapedRecipe::new(shovel_shape(cobble.clone()), ItemStack::new(273, 1, 0)));
+}
+
 fn register_pickaxes(recipes: &mut Solver) {
     let planks = ItemStack::new(5, 1, 0);
     recipes.register_shaped(ShapedRecipe::new(pickaxe_shape(planks.clone()), ItemStack::new(270, 1, 0)));

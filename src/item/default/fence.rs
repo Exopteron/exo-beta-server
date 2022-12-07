@@ -15,6 +15,9 @@ impl Block for FenceBlock {
     fn id(&self) -> BlockIdentifier {
         85
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 
     fn item_stack_size(&self) -> i8 {
         64
@@ -31,6 +34,11 @@ impl Block for FenceGateBlock {
     fn opaque(&self) -> bool {
         false
     }
+
+    fn opacity(&self) -> u8 {
+        0
+    }
+
     fn place(
         &self,
         game: &mut Game,

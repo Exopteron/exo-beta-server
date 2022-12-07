@@ -23,7 +23,7 @@ fn do_block_placement(game: &mut Game) -> SysResult {
     }
     let mut update_manager = game.objects.get_mut::<BlockUpdateManager>()?;
     for (pos, _, world) in blocks {
-        update_manager.add((pos, world));
+        update_manager.add((pos, world, true, true));
     }
     Ok(())
 }

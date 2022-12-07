@@ -14,7 +14,7 @@ mod bush;
 mod note_block;
 mod music_disc;
 mod jukebox;
-mod water_bucket;
+mod bucket;
 mod grass_block;
 mod ice;
 mod vines;
@@ -33,7 +33,7 @@ mod farmland;
 mod foods;
 mod crops;
 mod ore;
-mod bed;
+pub mod bed;
 use crate::{
     ecs::{entities::{player::Chatbox, falling_block::FallingBlockEntityData}, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
@@ -43,9 +43,9 @@ use crate::{
     world::chunks::BlockState,
 };
 
-use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, water_bucket::WaterBucketItem, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem, sword::SwordItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}, ore::OreBlock, redstone::{RedstoneItem, RedstoneDustBlock}, bed::{BedItem, BedBlock}};
+use self::{fence::{FenceGateBlock, FenceBlock}, trapdoor::TrapdoorBlock, door::{DoorItem, DoorBlock}, ladder::LadderBlock, sign::{SignItem, SignBlock}, furnace::FurnaceBlock, sugar_cane::SugarCane, glass::GlassBlock, slab::SlabBlock, dispenser::DispenserBlock, cobweb::CobwebBlock, bush::GenericBush, note_block::NoteBlock, music_disc::MusicDiscItem, jukebox::JukeboxBlock, bucket::{water_bucket::WaterBucketItem, lava_bucket::LavaBucketItem, BucketItem}, grass_block::GrassBlock, ice::IceBlock, vines::VinesBlock, pumpkin::PumpkinBlock, chest::ChestBlock, lever::LeverBlock, fire::{FireBlock, FlintAndSteelItem}, portal::PortalBlock, leaves::LeavesBlock, stick::StickItem, falling_block::FallingBlock, crafting_table::CraftingTable, farmland::FarmlandBlock, tools::{hoe::HoeItem, ToolMaterials, pickaxe::PickaxeItem, axe::AxeItem, sword::SwordItem, shovel::ShovelItem}, foods::FoodItem, crops::{wheat::{WheatItem, WheatSeeds}, CropBlock}, ore::OreBlock, redstone::{RedstoneItem, RedstoneDustBlock}, bed::{BedItem, BedBlock}};
 
-use super::{item::{block::{Block, fluid::water::{MovingWaterBlock, NotFlowingWaterBlock}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry}, inventory_slot::InventorySlot, stack::ItemStack};
+use super::{item::{block::{Block, fluid::{water::{MovingWaterBlock, NotFlowingWaterBlock}, lava::{NotFlowingLavaBlock, MovingLavaBlock}}, BurnRate}, BlockIdentifier, Item, ItemIdentifier, ItemRegistry}, inventory_slot::InventorySlot, stack::ItemStack};
 
 pub struct RedstoneTorchBlock {}
 impl Block for RedstoneTorchBlock {
@@ -129,6 +129,10 @@ impl Block for TorchBlock {
         50
     }
 
+    fn light_emittance(&self) -> u8 {
+        14
+    }
+
     fn item_stack_size(&self) -> i8 {
         64
     }
@@ -174,7 +178,7 @@ impl Block for TorchBlock {
         };
         if !solid {
             //log::info!("Setting {:?} to air", stood_on);
-            let success = game.set_block_nb(position, BlockState::air(), world, true, false);
+            let success = game.set_block_nb(position, BlockState::air(), world, true, false, true);
             //log::info!("Success? {}", success);
         }
         Ok(())
@@ -346,7 +350,7 @@ impl Block for GenericReplacable {
     }
 
     fn is_solid(&self) -> bool {
-        false
+        true
     }
 
     fn collision_box(&self, state: BlockState, position: BlockPosition) -> Option<crate::aabb::AABB> {
@@ -441,13 +445,15 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_item(WheatItem);
     registry.register_item(WheatSeeds);
     registry.register_block(CropBlock(59));
-    registry.register_block(GenericReplacable(8));
-    registry.register_block(GenericReplacable(9));
+
     registry.register_block(StoneBlock);
     registry.register_item(HoeItem(290, ToolMaterials::Wood));
     registry.register_item(PickaxeItem(270, ToolMaterials::Wood));
     registry.register_item(AxeItem(271, ToolMaterials::Wood));
+    registry.register_item(ShovelItem(269, ToolMaterials::Wood));
 
+
+    registry.register_item(ShovelItem(273, ToolMaterials::Stone));
     registry.register_item(HoeItem(291, ToolMaterials::Stone));
     registry.register_item(PickaxeItem(274, ToolMaterials::Stone));
     registry.register_item(AxeItem(275, ToolMaterials::Stone));
@@ -455,17 +461,31 @@ pub fn register_items(registry: &mut ItemRegistry) {
     registry.register_block(OreBlock(15, ToolMaterials::Stone, || ItemStack::new(15, 1, 0))); // iron ore
     registry.register_block(OreBlock(15, ToolMaterials::Stone, || ItemStack::new(263, 3, 0))); // iron ore
     registry.register_item(SwordItem(267, ToolMaterials::Iron)); // iron sword
+    registry.register_item(ShovelItem(256, ToolMaterials::Iron));
     registry.register_item(GenericItem(338)); // cane
     registry.register_item(GenericItem(347)); // clock
     registry.register_item(RedstoneItem {}); // clock
     registry.register_block(RedstoneDustBlock); // clock
     registry.register_item(BedItem); // bed
     registry.register_block(BedBlock); // bed
-    //registry.register_block(MovingWaterBlock(8));
-    //registry.register_block(NotFlowingWaterBlock);
-    //registry.register_item(WaterBucketItem);
+    registry.register_block(MovingWaterBlock(8));
+    registry.register_block(NotFlowingWaterBlock);
+
+    registry.register_item(WaterBucketItem);
+
+    registry.register_block(MovingLavaBlock(10));
+    registry.register_block(NotFlowingLavaBlock);
+
+    registry.register_item(LavaBucketItem);
+
+    registry.register_item(BucketItem);
+
+    // /*
+        registry.register_block(GenericReplacable(8));
+    registry.register_block(GenericReplacable(9));
+    // */
     for i in 1..255 {
-        if i == 50 || i == 7 {
+        if i == 50 || i == 7 || i == 8 || i == 9 || i == 10 || i == 11 {
             continue;
         }
         registry.register_block(GenericSolidBlock { id: i });

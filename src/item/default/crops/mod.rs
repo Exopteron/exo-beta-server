@@ -13,6 +13,9 @@ impl Block for CropBlock {
     fn id(&self) -> BlockIdentifier {
         self.0
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 
     fn item_stack_size(&self) -> i8 {
         0

@@ -3,15 +3,26 @@ use std::{ops::Deref, f64::consts::PI};
 use glam::{Vec3, DVec3};
 use hecs::Entity;
 
-use crate::{ecs::{systems::{SystemExecutor, SysResult}, entities::{living::zombie::ZombieEntity, player::Player}}, game::{Game, BlockPosition, Position}, events::EntityDeathEvent, physics::Physics, entities::PreviousPosition, server::Server, network::ids::NetworkID};
+use crate::{ecs::{systems::{SystemExecutor, SysResult}, entities::{living::{Health, PreviousHealth, Hunger, PreviousHunger, hostile::zombie::{ZombieEntityBuilder, ZombieEntity}}, player::Player, item::Life}}, game::{Game, BlockPosition, Position, DamageType}, events::EntityDeathEvent, physics::Physics, entities::PreviousPosition, server::Server, network::ids::NetworkID, entity_loader::{RegEntityNBTLoaders, RegularEntitySaver}, protocol::packets::EnumMobType, aabb::AABBSize, item::{inventory::{Inventory, reference::BackingWindow}, window::Window}};
 
-pub fn init_systems(s: &mut SystemExecutor<Game>) {
-    s.add_system(fling).add_system(zombie_physics);
+pub fn init_systems(g: &mut Game, s: &mut SystemExecutor<Game>) -> anyhow::Result<()> {
+    s.add_system(mob_physics);
     s.group::<Server>().add_system(temp);
+
+    let mut loaders = g.objects.get_mut::<RegEntityNBTLoaders>()?;
+    loaders.insert("Zombie", Box::new(|tag, builder| {
+
+        let hp = tag.get_i16("Health").map_err(|_| anyhow::anyhow!("No tag"))?;
+
+        ZombieEntityBuilder::build(None, hp, builder);
+
+        Ok(())
+    }));
+    Ok(())
 }
 fn fling(game: &mut Game) -> SysResult {
     let mut entities = Vec::new();
-    for (entity, (_, position, physics)) in game.ecs.query::<(&ZombieEntity, &Position, &Physics)>().iter() {
+    for (entity, (_, position, physics)) in game.ecs.query::<(&MobPhysics, &Position, &Physics)>().iter() {
         entities.push(entity);
     }
     for e in entities {
@@ -33,14 +44,16 @@ fn fling(game: &mut Game) -> SysResult {
             let d = a - b;
             let num = (pos.x.powf(2.) + pos.y.powf(2.) + pos.z.powf(2.)).sqrt();
             let vector = orig_vector / num;
-            let mult = 3. * vector;
+
+            let mut s = game.ecs.entity(e)?.get_mut::<Physics>()?.speed;
+            let mult = (s * 10.) * 9. * vector;
             pos.pitch = ((d.y.atan2((d.x * d.x + d.z * d.z).sqrt()) * 180.) / PI) as f32;
             pos.yaw = ((((d.z.atan2(d.x) * 180.) / PI) - 90.) + 180.) as f32;
             pos.yaw %= 360.;
             pos.pitch %= 360.;
             *game.ecs.entity(e)?.get_mut::<Position>()? = pos;
             let mut physics = game.ecs.entity(e)?.get_mut::<Physics>()?;
-            physics.add_velocity(mult.x, 0.0, mult.z);
+            physics.add_velocity(mult.x, mult.y, mult.z);
         }
     }
     Ok(())
@@ -73,11 +86,13 @@ fn temp(game: &mut Game, server: &mut Server) -> SysResult {
     Ok(())
 }
 
-fn zombie_physics(game: &mut Game) -> SysResult {
+pub struct MobPhysics;
+
+fn mob_physics(game: &mut Game) -> SysResult {
     let mut fallingblocks = Vec::new();
     for (entity, (_, _, _)) in game
         .ecs
-        .query::<(&ZombieEntity, &mut Physics, &Position)>()
+        .query::<(&MobPhysics, &mut Physics, &Position)>()
         .iter()
     {
         fallingblocks.push(entity);

@@ -15,6 +15,9 @@ pub trait Block {
     fn hardness(&self) -> i32 {
         15
     }
+    fn light_emittance(&self) -> u8 {
+        0
+    }
     fn dropped_items(&self, state: BlockState, held_item: InventorySlot) -> Vec<ItemStack> {
         vec![ItemStack::new(self.id().into(), 1, state.b_metadata.into())]
     }

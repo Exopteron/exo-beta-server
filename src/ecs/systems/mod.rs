@@ -5,7 +5,9 @@ use std::{
     time::{Duration, Instant}, sync::atomic::Ordering,
 };
 
-use crate::{game::{Game, Position}, server::Server, configuration::CONFIGURATION, SHUTDOWN, network::ids::NetworkID};
+use rand::Rng;
+
+use crate::{game::{Game, Position}, server::Server, configuration::CONFIGURATION, SHUTDOWN, network::ids::NetworkID, events::WeatherChangeEvent};
 pub mod chat;
 pub mod entities;
 pub mod stdin;
@@ -204,9 +206,9 @@ where
     }
 }
 
-pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) {
+pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) -> anyhow::Result<()> {
     entities::player::init_systems(s);
-    entities::default_systems(g, s);
+    entities::default_systems(g, s)?;
     chat::register(g, s);
     crate::world::view::register(s);
     crate::world::chunk_subscriptions::register(s);
@@ -218,6 +220,7 @@ pub fn default_systems(g: &mut Game, s: &mut SystemExecutor<Game>) {
     crate::world::chunk_entities::register(s);
     tablist::register(s);
     stdin::register(g, s);
+    Ok(())
 }
 /// Sends out keepalive packets at an interval.
 fn send_keepalives(_game: &mut Game, server: &mut Server) -> SysResult {
@@ -231,14 +234,38 @@ fn send_keepalives(_game: &mut Game, server: &mut Server) -> SysResult {
 fn time_update(game: &mut Game, server: &mut Server) -> SysResult {
     let mut list = Vec::new();
     for (_, world) in game.worlds.iter_mut() {
-        world.time += 1;
+        let mut do_event = false;
+        {
+            let mut level_dat = world.level_dat.lock();
+            level_dat.time += 1;
+    
+            level_dat.rain_time -= 1;
+            level_dat.thunder_time -= 1;
+    
+    
+            if level_dat.rain_time == 0 {
+                level_dat.raining ^= true;
+                level_dat.rain_time = game.rng.gen_range(1..10000);
+                do_event = true;
+            }
+            if level_dat.thunder_time == 0 {
+                level_dat.thundering ^= true;
+                level_dat.thunder_time = game.rng.gen_range(1..10000);
+                do_event = true;
+            }
+            if do_event {
+                game.ecs.insert_event(WeatherChangeEvent { is_raining: level_dat.raining, is_thundering: level_dat.thundering, world: world.id })
+            }
+        }
+        
+        
     }
     for (_, (id, position)) in game.ecs.query::<(&NetworkID, &Position)>().iter() {
         list.push((*id, *position));
     }
     for (id, pos) in list {
         if let Some(client) = server.clients.get(&id) {
-            let time = game.worlds.get(&pos.world).unwrap().time;
+            let time = game.worlds.get(&pos.world).unwrap().level_dat.lock().time;
             client.notify_time(time);
         }
     }

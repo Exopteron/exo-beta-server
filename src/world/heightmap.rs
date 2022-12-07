@@ -51,7 +51,7 @@ pub struct LightBlocking;
 impl HeightmapFunction for LightBlocking {
     fn is_solid(block: BlockState, registry: Arc<ItemRegistry>) -> bool {
         if let Some(block) = registry.get_block(block.b_type) {
-            return block.opaque();
+            return block.opacity() > 0;
         }
         true
     }
@@ -129,6 +129,7 @@ where
         new_block: BlockState,
         get_block: impl Fn(usize, usize, usize) -> BlockState,
     ) {
+        log::info!("Calculating heightmap for {}, {}, {}", x, y, z);
         let registry = ItemRegistry::global();
         let y = y + 1;
         if F::is_solid(old_block, registry.clone()) && self.height(x, z) == Some(y) {

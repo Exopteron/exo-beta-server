@@ -65,7 +65,7 @@ impl RegionWorker {
     }
     fn save_chunk(&mut self, req: SaveRequest) -> anyhow::Result<()> {
         let reg_pos = RegionPosition::from_chunk_position(req.pos.x, req.pos.z);
-        self.region_provider.save_chunk(req.chunk, req.block_entities)?;
+        self.region_provider.save_chunk(req.chunk, req.block_entities, req.entities)?;
         Ok(())
     }
 

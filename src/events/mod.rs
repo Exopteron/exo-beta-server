@@ -12,6 +12,7 @@ pub mod block_interact;
 #[derive(Debug)]
 pub struct EntityRemoveEvent;
 
+
 #[derive(Debug)]
 pub struct EntityDeathEvent;
 
@@ -33,6 +34,17 @@ pub struct ChangeWorldEvent {
     pub old_dim: i32,
     pub new_dim: i32
 }
+
+
+
+#[derive(Debug, Clone, Copy)]
+pub struct WeatherChangeEvent {
+    pub is_raining: bool,
+    pub is_thundering: bool,
+    pub world: i32
+}
+
+
 
 /// Event triggered when a player changes their `View`,
 /// meaning they crossed into a new chunk.

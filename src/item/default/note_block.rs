@@ -58,7 +58,7 @@ impl Block for NoteBlock {
         loaders.insert("Music", Box::new(|tag, blockpos, builder| {
             log::info!("Note block loader called");
             let mut note_block_data = NoteblockData(0);
-            note_block_data.0 = tag.get_i8("note").or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+            note_block_data.0 = tag.get_i8("note").or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
             log::info!("Note: {}", note_block_data.0);
             ItemRegistry::global().get_block(25).unwrap().block_entity(builder, BlockState::new(25, 0), blockpos);
             builder.add(note_block_data);

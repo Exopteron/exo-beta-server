@@ -97,7 +97,7 @@ impl PortalBlock {
         game.schedule_next_tick(move |game| {
             for k1 in 0..2 {
                 for i2 in 0..3 {
-                    game.set_block_nb(BlockPosition::new(pos.x + l * k1, pos.y + i2, pos.z + i1 * k1, world), BlockState::from_id(90), world, false, false);
+                    game.set_block_nb(BlockPosition::new(pos.x + l * k1, pos.y + i2, pos.z + i1 * k1, world), BlockState::from_id(90), world, false, false, false);
                 }
             }
             None

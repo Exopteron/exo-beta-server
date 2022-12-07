@@ -97,4 +97,7 @@ impl Block for SugarCane {
     fn opaque(&self) -> bool {
         false
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 }

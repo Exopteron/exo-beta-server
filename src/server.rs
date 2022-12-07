@@ -292,6 +292,14 @@ impl Client {
             gamemode: gamemode as i8,
         });
     }
+
+    pub fn set_is_raining(&self, raining: bool) {
+        self.send_packet(NewState {
+            reason: if raining { 1 } else { 2 },
+            gamemode: 0,
+        });
+    }
+
     pub fn send_effect(&self, position: BlockPosition, effect: SoundEffectKind, data: i32) {
         self.send_packet(SoundEffect {
             effect,
@@ -561,6 +569,11 @@ impl Client {
     pub fn knows_own_position(&self) -> bool {
         self.knows_position.get()
     }
+    pub fn un_know_pos(&self) {
+        self.knows_position.set(false);
+    }
+
+    
     pub fn known_chunks(&self) -> usize {
         self.known_chunks.borrow().len()
     }

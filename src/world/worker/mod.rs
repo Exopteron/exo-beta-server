@@ -8,7 +8,7 @@ use crate::{game::{ChunkCoords, BlockPosition}, ecs::systems::world::light::{Lig
 
 use self::region::RegionWorker;
 
-use super::{chunks::Chunk, chunk_lock::ChunkHandle, generation::WorldGenerator, light::LightPropagator};
+use super::{chunks::{Chunk, SECTION_HEIGHT, CHUNK_WIDTH}, chunk_lock::ChunkHandle, generation::WorldGenerator, light::LightPropagator};
 
 mod region;
 #[derive(Debug)]
@@ -20,6 +20,7 @@ pub struct LoadedChunk {
     pub pos: ChunkCoords,
     pub chunk: Chunk,
     pub tile_entity_data: Vec<CompoundTag>,
+    pub entity_data: Vec<CompoundTag>
 }
 
 #[derive(Debug)]
@@ -38,9 +39,7 @@ pub struct SaveRequest {
     pub pos: ChunkCoords,
     pub chunk: ChunkHandle,
     pub block_entities: Vec<CompoundTag>, 
-/*     pub entities: Vec<EntityData>,
-    pub block_entities: Vec<BlockEntityData>, 
-    TODO: entities later */
+    pub entities: Vec<CompoundTag>,
 }
 
 #[derive(Debug)]
@@ -70,6 +69,13 @@ impl ChunkWorker {
             },
         };
         light.push(LightPropagationRequest::ChunkSky { position: chunk.pos, world: chunk.pos.world });
+        for (idx, v) in chunk.chunk.data.iter().enumerate() {
+            if let Some(v) = v {
+                for (x, y, z) in v.lights() {
+                    light.push(LightPropagationRequest::BlockLight { position: BlockPosition::new(*x as i32 + (chunk.pos.x as i32 * CHUNK_WIDTH as i32), *y as i32 + (idx as i32 * SECTION_HEIGHT as i32), *z as i32 + (chunk.pos.z as i32 * CHUNK_WIDTH as i32), chunk.pos.world), was_source: 0 });
+                }
+            }
+        }
         // let v = mem::take(&mut chunk.light);
         // for v in v {
         //     light.push(v);
@@ -116,7 +122,7 @@ impl ChunkWorker {
                             }
                             let mut chunk = gen.generate_chunk(pos, seed);
                             chunk.heightmaps.recalculate(Chunk::block_at_fn(&chunk.data));
-                            send_gen.send(LoadedChunk { pos, chunk, tile_entity_data: Vec::new() }).unwrap()
+                            send_gen.send(LoadedChunk { pos, chunk, tile_entity_data: Vec::new(), entity_data: Vec::new() }).unwrap()
                         });
                         self.try_recv_gen(light) // check for generated chunks
                     }

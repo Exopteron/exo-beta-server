@@ -82,6 +82,9 @@ impl Block for SignBlock {
     fn id(&self) -> BlockIdentifier {
         self.id
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 
     fn item_stack_size(&self) -> i8 {
         64
@@ -158,10 +161,10 @@ impl Block for SignBlock {
         loaders.insert("Sign", Box::new(|tag, blockpos, builder| {
             //log::info!("Sign loader called");
             let mut sign_data = SignData::default();
-            sign_data.0[0] = tag.get_str("Text1").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            sign_data.0[1] = tag.get_str("Text2").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            sign_data.0[2] = tag.get_str("Text3").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
-            sign_data.0[3] = tag.get_str("Text4").or_else(|_| Err(anyhow::anyhow!("No tag")))?.to_string();
+            sign_data.0[0] = tag.get_str("Text1").or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?.to_string();
+            sign_data.0[1] = tag.get_str("Text2").or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?.to_string();
+            sign_data.0[2] = tag.get_str("Text3").or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?.to_string();
+            sign_data.0[3] = tag.get_str("Text4").or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?.to_string();
             //log::info!("Sign data: {:?}", sign_data);
             ItemRegistry::global().get_block(63).unwrap().block_entity(builder, BlockState::new(63, 0), blockpos);
             builder.add(sign_data);

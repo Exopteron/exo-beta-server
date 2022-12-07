@@ -25,7 +25,8 @@ use crate::{
         systems::{world::light::LightPropagationManager, SysResult},
         Ecs,
     },
-    events::ChunkLoadEvent,
+    entity_loader::RegularEntitySaver,
+    events::{ChunkLoadEvent, EntityRemoveEvent},
     game::{BlockPosition, ChunkCoords, Game, Position},
     item::item::{block::AtomicRegistryBlock, ItemRegistry},
     protocol::packets::Face,
@@ -60,7 +61,6 @@ pub struct World {
     shutdown: Arc<AtomicBool>,
     pub level_dat: AtomicLevelDat,
     pub world_dir: PathBuf,
-    pub time: i64,
 }
 impl World {
     pub fn can_be_placed_at(&self, pos: BlockPosition) -> bool {
@@ -286,8 +286,9 @@ impl World {
         &mut self,
         ecs: &mut Ecs,
         light: &mut LightPropagationManager,
-    ) -> anyhow::Result<Vec<CompoundTag>> {
+    ) -> anyhow::Result<(Vec<CompoundTag>, Vec<CompoundTag>)> {
         let mut tes = Vec::new();
+        let mut res = Vec::new();
         while let Some(mut loaded) = self.chunk_worker.poll_loaded_chunk(light)? {
             self.loading_chunks.remove(&loaded.pos);
             if self.canceled_chunk_loads.remove(&loaded.pos) {
@@ -296,12 +297,13 @@ impl World {
             let chunk = loaded.chunk;
             self.chunk_map.insert_chunk(chunk);
             tes.append(&mut loaded.tile_entity_data);
+            res.append(&mut loaded.entity_data);
             ecs.insert_event(ChunkLoadEvent {
                 chunk: Arc::clone(&self.chunk_map.0[&loaded.pos]),
                 position: loaded.pos,
             });
         }
-        Ok(tes)
+        Ok((tes, res))
     }
     /// Unloads the given chunk.
     pub fn unload_chunk(&mut self, ecs: &mut Ecs, pos: &ChunkCoords) -> anyhow::Result<()> {
@@ -311,6 +313,9 @@ impl World {
             }
             handle.set_unloaded()?;
             let mut block_entity_data = Vec::new();
+            let mut entity_data = Vec::new();
+
+            let mut to_destroy = Vec::new();
             for (entity, (saver, be)) in ecs.query::<(&BlockEntitySaver, &BlockEntity)>().iter() {
                 //log::info!("Pos: {} {}", be.0.to_chunk_coords(), pos);
                 if be.0.to_chunk_coords() == pos {
@@ -319,12 +324,34 @@ impl World {
                         &saver.be_type,
                         be.0,
                     )?);
+                    to_destroy.push(entity);
                 }
+            }
+
+            let mut reg_en_to_save = Vec::new();
+            for (entity, (_, p)) in ecs.query::<(&RegularEntitySaver, &Position)>().iter() {
+                //log::info!("Pos: {} {}", be.0.to_chunk_coords(), pos);
+                if p.to_chunk_coords() == pos {
+                    reg_en_to_save.push(entity);
+                    to_destroy.push(entity);
+                }
+            }
+
+            for e in reg_en_to_save {
+                let e = ecs.entity(e)?;
+                let saver = e.get::<RegularEntitySaver>()?;
+                entity_data.push(saver.save(&e, &saver.entity_type)?);
+            }
+
+            for e in to_destroy {
+                ecs.defer_despawn(e);
+                ecs.insert_entity_event(e, EntityRemoveEvent)?;
             }
             self.chunk_worker.queue_chunk_save(SaveRequest {
                 pos,
                 chunk: handle.clone(),
                 block_entities: block_entity_data,
+                entities: entity_data,
             });
             self.cache.insert(pos, handle);
         }
@@ -374,7 +401,6 @@ impl World {
             id: world_type as i32,
             level_dat,
             world_dir: dir,
-            time: 0,
         };
         log::info!(
             "Using world generator {:?}",
@@ -431,6 +457,11 @@ pub type AtomicLevelDat = Arc<Mutex<LevelDat>>;
 pub struct LevelDat {
     pub spawn_point: BlockPosition,
     pub world_seed: u64,
+    pub time: i64,
+    pub raining: bool,
+    pub rain_time: i32,
+    pub thundering: bool,
+    pub thunder_time: i32,
 }
 impl LevelDat {
     pub fn from_file(input: impl Into<PathBuf>, world_type: i32) -> Self {
@@ -444,9 +475,22 @@ impl LevelDat {
                 let seed =
                     tag.get_i64("RandomSeed")
                         .unwrap_or(CONFIGURATION.world_seed.seed as i64) as u64;
+                let time = tag.get_i64("Time").unwrap_or(0 as i64);
+
+                let raining = tag.get_bool("raining").unwrap_or(false);
+
+                let rain_time = tag.get_i32("rainTime").unwrap_or(1000);
+
+                let thundering = tag.get_bool("thundering").unwrap_or(false);
+                let thunder_time = tag.get_i32("thunderTime").unwrap_or(3000);
                 Some(Self {
                     spawn_point: BlockPosition::new(spawn_x, spawn_y, spawn_z, world_type),
                     world_seed: seed,
+                    time,
+                    raining,
+                    rain_time,
+                    thundering,
+                    thunder_time
                 })
             });
             let x = x();
@@ -456,12 +500,22 @@ impl LevelDat {
                 Self {
                     spawn_point: BlockPosition::new(0, 75, 0, world_type),
                     world_seed: CONFIGURATION.world_seed.seed as u64,
+                    time: 0,
+                    raining: false,
+                    rain_time: 1000,
+                    thundering: false,
+                    thunder_time: 3000
                 }
             }
         } else {
             Self {
                 spawn_point: BlockPosition::new(0, 75, 0, world_type),
                 world_seed: CONFIGURATION.world_seed.seed as u64,
+                time: 0,
+                raining: false,
+                rain_time: 1000,
+                thundering: false,
+                thunder_time: 3000
             }
         }
     }
@@ -474,6 +528,14 @@ impl LevelDat {
         data.insert_i32("SpawnY", self.spawn_point.y);
         data.insert_i32("SpawnZ", self.spawn_point.z);
         data.insert_i64("RandomSeed", self.world_seed as i64);
+        data.insert_i64("Time", self.time as i64);
+
+
+        data.insert_bool("raining", self.raining);
+        data.insert_i32("rainTime", self.rain_time);
+        data.insert_bool("thundering", self.thundering);
+        data.insert_i32("thunderTime", self.thunder_time);
+
         tag.insert("Data", data);
         write_compound_tag(&mut file, &tag)?;
         Ok(())

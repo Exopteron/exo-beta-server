@@ -13,6 +13,7 @@ use crate::{game::{BlockPosition, ChunkCoords}, world::chunks::{SECTION_HEIGHT, 
 pub struct BlockChangeEvent {
     changes: BlockChanges,
     pub update_neighbors: bool,
+    pub update_self: bool
 }
 
 impl BlockChangeEvent {
@@ -21,6 +22,7 @@ impl BlockChangeEvent {
         Self {
             changes: BlockChanges::Single { pos, world },
             update_neighbors: true,
+            update_self: true
         }
     }
 
@@ -29,7 +31,8 @@ impl BlockChangeEvent {
     pub fn fill_chunk_section(chunk: ChunkCoords, section: u32, world: i32) -> Self {
         Self {
             changes: BlockChanges::FillChunkSection { chunk, section, world },
-            update_neighbors: true
+            update_neighbors: true,
+            update_self: true
         }
     }
 

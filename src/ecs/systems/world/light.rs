@@ -24,6 +24,10 @@ pub enum LightPropagationRequest {
     ChunkSky {
         position: ChunkCoords,
         world: i32,
+    },
+    BlockLight {
+        position: BlockPosition,
+        was_source: u8
     }
 }
 pub struct LightPropagationManager {
@@ -91,7 +95,7 @@ pub fn handle_commands(game: &mut Game) -> SysResult {
                 if let Some(mut block) = block {
                     block.b_light = state.b_light;
                     block.b_skylight = state.b_skylight;
-                    game.set_block_nb(position, block, position.world, false, true);
+                    game.set_block_nb(position, block, position.world, false, true, false);
                 }
                 recv.send(()).expect("later");
             }

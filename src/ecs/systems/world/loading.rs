@@ -7,6 +7,7 @@ use std::{
 };
 
 use ahash::AHashMap;
+use anyhow::bail;
 use hecs::Entity;
 use nbt::CompoundTag;
 
@@ -19,7 +20,7 @@ use crate::{
     events::{DeferredSpawnEvent, EntityRemoveEvent, ViewUpdateEvent},
     game::{BlockPosition, ChunkCoords, Game, Position},
     server::Server,
-    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest},
+    world::{chunk_subscriptions::vec_remove_item, worker::LoadRequest}, entity_loader::RegEntityNBTLoaders, physics::Physics,
 };
 
 use super::light::LightPropagationManager;
@@ -168,7 +169,7 @@ fn update_tickets_for_players(game: &mut Game, gl_state: &mut GlobalChunkLoadSta
             if prev_position.0.world != current_position.world {
                 //log::info!("Differing!");
                 let state = gl_state.get_mut(prev_position.0.world)?;
-                prev_position.0.world = current_position.world;
+                // prev_position.0.world = current_position.world;
                 for &old_chunk in &event.old_chunks {
                     state.remove_ticket(old_chunk, player_ticket);
                 }
@@ -234,15 +235,30 @@ fn remove_dead_entities(game: &mut Game, state: &mut GlobalChunkLoadState) -> Sy
 /// System to call `World::load_chunks` each tick
 fn load_chunks(game: &mut Game, chunk_load_state: &mut GlobalChunkLoadState) -> SysResult {
     let be_nbt = game.objects.get::<BlockEntityNBTLoaders>()?.clone();
+    let re_nbt = game.objects.get::<RegEntityNBTLoaders>()?.clone();
+
+
     let mut te_data: AHashMap<i32, Vec<CompoundTag>> = AHashMap::new();
+    let mut re_data: AHashMap<i32, Vec<CompoundTag>> = AHashMap::new();
     let mut light = game.objects.get_mut::<LightPropagationManager>()?;
     for (id, world) in game.worlds.iter_mut() {
+        let mut chnk = world.load_chunks(&mut game.ecs, &mut light)?;
         if let Some(vec) = te_data.get_mut(id) {
-            vec.append(&mut world.load_chunks(&mut game.ecs, &mut light)?);
+            vec.append(&mut chnk.0);
         } else {
             let mut vec = Vec::new();
-            vec.append(&mut world.load_chunks(&mut game.ecs, &mut light)?);
+            vec.append(&mut chnk.0);
             te_data.insert(*id, vec);
+        }
+        if chnk.1.len() > 0 {
+            log::info!("LEN: {}", chnk.1.len());
+        }
+        if let Some(vec) = re_data.get_mut(id) {
+            vec.append(&mut chnk.1);
+        } else {
+            let mut vec = Vec::new();
+            vec.append(&mut chnk.1);
+            re_data.insert(*id, vec);
         }
     }
     drop(light);
@@ -250,17 +266,17 @@ fn load_chunks(game: &mut Game, chunk_load_state: &mut GlobalChunkLoadState) -> 
         for tag in tags {
             let id = tag
                 .get_str("id")
-                .or_else(|_| Err(anyhow::anyhow!("No tag")))?
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?
                 .to_string();
             let x = tag
                 .get_i32("x")
-                .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
             let y = tag
                 .get_i32("y")
-                .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
             let z = tag
                 .get_i32("z")
-                .or_else(|_| Err(anyhow::anyhow!("No tag")))?;
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
             let pos = BlockPosition::new(x, y, z, world_id);
             game.remove_block_entity_at(pos, 0)?;
             let pospos = Position::from_pos(x as f64, y as f64, z as f64, world_id);
@@ -277,6 +293,88 @@ fn load_chunks(game: &mut Game, chunk_load_state: &mut GlobalChunkLoadState) -> 
             } */
             } else {
                 log::info!("No parser for type {}", id);
+            }
+        }
+    }
+
+
+    for (world_id, tags) in re_data {
+        for tag in tags {
+
+            let id = tag
+                .get_str("id")
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?
+                .to_string();
+            let xyz = tag
+                .get_f64_vec("Pos")
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
+
+            let motion = tag
+                .get_f64_vec("Motion")
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
+
+            let rotation = tag
+                .get_f32_vec("Rotation")
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
+
+            let on_ground = tag
+                .get_bool("OnGround")
+                .or_else(|_| Err(anyhow::anyhow!("No tag {} {}", line!(), file!())))?;
+
+
+
+            let mut pos = Position::from_pos(xyz[0], xyz[1], xyz[2], world_id);
+            pos.on_ground = on_ground;
+            pos.yaw = rotation[0];
+            pos.pitch = rotation[1];
+
+            let init = match id.as_str() {
+                "Mob" | "Monster" | "Creeper" | "Skeleton" | "Spider" | "Giant" | "Zombie" | "Slime" | "PigZombie" | "Ghast" | "Pig" | "Sheep" | "Cow" | "Chicken" | "Wolf" | "Squid" | "Enderman" | "Silverfish" | "CaveSpider" => {
+                    EntityInit::Mob      
+                },
+                "Item" => {
+                    EntityInit::Item
+                }
+                "Arrow" | "Snowball" | "Egg" => {
+                    log::warn!("TODO: projectile");
+                    continue;
+                }
+                "Painting" => {
+                    log::warn!("TODO: painting");
+                    continue;
+                }
+                "XPOrb" => {
+                    log::warn!("TODO: xp orb");
+                    continue;
+                }
+                v => bail!("Unknown reg entity {}", v)
+            };
+
+            let mut builder = game.create_entity_builder(pos, init);
+            // TODO do multiworld
+            builder.add(pos);
+            builder.add(PreviousPosition(pos));
+            let v = re_nbt.run(id.clone(), &tag, &mut builder);
+            if let Ok(result) = v {
+                if result {
+                    if let Some(p) = builder.get_mut::<Physics>() {
+                        let v = p.get_velocity_mut();
+                        v.x = motion[0];
+                        v.y = motion[1];
+                        v.z = motion[2];
+                    }
+                    game.ecs.insert_event(DeferredSpawnEvent(builder));
+                } else {
+                    log::error!("No real entity parser for type {}", id);
+                }
+            /*             let entity_ref = game.ecs.entity(e)?;
+            let server = game.objects.get::<Server>()?;
+            if let Ok(loader) = entity_ref.get::<BlockEntityLoader>() {
+                log::info!("Syncing {:?}", *entity_ref.get::<SignData>()?);
+                server.sync_block_entity(pospos, (*loader).clone(), &entity_ref);
+            } */
+            } else if let Err(e) = v {
+                log::error!("Parse error: {:?}", e);
             }
         }
     }

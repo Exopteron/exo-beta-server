@@ -37,6 +37,9 @@ impl Block for ChestBlock {
     fn id(&self) -> BlockIdentifier {
         54
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 
     fn item_stack_size(&self) -> i8 {
         64

@@ -171,8 +171,7 @@ impl PreviousGamemode {
     }
 }
 
-#[derive(Clone, Debug, Copy)]
-pub struct OffgroundHeight(pub f32, pub f32);
+
 
 #[derive(Clone, Debug)]
 pub struct HitCooldown(pub u128);
@@ -283,7 +282,6 @@ impl PlayerBuilder {
             builder.add(Hunger(20, 0.0));
             builder.add(PreviousHunger(Hunger(20, 0.0)));
         }
-        builder.add(OffgroundHeight(0., 0.));
         builder.add(Regenerator(0));
         builder.add(AABBSize::new(-0.3, 0.05, -0.3, 0.3, 1.6, 0.3));
         builder.add(View::new(position.to_chunk_coords(), CONFIGURATION.chunk_distance));

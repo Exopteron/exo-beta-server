@@ -29,6 +29,9 @@ impl Block for LeverBlock {
     fn opaque(&self) -> bool {
         false
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
     fn place(
         &self,
         game: &mut Game,

@@ -5,25 +5,50 @@ use rand::RngCore;
 use crate::{
     ecs::{
         entities::{
-            item::{ItemEntity, ItemEntityData, Life},
+            item::{ItemEntity, ItemEntityData, Life, ItemEntityBuilder},
             player::{HotbarSlot, Player, SLOT_HOTBAR_OFFSET}, living::Dead,
         },
         systems::{SysResult, SystemExecutor},
     },
     entities::{PreviousPosition, SpawnPacketSender},
     game::{BlockPosition, Game, Position},
-    item::{inventory_slot::InventorySlot, item::ItemRegistry, window::Window},
+    item::{inventory_slot::InventorySlot, item::ItemRegistry, window::Window, stack::ItemStack},
     network::ids::NetworkID,
     physics::Physics,
-    server::Server, events::{EntityRemoveEvent, EntityDeathEvent},
+    server::Server, events::{EntityRemoveEvent, EntityDeathEvent}, entity_loader::{RegEntityNBTLoaders, RegularEntitySaver}, aabb::AABBSize,
 };
 
-pub fn init_systems(s: &mut SystemExecutor<Game>) {
+pub fn init_systems(game: &mut Game, s: &mut SystemExecutor<Game>) -> anyhow::Result<()> {
     s.group::<Server>()
         .add_system(pickup_items);
     s.add_system(Physics::system)
         .add_system(epic_system)
         .add_system(increment_life).add_system(kill_old_items);
+
+
+    let mut loaders = game.objects.get_mut::<RegEntityNBTLoaders>()?;
+    loaders.insert("Item", Box::new(|tag, builder| {
+
+        builder.add(RegularEntitySaver::new(
+            ItemEntityBuilder::item_saver,
+            "Item".to_string(),
+        ));
+
+        let item = tag.get_compound_tag("Item").map_err(|_| anyhow::anyhow!("No tag"))?;
+
+        let id = item.get_i16("id").map_err(|_| anyhow::anyhow!("No tag"))?;
+        let damage = item.get_i16("Damage").map_err(|_| anyhow::anyhow!("No tag"))?;
+        let count = item.get_i8("Count").map_err(|_| anyhow::anyhow!("No tag"))?;
+
+        builder.add(ItemEntityData(ItemStack::new(id, count, damage)));
+        builder.add(ItemEntity);
+        builder.add(NetworkID::new());
+        builder.add(AABBSize::new(-0.3, 0., -0.3, 0.3, 0.3, 0.3));
+        builder.add(Physics::new(true, 0.1, 0.));
+        builder.add(Life(0));
+        Ok(())
+    }));
+    Ok(())
 }
 fn increment_life(game: &mut Game) -> SysResult {
     for (_, life) in game.ecs.query::<&mut Life>().iter() {
@@ -45,7 +70,7 @@ fn epic_system(game: &mut Game) -> SysResult {
         let entity_ref = game.ecs.entity(entity)?;
         let mut fakephysics = entity_ref.get_mut::<Physics>()?.deref().clone();
         let pos = *entity_ref.get::<Position>()?;
-        log::info!("ITem at {:?}", pos);
+        //log::info!("ITem at {:?}", pos);
         fakephysics.add_velocity(0., -0.03, 0.);
         drop(entity_ref);
         fakephysics.move_entity(game, entity, *fakephysics.get_velocity())?;

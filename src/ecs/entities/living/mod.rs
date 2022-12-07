@@ -1,5 +1,7 @@
 use crate::game::DamageType;
-pub mod zombie;
+pub mod hostile;
+pub mod passive;
+
 // feather license in FEATHER_LICENSE.md
 
 
@@ -35,3 +37,5 @@ impl Hunger {
 pub struct PreviousHunger(pub Hunger);
 
 pub struct Regenerator(pub u128);
+
+pub struct EntityDamager;

@@ -4,7 +4,7 @@
 
 use std::ops::Deref;
 
-use crate::{game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}}, server::Server, network::{ids::NetworkID, metadata::Metadata}, events::{SneakEvent, ViewUpdateEvent, ChangeWorldEvent}, world::view::View};
+use crate::{game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}, entities::player::{Player, Gamemode}}, server::Server, network::{ids::NetworkID, metadata::Metadata}, events::{SneakEvent, ViewUpdateEvent, ChangeWorldEvent}, world::view::View, protocol::{ServerPlayPacket, packets::server::LoginRequest, io::String16}};
 
 use super::{PreviousPosition, metadata::{META_INDEX_POSE, EntityBitMask, EntityMetadata, META_INDEX_ENTITY_BITMASK}};
 
@@ -28,6 +28,7 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
         )>()
         .iter()
     {
+
         let mut switched = false;
         if position.world != prev_position.0.world {
             to_switch_dim.push((entity, prev_position.0.world));
@@ -48,20 +49,41 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
     }
     for (entity, old_world) in to_switch_dim {
         let eref = game.ecs.entity(entity)?;
-        let world_id = eref.get::<Position>()?.world;
-        let client = server.clients.get(&*eref.get::<NetworkID>()?).unwrap();
-        client.notify_respawn(&eref, game.worlds.get(&world_id).unwrap().level_dat.lock().world_seed)?;
-        drop(eref);
-        game.schedule_next_tick(move |game| {
-            let eref = game.ecs.entity(entity).ok()?;
-            let view = eref.get::<View>().ok()?;
-            let oldview = *view;
-            let newview = View::empty(world_id);
-            drop(view);
-            game.ecs.insert_entity_event(entity, ViewUpdateEvent::new(oldview, newview)).ok()?;
-            game.ecs.insert_entity_event(entity, ChangeWorldEvent { old_dim: old_world, new_dim: world_id }).ok()?;
-            None
-        });
+        let is_player = eref.get::<Player>().is_ok();
+        log::info!("SEx");
+        if is_player {
+            let world_id = eref.get::<Position>()?.world;
+            let id = *eref.get::<NetworkID>()?;
+            let gamemode = *eref.get::<Gamemode>()?;
+            let client = server.clients.get_mut(&id).unwrap();
+    
+            let world_seed = game.worlds.get(&world_id).unwrap().level_dat.lock().world_seed;
+            log::info!("Logging");
+            // client.write(ServerPlayPacket::LoginRequest(LoginRequest {
+            //     entity_id: id.0,
+            //     not_used: String16("".to_string()),
+            //     map_seed: world_seed as i64,
+            //     server_mode: gamemode as i32,
+            //     dimension: world_id as i8,
+            //     difficulty: 0,
+            //     world_height: 128,
+            //     max_players: server.player_count.get_max() as u8,
+            // }))?;
+            client.un_know_pos();
+
+            client.notify_respawn(&eref, world_seed)?;
+            drop(eref);
+            game.schedule_next_tick(move |game| {
+                let eref = game.ecs.entity(entity).ok()?;
+                let view = eref.get::<View>().ok()?;
+                let oldview = *view;
+                let newview = View::empty(world_id);
+                drop(view);
+                game.ecs.insert_entity_event(entity, ViewUpdateEvent::new(oldview, newview)).ok()?;
+                game.ecs.insert_entity_event(entity, ChangeWorldEvent { old_dim: old_world, new_dim: world_id }).ok()?;
+                None
+            });
+        }
     }
     Ok(())
 }

@@ -3,6 +3,7 @@ use anvil_region::position::RegionPosition;
 use anvil_region::provider::FolderRegionProvider;
 use anvil_region::provider::RegionProvider;
 use anyhow::bail;
+
 use nbt::encode::write_zlib_compound_tag;
 use nbt::CompoundTag;
 use once_cell::sync::OnceCell;
@@ -10,6 +11,7 @@ use once_cell::sync::OnceCell;
 use crate::game::BlockPosition;
 use crate::game::ChunkCoords;
 use crate::game::Position;
+use crate::item::item::ItemRegistry;
 use crate::world;
 use crate::world::chunks::*;
 use crate::world::heightmap::HeightmapStore;
@@ -32,6 +34,7 @@ impl MCRegionLoader {
         &mut self,
         chunk: ChunkHandle,
         tile_entities: Vec<CompoundTag>,
+        entities: Vec<CompoundTag>,
     ) -> anyhow::Result<()> {
         let coords = chunk.read().pos;
         let mut region = self
@@ -40,7 +43,7 @@ impl MCRegionLoader {
         region
             .write_chunk(
                 RegionChunkPosition::from_chunk_position(coords.x, coords.z),
-                Self::chunk_to_nbt(chunk.clone(), tile_entities)?,
+                Self::chunk_to_nbt(chunk.clone(), tile_entities, entities)?,
             )
             .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
@@ -49,6 +52,7 @@ impl MCRegionLoader {
         &mut self,
         chunk: ChunkHandle,
         tile_entities: Vec<CompoundTag>,
+        entities: Vec<CompoundTag>,
     ) -> anyhow::Result<()> {
         let pos = chunk.read().pos;
         let mut region = self
@@ -57,7 +61,7 @@ impl MCRegionLoader {
         region
             .write_chunk(
                 RegionChunkPosition::from_chunk_position(pos.x, pos.z),
-                Self::chunk_to_nbt(chunk, tile_entities)?,
+                Self::chunk_to_nbt(chunk, tile_entities, entities)?,
             )
             .or(Err(anyhow::anyhow!("Bad write")))?;
         Ok(())
@@ -65,10 +69,12 @@ impl MCRegionLoader {
     pub fn chunk_to_nbt(
         chunk: ChunkHandle,
         tile_entities: Vec<CompoundTag>,
+        entities: Vec<CompoundTag>,
     ) -> anyhow::Result<CompoundTag> {
         let mut root_tag = CompoundTag::new();
         let mut level_tag = CompoundTag::new();
         level_tag.insert_compound_tag_vec("TileEntities", tile_entities);
+        level_tag.insert_compound_tag_vec("Entities", entities);
         let mut chunk = {
             let mut x = None;
             for _ in 0..3 {
@@ -146,6 +152,7 @@ impl MCRegionLoader {
                 chunk: c.0,
                 pos: coords.clone(),
                 tile_entity_data: c.1,
+                entity_data: c.2,
             }),
             Err(e) => ChunkLoadResult::Error(e),
         };
@@ -233,8 +240,15 @@ pub fn temp_from_regions(regions: Vec<Region>) -> World {
     world
 } */
 impl Region {
-    pub fn chunk_from_tag(tag: &CompoundTag, world_id: i32) -> anyhow::Result<(Chunk, Vec<CompoundTag>)> {
+    pub fn chunk_from_tag(
+        tag: &CompoundTag,
+        world_id: i32,
+    ) -> anyhow::Result<(Chunk, Vec<CompoundTag>, Vec<CompoundTag>)> {
         let tile_entities = match tag.get_compound_tag_vec("TileEntities") {
+            Ok(t) => t.into_iter().cloned().collect(),
+            Err(_) => Vec::new(),
+        };
+        let entities = match tag.get_compound_tag_vec("Entities") {
             Ok(t) => t.into_iter().cloned().collect(),
             Err(_) => Vec::new(),
         };
@@ -255,10 +269,15 @@ impl Region {
         use super::chunks::*;
         let metadata = super::chunks::decompress_vec(block_metadata);
         let mut skylight: Option<Vec<u8>> = None;
-        if let Ok(val) = tag
-        .get_i8_vec("SkyLight") {
+        if let Ok(val) = tag.get_i8_vec("SkyLight") {
             let block_skylight = vec_i8_into_u8(val.clone());
             skylight = super::chunks::decompress_vec(block_skylight);
+        }
+
+        let mut blocklight: Option<Vec<u8>> = None;
+        if let Ok(val) = tag.get_i8_vec("BlockLight") {
+            let block_blocklight = vec_i8_into_u8(val.clone());
+            blocklight = super::chunks::decompress_vec(block_blocklight);
         }
         let mut blocks = Vec::new();
         let mut i = 0;
@@ -273,10 +292,15 @@ impl Region {
             } else {
                 0
             };
+            let block_light = if let Some(ref block) = blocklight {
+                block[i]
+            } else {
+                0
+            };
             blocks.push(BlockState {
                 b_type: block,
                 b_metadata: meta,
-                b_light: 0,
+                b_light: block_light,
                 b_skylight: sky,
             });
             i += 1;
@@ -293,22 +317,39 @@ impl Region {
         for i in 0..8 {
             chunksections.push(ChunkSection::new(i));
         }
+        let registry = ItemRegistry::global();
+
         for section in 0..8 {
             for x in 0..16 {
                 for z in 0..16 {
                     for y in 0..16 {
+                        let og_y = y;
                         let y = y + (section * 16);
                         //log::info!("Doing section {}, {} {} {}", section, x, y, z);
+                        let block_data = blocks[Self::pos_to_idx(x, y as i32, z)];
+                        let light_emittance = registry
+                            .get_block(block_data.b_type)
+                            .map(|v| v.light_emittance())
+                            .unwrap_or(0);
+
+                        // if light_emittance > 0 {
+                        //     kd_tree.
+                        // }
                         let section = chunksections.get_mut(section).unwrap();
-                        section
-                            .get_data()
-                            .push(blocks[Self::pos_to_idx(x, y as i32, z)]);
+                        if light_emittance > 0 {
+                            section.get_lights().insert((x as usize, og_y, z as usize));
+                        }
+                        section.get_data().push(block_data);
                     }
                 }
             }
         }
         let mut chunk = Chunk {
-            pos: ChunkCoords { x: x_pos, z: z_pos, world: world_id },
+            pos: ChunkCoords {
+                x: x_pos,
+                z: z_pos,
+                world: world_id,
+            },
             data: [
                 Some(chunksections[0].clone()),
                 Some(chunksections[1].clone()),
@@ -342,7 +383,7 @@ impl Region {
             }
         }
         //chunk.calculate_full_skylight();
-        return Ok((chunk, tile_entities));
+        Ok((chunk, tile_entities, entities))
     }
     fn index_hm_vec(x: usize, z: usize) -> usize {
         z << 4 | x

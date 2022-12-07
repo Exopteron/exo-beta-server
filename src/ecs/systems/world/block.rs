@@ -32,9 +32,9 @@ fn broadcast_block_changes(game: &mut Game, server: &mut Server) -> SysResult {
     let mut to_update = Vec::new();
     let mut to_add_new = Vec::new();
     for (_, event) in game.ecs.query::<&BlockChangeEvent>().iter() {
-        if event.update_neighbors {
+        if event.update_self || event.update_neighbors {
             for block in event.iter_changed_blocks() {
-                to_update.push((block, event.world()));
+                to_update.push((block, event.world(), event.update_neighbors, event.update_self));
             }
         }
         for update in event.iter_changed_blocks() {

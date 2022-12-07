@@ -11,7 +11,7 @@ pub struct Physics {
     modified: bool,
     velocity: DVec3,
     active: bool,
-    speed: f64,
+    pub speed: f64,
     step_height: f64,
 }
 impl Physics {

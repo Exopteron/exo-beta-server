@@ -66,7 +66,7 @@ impl PackedArray {
         );
 
         let mask = self.mask();
-        assert!(value <= mask);
+        //assert!(value <= mask);
 
         let (u64_index, bit_index) = self.indexes(index);
 

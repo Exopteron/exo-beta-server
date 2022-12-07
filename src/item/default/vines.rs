@@ -12,4 +12,7 @@ impl Block for VinesBlock {
     fn place(&self, game: &mut crate::game::Game, placer: hecs::Entity, item: crate::item::stack::ItemStack, mut position: crate::game::BlockPosition, face: crate::protocol::packets::Face, world: i32) -> Option<crate::events::block_interact::BlockPlacementEvent> {
         None
     }
+    fn opacity(&self) -> u8 {
+        0
+    }
 }

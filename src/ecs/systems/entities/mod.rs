@@ -13,12 +13,13 @@ pub mod living;
 
 
 pub struct BlockEntityTicker(pub fn(&mut Game, &mut Server, Entity, BlockPosition, BlockState) -> SysResult);
-pub fn default_systems(_game: &mut Game, systems: &mut SystemExecutor<Game>) {
+pub fn default_systems(game: &mut Game, systems: &mut SystemExecutor<Game>) -> anyhow::Result<()> {
     falling_block::init_systems(systems);
-    item::init_systems(systems);
-    living::init_systems(systems);
+    item::init_systems(game, systems)?;
+    living::init_systems(game, systems)?;
     systems.add_system(deferred_spawn);
     systems.group::<Server>().add_system(tick_clients).add_system(StatusEffectsManager::system).add_system(tick_block_entities);
+    Ok(())
 }
 fn tick_block_entities(game: &mut Game, server: &mut Server) -> SysResult {
     let mut entities = Vec::new();

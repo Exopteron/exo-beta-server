@@ -8,6 +8,8 @@ use crate::item::item::block::AtomicRegistryBlock;
 use crate::item::item::ItemRegistry;
 use crate::world::chunk_map::CHUNK_HEIGHT;
 use flume::{Receiver, Sender};
+use rustc_hash::FxHashSet;
+
 /// The width in blocks of a chunk column.
 pub const CHUNK_WIDTH: usize = 16;
 
@@ -40,6 +42,13 @@ impl BlockState {
     pub fn is_solid(&self) -> bool {
         if let Ok(t) = self.registry_type() {
             t.is_solid()
+        } else {
+            false
+        }
+    }
+    pub fn is_overwritable(&self) -> bool {
+        if let Ok(t) = self.registry_type() {
+            t.can_place_over()
         } else {
             false
         }
@@ -107,6 +116,7 @@ impl BlockState {
 #[derive(Clone, Debug)]
 pub struct ChunkSection {
     data: Vec<BlockState>,
+    lights: FxHashSet<(usize, usize, usize)>,
     section: i8,
 }
 impl Default for ChunkSection {
@@ -116,10 +126,12 @@ impl Default for ChunkSection {
         Self {
             data: vec,
             section: Default::default(),
+            lights: Default::default(),
         }
     }
 }
 impl ChunkSection {
+
     fn block_index(x: usize, y: usize, z: usize) -> Option<usize> {
         if x >= SECTION_WIDTH || y >= SECTION_WIDTH || z >= SECTION_WIDTH {
             None
@@ -133,6 +145,11 @@ impl ChunkSection {
     ///
     /// Returns `None` if the coordinates were out of bounds.
     pub fn set_block_at(&mut self, x: usize, y: usize, z: usize, block: BlockState) -> Option<()> {
+        if ItemRegistry::global().get_block(block.b_type).map(|v| v.light_emittance()).unwrap_or(0) > 0 {
+            self.lights.insert((x, y, z));
+        } else {
+            self.lights.remove(&(x, y, z));
+        }
         *self.data.get_mut(Self::block_index(x, y, z)?)? = block;
         Some(())
     }
@@ -146,6 +163,7 @@ impl ChunkSection {
         Self {
             data: Vec::new(),
             section,
+            ..Default::default()
         }
     }
     pub fn get_data(&mut self) -> &mut Vec<BlockState> {
@@ -153,6 +171,13 @@ impl ChunkSection {
     }
     pub fn data(&self) -> &Vec<BlockState> {
         &self.data
+    }
+
+    pub fn get_lights(&mut self) -> &mut FxHashSet<(usize, usize, usize)> {
+        &mut self.lights
+    }
+    pub fn lights(&self) -> &FxHashSet<(usize, usize, usize)> {
+        &self.lights
     }
 }
 impl ChunkSection {

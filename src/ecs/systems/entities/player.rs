@@ -7,7 +7,7 @@ use crate::{
             item::ItemEntityBuilder,
             living::{Dead, Health, Hunger, PreviousHealth, PreviousHunger, Regenerator},
             player::{
-                Chatbox, Gamemode, HitCooldown, HotbarSlot, ItemInUse, OffgroundHeight, Player,
+                Chatbox, Gamemode, HitCooldown, HotbarSlot, ItemInUse, Player,
                 PreviousGamemode, Username, SLOT_HOTBAR_OFFSET, Sleeping,
             },
         },
@@ -20,7 +20,7 @@ use crate::{
         inventory::{reference::Area, Inventory},
         inventory_slot::InventorySlot,
         item::ItemRegistry,
-        window::Window,
+        window::Window, self,
     },
     network::{ids::NetworkID, metadata::Metadata},
     physics::Physics,
@@ -31,11 +31,11 @@ use crate::{
     },
     server::Server,
     status_effects::StatusEffectsManager,
-    translation::TranslationManager,
+    translation::TranslationManager, sleep::SleepManager,
 };
 
 pub fn init_systems(s: &mut SystemExecutor<Game>) {
-    s.add_system(check_fall_damage)
+    s
         .add_system(regenerate)
         .add_system(hit_cooldown);
     s.group::<Server>()
@@ -77,32 +77,47 @@ pub fn init_systems(s: &mut SystemExecutor<Game>) {
 }
 fn update_sleeping(game: &mut Game, server: &mut Server) -> SysResult {
     let mut num_sleeping = 0;
+
+    let is_night = (item::default::bed::NIGHT_START..item::default::bed::NIGHT_END).contains(&game.worlds.get(&0).unwrap().level_dat.lock().time);
+
     for (_, (_, id, sleeping, pos)) in game.ecs.query::<(&Player, &NetworkID, &mut Sleeping, &mut Position)>().iter() {
-        if sleeping.changed() {
-            let client = server.clients.get(id).unwrap();
-            if sleeping.is_sleeping() {
-                server.broadcast_nearby_with(*pos, |client| {
-                    client.use_bed(*id, sleeping.bed_coords().unwrap(), true);
-                });
-            } else {
+        if let Some(client) = server.clients.get(id) {
+            if sleeping.changed() {
+                if sleeping.is_sleeping() {
+                    server.broadcast_nearby_with(*pos, |client| {
+                        client.use_bed(*id, sleeping.bed_coords().unwrap(), true);
+                    });
+                } else {
+                    server.broadcast_nearby_with(*pos, |cl| {
+                        cl.send_entity_animation(*id, EntityAnimationType::LeaveBed);
+                    });
+                    client.wake_up_sleeping();
+                }
+                sleeping.reset_changed();
+            }
+            if sleeping.is_sleeping() && is_night {
+                num_sleeping += 1;
+            } else if sleeping.is_sleeping() {
                 server.broadcast_nearby_with(*pos, |cl| {
                     cl.send_entity_animation(*id, EntityAnimationType::LeaveBed);
                 });
                 client.wake_up_sleeping();
+                sleeping.unset_sleeping();
             }
-            sleeping.reset_changed();
-        }
-        if sleeping.is_sleeping() {
-            num_sleeping += 1;
         }
     }
-    if num_sleeping == server.player_count.get() {
-        for (_, (_, id, sleeping, pos)) in game.ecs.query::<(&Player, &NetworkID, &mut Sleeping, &mut Position)>().iter() {
-            let client = server.clients.get(id).unwrap();
-            sleeping.unset_sleeping();
-            client.wake_up_sleeping();
+    if num_sleeping == server.player_count.get() && is_night {
+        let mut mgr = game.objects.get_mut::<SleepManager>()?;
+        if mgr.update() {
+            for (_, (_, id, sleeping, pos)) in game.ecs.query::<(&Player, &NetworkID, &mut Sleeping, &mut Position)>().iter() {
+                let client = server.clients.get(id).unwrap();
+                sleeping.unset_sleeping();
+                client.wake_up_sleeping();
+            }
+            game.worlds.get_mut(&0).unwrap().level_dat.lock().time = 1000_i64;
         }
-        game.worlds.get_mut(&0).unwrap().time = 1000 as i64;
+    } else {
+        let _ = game.objects.get_mut::<SleepManager>().map(|mut v| v.reset());
     }
     Ok(())
 }
@@ -121,7 +136,7 @@ fn update_metadata(game: &mut Game, server: &mut Server) -> SysResult {
 fn broadcast_player_leave(game: &Game, username: &Username) {
     let translation = game.objects.get::<TranslationManager>().unwrap();
     game.broadcast_chat(
-        translation.translate("multiplayer.player.left", Some(vec![username.0.clone()])),
+        format!("§e{}", translation.translate("multiplayer.player.left", Some(vec![username.0.clone()]))),
     );
 }
 
@@ -331,56 +346,56 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
     Ok(())
 }
 
-fn check_fall_damage(game: &mut Game) -> SysResult {
-    //log::info!("Running");
-    for (entity, (health, fall_start, pos, bounding_box)) in game
-        .ecs
-        .query::<(&mut Health, &OffgroundHeight, &Position, &AABBSize)>()
-        .iter()
-    {
-        //log::info!("Found entity");
-        if pos.on_ground {
-            //log::info!("On ground");
-            if fall_start.1 as f64 > pos.y {
-                let height = fall_start.1 as f64 - pos.y;
-                //log::info!("Height: {}", height);
-                let mut do_dmg = true;
-                if let Ok(mode) = game.ecs.get::<Gamemode>(entity) {
-                    if *mode == Gamemode::Creative {
-                        do_dmg = false;
-                    }
-                }
-                if let Some(world) = game.worlds.get(&pos.world) {
-                    // TODO check if absorbs fall
-                    if world.collides_with(
-                        bounding_box,
-                        pos,
-                        ItemRegistry::global().get_block(9).unwrap(),
-                    ) {
-                        do_dmg = false;
-                    }
-                    if world.collides_with(
-                        bounding_box,
-                        pos,
-                        ItemRegistry::global().get_block(8).unwrap(),
-                    ) {
-                        do_dmg = false;
-                    }
-                    for block in world.get_collisions(bounding_box, None, pos) {
-                        if block.0.absorbs_fall() {
-                            do_dmg = false;
-                        }
-                    }
-                }
-                if height > 0.0 && do_dmg {
-                    let fall_damage = (height - 3.0).max(0.0);
-                    health.damage(fall_damage.round() as i16, DamageType::Fall);
-                }
-            }
-        }
-    }
-    Ok(())
-}
+// fn check_fall_damage(game: &mut Game) -> SysResult {
+//     //log::info!("Running");
+//     for (entity, (health, fall_start, pos, bounding_box)) in game
+//         .ecs
+//         .query::<(&mut Health, &OffgroundHeight, &Position, &AABBSize)>()
+//         .iter()
+//     {
+//         //log::info!("Found entity");
+//         if pos.on_ground {
+//             //log::info!("On ground");
+//             if fall_start.1 as f64 > pos.y {
+//                 let height = fall_start.1 as f64 - pos.y;
+//                 //log::info!("Height: {}", height);
+//                 let mut do_dmg = true;
+//                 if let Ok(mode) = game.ecs.get::<Gamemode>(entity) {
+//                     if *mode == Gamemode::Creative {
+//                         do_dmg = false;
+//                     }
+//                 }
+//                 if let Some(world) = game.worlds.get(&pos.world) {
+//                     // TODO check if absorbs fall
+//                     if world.collides_with(
+//                         bounding_box,
+//                         pos,
+//                         ItemRegistry::global().get_block(9).unwrap(),
+//                     ) {
+//                         do_dmg = false;
+//                     }
+//                     if world.collides_with(
+//                         bounding_box,
+//                         pos,
+//                         ItemRegistry::global().get_block(8).unwrap(),
+//                     ) {
+//                         do_dmg = false;
+//                     }
+//                     for block in world.get_collisions(bounding_box, None, pos) {
+//                         if block.0.absorbs_fall() {
+//                             do_dmg = false;
+//                         }
+//                     }
+//                 }
+//                 if height > 0.0 && do_dmg {
+//                     let fall_damage = (height - 3.0).max(0.0);
+//                     health.damage(fall_damage.round() as i16, DamageType::Fall);
+//                 }
+//             }
+//         }
+//     }
+//     Ok(())
+// }
 fn hit_cooldown(game: &mut Game) -> SysResult {
     for (_, hit_cooldown) in game.ecs.query::<&mut HitCooldown>().iter() {
         if hit_cooldown.0 > 0 {

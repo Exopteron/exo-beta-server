@@ -16,8 +16,8 @@ use crate::{
         stack::{ItemStack, ItemStackType},
     },
     network::ids::NetworkID,
-    protocol::packets::{Face, SoundEffectKind},
-    world::chunks::BlockState,
+    protocol::packets::{Face, SoundEffectKind, EntityAnimationType},
+    world::chunks::BlockState, server::Server, sleep, translation::TranslationManager,
 };
 
 use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
@@ -65,14 +65,16 @@ impl Item for BedItem {
                 && game.is_solid_block(target.position.offset(0, -1, 0))
                 && game.is_solid_block(target.position.offset(byte0, -1, byte1))
             {
-                game.set_block_nb(target.position, BlockState::new(26, i1 as u8), target.position.world, false, false);
-                game.set_block_nb(target.position.offset(byte0, 0, byte1), BlockState::new(26, (i1 + 8) as u8), target.position.world, false, false);
+                game.set_block_nb(target.position, BlockState::new(26, i1 as u8), target.position.world, false, false, false);
+                game.set_block_nb(target.position.offset(byte0, 0, byte1), BlockState::new(26, (i1 + 8) as u8), target.position.world, false, false, false);
             }
         }
         Ok(())
     }
 }
 
+pub const NIGHT_START: i64 = 12542;
+pub const NIGHT_END: i64 = 23459;
 
 pub struct BedBlock;
 
@@ -85,21 +87,61 @@ impl Block for BedBlock {
         0
     }
 
+    fn opacity(&self) -> u8 {
+        0
+    }
+
     fn neighbor_update(&self, world: i32, game: &mut Game, position: BlockPosition, state: BlockState, offset: Face, neighbor_state: BlockState) -> SysResult {
         log::info!("updated");
         let meta = state.b_metadata;
         let j1 = (meta & 3) as usize;
+
+        let a;
+        let b;
+        let mut do_it = false;
         if Self::is_foot(meta) {
+
+            a = position.offset(-MAP[j1][0], 0, -MAP[j1][1]);
+            b = position;
+
             let block = game.block(position.offset(-MAP[j1][0], 0, -MAP[j1][1]), position.world).map(|v| v.b_type);
             if block != Some(self.id()) {
                 game.break_block(position, position.world);
+
+
+                do_it = true;
             }
         } else {
+
+            a = position.offset(MAP[j1][0], 0, MAP[j1][1]);
+            b = position;
+
             let block = game.block(position.offset(MAP[j1][0], 0, MAP[j1][1]), position.world).map(|v| v.b_type);
             if block != Some(self.id()) {
                 game.break_block(position, position.world);
+                do_it = true;
             }
         }
+
+
+
+        if do_it {
+            let server = game.objects.get_mut::<Server>()?;
+
+            for (_, (sleeping, id, pos)) in game.ecs.query::<(&mut Sleeping, &NetworkID, &Position)>().iter() {
+                if let Some(c) = sleeping.bed_coords() {
+                    if c == a || c == b {
+                        sleeping.unset_sleeping();
+                        server.broadcast_nearby_with(*pos, |cl| {
+                            cl.send_entity_animation(*id, EntityAnimationType::LeaveBed);
+                        });
+                        server.clients.get(id).unwrap().wake_up_sleeping();
+                    }
+                }
+            }
+        }
+
+
         Ok(())
     }
 
@@ -107,11 +149,11 @@ impl Block for BedBlock {
 
     fn interacted_with(&self, world: i32, game: &mut Game, server: &mut crate::server::Server, mut position: BlockPosition, state: BlockState, player: Entity) -> anyhow::Result<ActionResult> {
 
-        const NIGHT_START: i64 = 12542;
-        const NIGHT_END: i64 = 23459;
-        
+
         let range = (NIGHT_START..NIGHT_END);
-        if !range.contains(&(game.worlds.get(&world).map(|v| v.time)).unwrap()) {
+        if !range.contains(&(game.worlds.get(&world).map(|v| v.level_dat.lock().time)).unwrap()) {
+            let translation = game.objects.get::<TranslationManager>().unwrap();
+            game.ecs.get_mut::<Chatbox>(player)?.send_message(translation.translate("tile.bed.noSleep", None).into());
             return Ok(ActionResult::PASS);
         }
         let mut l = state.b_metadata;
@@ -139,7 +181,8 @@ impl Block for BedBlock {
             if !has_player {
                 Self::set_occupied(position, game, false);
             } else {
-                println!("Occupied");
+                let translation = game.objects.get::<TranslationManager>().unwrap();
+                game.ecs.get_mut::<Chatbox>(player)?.send_message(translation.translate("tile.bed.occupied", None).into());
                 return Ok(ActionResult::SUCCESS);
             }
         }
