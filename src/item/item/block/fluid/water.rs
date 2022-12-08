@@ -34,6 +34,9 @@ impl Block for NotFlowingWaterBlock {
         9
     }
 
+    fn passable(&self) -> bool {
+        true
+    }
     fn opacity(&self) -> u8 {
         3
     }

@@ -1,6 +1,8 @@
+use hecs::Entity;
+
 use crate::{
     item::item::{block::Block, BlockIdentifier},
-    protocol::packets::Face, server::Server,
+    protocol::packets::Face, server::Server, game::{Game, BlockPosition}, world::chunks::BlockState, ecs::systems::SysResult, status_effects::{StatusEffectsManager, fire::FireEffect},
 };
 
 use super::{FluidBlock, FluidMaterial};
@@ -26,11 +28,35 @@ impl FluidBlock for MovingLavaBlock {
     fn opacity() -> u8 {
         15
     }
+
+    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, entity: Entity) -> SysResult {
+        let mut sem = game.ecs.get_mut::<StatusEffectsManager>(entity)?;
+    
+        if let Some(fire) = sem.get_effect::<FireEffect>() {
+            fire.time_ticks = 90;
+        } else {
+            sem.add_effect(FireEffect::new(90));
+        }
+        Ok(())
+    }
 }
 pub struct NotFlowingLavaBlock;
 impl Block for NotFlowingLavaBlock {
     fn id(&self) -> BlockIdentifier {
         11
+    }
+    fn passable(&self) -> bool {
+        true
+    }
+    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, entity: Entity) -> SysResult {
+        let mut sem = game.ecs.get_mut::<StatusEffectsManager>(entity)?;
+    
+        if let Some(fire) = sem.get_effect::<FireEffect>() {
+            fire.time_ticks = 90;
+        } else {
+            sem.add_effect(FireEffect::new(90));
+        }
+        Ok(())
     }
 
     fn light_emittance(&self) -> u8 {

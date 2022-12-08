@@ -160,6 +160,7 @@ impl World {
         aabb: &AABBSize,
         check_aabb: Option<AABB>,
         position: &Position,
+        passable: bool
     ) -> Vec<AABB> {
         let mut blocks = Vec::new();
         //log::info!("Called get col");
@@ -181,7 +182,9 @@ impl World {
                     if let Some(state) = self.block_at(p) {
                         if !state.is_air() {
                             if let Some(block) = registry.get_block(state.b_type) {
-                                blocks.push((block, state, p));
+                                if !block.passable() || passable {
+                                    blocks.push((block, state, p));
+                                } 
                             }
                         }
                     }

@@ -33,6 +33,10 @@ pub enum GameCommand {
         state: BlockState,
         recv: oneshot::Sender<()>,
     },
+    UpdateBlock {
+        position: BlockPosition,
+    },
+    SendToClients
 }
 pub struct LightThreadManager {
     sender: Sender<GameCommand>,
@@ -54,6 +58,10 @@ impl LightThreadManager {
                 sender: send_light,
             },
         )
+    }
+
+    pub fn sync(&mut self) {
+        let _ = self.sender.send(GameCommand::SendToClients);
     }
     pub fn block(&mut self, position: BlockPosition) -> Option<BlockState> {
         let (send, recv) = oneshot::channel();
@@ -108,7 +116,7 @@ impl LightThreadManager {
         let start_y_section = range_start.y as usize / SECTION_HEIGHT;
         let end_y_section = range_end.y as usize / SECTION_HEIGHT;
 
-        let mut blocks: Vec<BlockPosition> = Vec::new();
+        let mut blocks: Vec<(BlockPosition, u8)> = Vec::new();
 
         // log::info!("start_x_sectionspace {}", start_x_sectionspace);
         // log::info!("end_x_sectionspace {}", end_x_sectionspace);
@@ -130,6 +138,7 @@ impl LightThreadManager {
                     for section_number in start_y_section..end_y_section {
                         if let Some(section) = &chunk.data[section_number] {
                             for (ls_x, ls_y, ls_z) in section.lights() {
+                                let id = section.block_at(*ls_x, *ls_y, *ls_z).map(|v| v.b_type).unwrap_or(0);
                                 //log::info!("Light at {} {} {}", ls_x, ls_y, ls_z);
                                 let real_x = *ls_x as i32 + (pos.x * CHUNK_WIDTH as i32);
                                 let real_y = *ls_y as i32 + (section_number as i32 * SECTION_HEIGHT as i32);
@@ -142,7 +151,7 @@ impl LightThreadManager {
                                     && real_x >= range_start.x
                                     && real_x <= range_end.x
                                 {
-                                    blocks.push(BlockPosition::new(real_x as i32, real_y as i32, real_z as i32, position.world));
+                                    blocks.push((BlockPosition::new(real_x as i32, real_y as i32, real_z as i32, position.world), id));
                                 }
                             }
                         }
@@ -151,15 +160,14 @@ impl LightThreadManager {
             }
         }
 
-        if was_source > 0 {
-            //log::info!("Decreasing");
-            propagator.decrease_light(self, position, was_source);
-        }
+        propagator.decrease_light(self, position, was_source);
 
-        //log::info!("{} light sources nearby: {:?}", blocks.len(), blocks);
-        for pos in blocks {
-            propagator.increase_light(self, pos, 15, false);
+        log::info!("{} light sources nearby: {:?}", blocks.len(), blocks);
+        for (pos, id) in blocks {
+            let emittance = ItemRegistry::global().get_block(id).map(|v| v.light_emittance()).unwrap_or(0);
+            propagator.increase_light(self, pos, (emittance + 1).min(15), false);
         }
+        self.sync();
     }
 
     fn skylight_for(
@@ -263,8 +271,8 @@ impl LightThreadManager {
                             &mut later_queue,
                         );
                     }
-                    LightPropagationRequest::BlockLight { position, was_source } => {
-                        self.blocklight_for(&mut propagator, position, was_source);
+                    LightPropagationRequest::BlockLight { position, old_light_level } => {
+                        self.blocklight_for(&mut propagator, position, old_light_level);
                     }
                 }
             }
@@ -342,16 +350,17 @@ impl RegChunkMap {
             .flatten()
     }
 
-    pub fn set_block_at(&self, pos: BlockPosition, block: BlockState, nlh: bool) -> bool {
+    pub fn set_block_at(&self, pos: BlockPosition, block: BlockState, nlh: bool) -> Option<BlockState> {
         if check_coords(pos).is_none() {
-            return false;
+            return None;
         }
         let (x, y, z) = chunk_relative_pos(pos.into());
         if let Some(mut chunk) = self.chunk_at_mut(pos.to_chunk_coords()) {
+            let old = chunk.block_at(x, y, z)?;
             chunk.set_block_at_nlh(x, y, z, block);
-            return true;
+            return Some(old);
         }
-        false
+        None
     }
 
     /// Returns an iterator over chunks.
@@ -448,19 +457,17 @@ impl LockedChunkMap {
         block: BlockState,
         manager: &mut LightThreadManager,
     ) -> bool {
-        if self.1.has_chunk(pos.to_chunk_coords()) {
-            if check_coords(pos).is_none() {
-                return false;
-            }
-            let (x, y, z) = chunk_relative_pos(pos.into());
-            if let Some(mut chunk) = self.chunk_at(pos.to_chunk_coords(), manager) {
-                chunk.set_block_at_nlh(x, y, z, block);
-                return true;
-            }
-            false
-        } else {
+
+        if !self.1.has_chunk(pos.to_chunk_coords()) {
             self.add_to_regmap(pos.to_chunk_coords(), manager);
-            self.1.set_block_at(pos, block, true)
+        }
+        if let Some(v) = self.1.set_block_at(pos, block, true) {
+            if v.b_light != block.b_light || v.b_skylight != block.b_skylight {
+                let _ = manager.sender.send(GameCommand::UpdateBlock { position: pos });
+            }            
+            true
+        } else {
+            false
         }
     }
     /// Inserts a new chunk into the chunk map.
@@ -525,13 +532,11 @@ impl LightPropagator {
         &mut self,
         game: &mut LightThreadManager,
         position: BlockPosition,
-        value: u8,
+        old_light_value: u8
     ) {
-        if value > 15 {
-            return;
-        }
         if let Some(mut state) = self.map.block_at(position, game) {
-            self.decrease_queue.push_back((position, value));
+            self.decrease_queue.push_back((position, old_light_value));
+            state.b_light = 0;
             self.map.set_block_at(position, state, game);
             self.depropagate(game);
         }
@@ -543,46 +548,81 @@ impl LightPropagator {
 
         let mut visited = FxHashSet::default();
 
-        let mut to_update = vec![];
         while !self.decrease_queue.is_empty() {
-            //log::info!("In queue");
-            let (pos, light_value) = self.decrease_queue.pop_front().unwrap();
+            let (pos, old_light_value) = self.decrease_queue.pop_front().unwrap();
             if visited.contains(&pos) {
                 continue;
             }
-            if light_value == 0 {
-                continue;
-            }
-            visited.insert(pos);
 
             self.map.lock(pos.to_chunk_coords(), game);
-            if let Some(self_state) = self.map.block_at(pos, game) {
 
-                for face in Face::all_faces() {
-                    let neighbor = face.offset(pos);
-                    self.map.lock(neighbor.to_chunk_coords(), game);
-                    if let Some(neighbor_state) = self.map.block_at(neighbor, game) {
-                        let current_level = neighbor_state.b_light;
-                        //log::info!("Neighbor on {:?} is {}", face, current_level);
-                        
-                        if current_level >= self_state.b_light {
-                            // probably being lit by somebody else?
-                            to_update.push((neighbor, 0));
+
+            if let Some(mut self_state) = self.map.block_at(pos, game) {
+
+
+
+                let self_opacity = Self::opacity(self_state.b_type, &registry);
+                if self_opacity == 15 && old_light_value > 0 {
+                    self_state.b_light = 0;
+                    visited.insert(pos);
+                    self.map.set_block_at(pos, self_state, game);
+                    for face in Face::all_faces() {
+                        let neighbor = face.offset(pos);
+                        self.map.lock(neighbor.to_chunk_coords(), game);
+                        if let Some(neighbor_state) = self.map.block_at(neighbor, game) {
+                            if neighbor_state.b_light > 0 {
+                                self.decrease_queue.push_back((neighbor, neighbor_state.b_light));
+                            }
                         }
-                        if let Some(mut bstate) = self.map.block_at(neighbor, game) {
-                            bstate.b_light = 0;
-                            self.map.set_block_at(neighbor, bstate, game);
-                        }
-                        self.decrease_queue.push_back((neighbor, light_value - 1));
                     }
+                } else if self_opacity < 15 {
+
+                    let mut highest = 0;
+                    for face in Face::all_faces() {
+                        let neighbor = face.offset(pos);
+                        self.map.lock(neighbor.to_chunk_coords(), game);
+                        if let Some(neighbor_state) = self.map.block_at(neighbor, game) {
+                            if neighbor_state.b_light > highest {
+                                highest = neighbor_state.b_light;
+                            }
+                        }
+                    }
+
+                    if highest == 0 && old_light_value == 0 {
+                        continue;
+                    }
+
+                    let emittance = Self::emittance(self_state.b_type, &registry);
+                    if emittance > 0 && (highest >= emittance - 1) {
+                        continue;
+                    } 
+
+                    if highest == 0 {
+                        self_state.b_light = 0;
+                        self.map.set_block_at(pos, self_state, game);
+                        visited.insert(pos);
+                    } else if self_state.b_light != highest.saturating_sub(1) {
+                        self_state.b_light = 0;
+                        self.map.set_block_at(pos, self_state, game);
+                        visited.insert(pos);
+                        for face in Face::all_faces() {
+                            let neighbor = face.offset(pos);
+                            self.map.lock(neighbor.to_chunk_coords(), game);
+                            if let Some(neighbor_state) = self.map.block_at(neighbor, game) {
+                                if neighbor_state.b_light > 0 {
+                                    self.decrease_queue.push_back((neighbor, neighbor_state.b_light));
+                                }
+                            }
+                        }
+                    }
+
+
                 }
 
             }
 
         }
-        for (position, was_source) in to_update {
-            let _ = game.self_sender.send(LightPropagationRequest::BlockLight { position, was_source });
-        }
+
     }
 
 
@@ -595,8 +635,7 @@ impl LightPropagator {
                 let neighbor = face.offset(pos);
                 self.map.lock(neighbor.to_chunk_coords(), game);
                 if let Some(neighbor_state) = self.map.block_at(neighbor, game) {
-                    let current_level;
-                    current_level = match sky_light {
+                    let current_level = match sky_light {
                         true => neighbor_state.b_skylight,
                         false => neighbor_state.b_light,
                     };
@@ -605,7 +644,7 @@ impl LightPropagator {
                         continue;
                     }
                     let mut target_level = light_value.saturating_sub(
-                        1.max(Self::opacity(neighbor_state.b_type, registry.clone())),
+                        1.max(Self::opacity(neighbor_state.b_type, &registry)),
                     );
                     if target_level > 15 {
                         target_level = 0;
@@ -624,11 +663,18 @@ impl LightPropagator {
             }
         }
     }
-    fn opacity(id: u8, registry: Arc<ItemRegistry>) -> u8 {
+    fn opacity(id: u8, registry: &ItemRegistry) -> u8 {
         if let Some(block) = registry.get_block(id) {
             return block.opacity();
         }
         15
+    }
+
+    fn emittance(id: u8, registry: &ItemRegistry) -> u8 {
+        if let Some(block) = registry.get_block(id) {
+            return block.light_emittance();
+        }
+        0
     }
 }
 

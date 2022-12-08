@@ -1,3 +1,4 @@
+use hecs::Entity;
 use rand::Rng;
 
 use crate::{
@@ -34,6 +35,7 @@ pub trait FluidBlock {
     fn light_emittance(&self) -> u8 {
         1
     }
+    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, entity: Entity) -> SysResult { Ok(()) }
     fn material() -> FluidMaterial;
     fn opacity() -> u8;
     fn check_for_harden(
@@ -332,7 +334,7 @@ pub trait FluidBlock {
                     let dropped_items =
                         item.dropped_items(BlockState::new(var6, state), InventorySlot::Empty);
                     for item in dropped_items {
-                        let entity = ItemEntityBuilder::build(game, Position::from(position), item);
+                        let entity = ItemEntityBuilder::build(game, Position::from(position), item, 5);
                         game.spawn_entity(entity);
                     }
                 }
@@ -586,7 +588,14 @@ where
     fn id(&self) -> crate::item::item::BlockIdentifier {
         FluidBlock::id(self)
     }
+
+    fn passable(&self) -> bool {
+        true
+    }
     
+    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, entity: Entity) -> SysResult {
+        FluidBlock::on_collide(self, game, position, state, entity)
+    }
     fn light_emittance(&self) -> u8 {
         FluidBlock::light_emittance(self)
     }

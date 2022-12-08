@@ -67,9 +67,7 @@ impl ChunkMap {
             }
             if !nlh {
                 light.as_mut().unwrap().push(LightPropagationRequest::ChunkSky { position: chunk.position(), world });
-
-                let l_emittance = original_block.and_then(|v| ItemRegistry::global().get_block(v.b_type)).map(|v| v.light_emittance()).unwrap_or(0);
-                light.as_mut().unwrap().push(LightPropagationRequest::BlockLight { position: pos, was_source: l_emittance });
+                light.as_mut().unwrap().push(LightPropagationRequest::BlockLight { position: pos, old_light_level: original_block.map(|v| v.b_light).unwrap_or(15) });
                 // for request in chunk.global_skylight_requests() {
                 //     light.as_mut().unwrap().push(request);
                 // }

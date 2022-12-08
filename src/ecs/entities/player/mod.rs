@@ -13,7 +13,7 @@ use crate::{
     world::{chunks::Chunk, view::View, LevelDat}, item::{inventory::{Inventory, reference::BackingWindow}, window::Window, stack::ItemStack, inventory_slot::InventorySlot}, commands::PermissionLevel, configuration::{CONFIGURATION, OpManager}, aabb::AABBSize, status_effects::StatusEffectsManager, physics::Physics, player_dat::PlayerDat,
 };
 
-use super::living::{Health, Hunger, PreviousHealth, PreviousHunger, Regenerator};
+use super::living::{Health, Hunger, PreviousHealth, PreviousHunger, Regenerator, EntityWorldInteraction};
 
 pub struct Player;
 #[derive(Clone)]
@@ -250,12 +250,13 @@ impl PlayerBuilder {
             }
         }
         let mut builder = game.create_entity_builder(position, EntityInit::Player);
+        builder.add(EntityWorldInteraction::default());
         builder.add(ItemInUse(InventorySlot::Empty, 0));
         builder.add(inventory);
         builder.add(Metadata::new());
         builder.add(HitCooldown(0));
         builder.add(Physics::new(false, 0.1, 0.));
-        builder.add(StatusEffectsManager::default());
+        builder.add(crate::status_effects::StatusEffectsManager::default());
         builder.add(Player);
         builder.add(position);
         builder.add(username);

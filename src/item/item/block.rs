@@ -18,6 +18,10 @@ pub trait Block {
     fn light_emittance(&self) -> u8 {
         0
     }
+
+    fn passable(&self) -> bool {
+        false
+    }
     fn dropped_items(&self, state: BlockState, held_item: InventorySlot) -> Vec<ItemStack> {
         vec![ItemStack::new(self.id().into(), 1, state.b_metadata.into())]
     }

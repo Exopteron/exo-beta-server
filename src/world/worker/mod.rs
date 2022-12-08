@@ -69,13 +69,13 @@ impl ChunkWorker {
             },
         };
         light.push(LightPropagationRequest::ChunkSky { position: chunk.pos, world: chunk.pos.world });
-        for (idx, v) in chunk.chunk.data.iter().enumerate() {
-            if let Some(v) = v {
-                for (x, y, z) in v.lights() {
-                    light.push(LightPropagationRequest::BlockLight { position: BlockPosition::new(*x as i32 + (chunk.pos.x as i32 * CHUNK_WIDTH as i32), *y as i32 + (idx as i32 * SECTION_HEIGHT as i32), *z as i32 + (chunk.pos.z as i32 * CHUNK_WIDTH as i32), chunk.pos.world), was_source: 0 });
-                }
-            }
-        }
+        // for (idx, v) in chunk.chunk.data.iter().enumerate() {
+        //     if let Some(v) = v {
+        //         for (x, y, z) in v.lights() {
+        //             light.push(LightPropagationRequest::BlockLight { position: BlockPosition::new(*x as i32 + (chunk.pos.x as i32 * CHUNK_WIDTH as i32), *y as i32 + (idx as i32 * SECTION_HEIGHT as i32), *z as i32 + (chunk.pos.z as i32 * CHUNK_WIDTH as i32), chunk.pos.world), was_source: 0 });
+        //         }
+        //     }
+        // }
         // let v = mem::take(&mut chunk.light);
         // for v in v {
         //     light.push(v);

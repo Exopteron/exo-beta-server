@@ -6,9 +6,9 @@ use rand::Rng;
 
 use crate::{
     aabb::AABB,
-    ecs::{entities::player::Chatbox, systems::SysResult, EntityRef},
+    ecs::{entities::{player::Chatbox, living::Health}, systems::SysResult, EntityRef},
     events::block_interact::BlockPlacementEvent,
-    game::{BlockPosition, Game, Position},
+    game::{BlockPosition, Game, Position, DamageType},
     item::{
         item::block::{ActionResult, AtomicRegistryBlock, BurnRate, NonBoxedRegBlock},
         stack::{ItemStack, ItemStackType}, window::Window, inventory_slot::InventorySlot,
@@ -63,14 +63,25 @@ impl Item for FlintAndSteelItem {
 
 pub struct FireBlock;
 impl Block for FireBlock {
-    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, player: Entity) -> SysResult {
-        game.ecs.get_mut::<StatusEffectsManager>(player)?.add_effect(FireEffect::new(90));
+    fn on_collide(&self, game: &mut Game, position: BlockPosition, state: BlockState, entity: Entity) -> SysResult {
+        log::info!("Balls");
+        //game.ecs.get_mut::<Health>(entity)?.damage(20, DamageType::Fire);
+        let mut sem = game.ecs.get_mut::<StatusEffectsManager>(entity)?;
+    
+        if let Some(fire) = sem.get_effect::<FireEffect>() {
+            fire.time_ticks = 90;
+        } else {
+            sem.add_effect(FireEffect::new(90));
+        }
         Ok(())
     }
     fn id(&self) -> BlockIdentifier {
         51
     }
 
+    fn passable(&self) -> bool {
+        true
+    }
     fn item_stack_size(&self) -> i8 {
         64
     }
@@ -92,6 +103,7 @@ impl Block for FireBlock {
             None
         });
     }
+    
     fn tick(&self, world: i32, game: &mut Game, state: BlockState, position: BlockPosition) {
         game.break_block(position, position.world);
         return;

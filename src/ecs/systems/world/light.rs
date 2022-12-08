@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::{collections::VecDeque, mem};
 
 use crate::{
     block_entity::{BlockEntity, BlockEntityLoader},
@@ -19,6 +19,7 @@ use crate::{
     },
 };
 use ahash::AHashMap;
+use rustc_hash::FxHashSet;
 #[derive(Debug)]
 pub enum LightPropagationRequest {
     ChunkSky {
@@ -27,12 +28,13 @@ pub enum LightPropagationRequest {
     },
     BlockLight {
         position: BlockPosition,
-        was_source: u8
+        old_light_level: u8
     }
 }
 pub struct LightPropagationManager {
     manager: LightThreadSync,
     queue: VecDeque<GameCommand>,
+    blocks_to_sync: FxHashSet<BlockPosition>,
 }
 impl LightPropagationManager {
     pub fn new() -> Self {
@@ -41,6 +43,7 @@ impl LightPropagationManager {
         Self {
             manager: sync,
             queue: VecDeque::new(),
+            blocks_to_sync: Default::default()
         }
     }
     pub fn push(&mut self, request: LightPropagationRequest) {
@@ -65,9 +68,9 @@ impl LightPropagationManager {
 }
 pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
     game.insert_object(LightPropagationManager::new());
-    systems.add_system(handle_commands);
+    systems.group::<Server>().add_system(handle_commands);
 }
-pub fn handle_commands(game: &mut Game) -> SysResult {
+pub fn handle_commands(game: &mut Game, server: &mut Server) -> SysResult {
     let obj = game.objects.clone();
     let mut propagator = obj.get_mut::<LightPropagationManager>()?;
     for _ in 0..2500 {
@@ -104,6 +107,18 @@ pub fn handle_commands(game: &mut Game) -> SysResult {
                 let world = game.worlds.get(&position.world).unwrap();
                 recv.send(world.chunk_map.chunk_handle_at(position))
                     .expect("handle later");
+            },
+            GameCommand::UpdateBlock { position } => {
+                propagator.blocks_to_sync.insert(position);
+            },
+            GameCommand::SendToClients => {
+                for v in mem::take(&mut propagator.blocks_to_sync) {
+                    if let Some(state) = game.block(v, v.world) {
+                        server.broadcast_nearby_with(v.into(), |client| {
+                            client.send_block_change(v, state);
+                        });
+                    }
+                }
             }
         }
     }

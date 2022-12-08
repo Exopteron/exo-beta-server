@@ -105,7 +105,7 @@ fn spawn_player(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityR
     let pos = *entity.get::<Position>()?;
     let name = &*entity.get::<Username>()?;
     let status = entity.get::<StatusEffectsManager>()?;
-    for effect in status.get_effects() {
+    for effect in status.get_effects().values() {
         effect.show_client(entity, client)?;
     }
     drop(status);
@@ -143,8 +143,9 @@ fn spawn_mob(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef,
     let network_id = *entity.get::<NetworkID>()?;
     let pos = *entity.get::<Position>()?;
     let kind = *entity.get::<EnumMobType>()?;
+    let meta = &*entity.get::<Metadata>()?;
 
-    client.spawn_mob(network_id, kind, pos, Metadata::new());
+    client.spawn_mob(network_id, kind, pos, meta.clone());
     Ok(()) 
 }
 fn spawn_living_entity(scheduler: Rc<RefCell<Scheduler>>, ticks: u128, entity: &EntityRef, client: &Client) -> SysResult {

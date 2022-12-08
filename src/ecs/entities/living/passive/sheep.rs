@@ -2,7 +2,7 @@ use hecs::EntityBuilder;
 use nbt::CompoundTag;
 use rand::Rng;
 
-use crate::{game::{Game, Position, DamageType}, entities::{EntityInit, PreviousPosition}, ecs::{entities::item::Life, EntityRef, systems::entities::living::hostile::zombie::MobPhysics}, physics::Physics, aabb::AABBSize, network::ids::NetworkID, protocol::packets::EnumMobType, item::{window::Window, inventory::{reference::BackingWindow, Inventory}}, entity_loader::RegularEntitySaver};
+use crate::{game::{Game, Position, DamageType}, entities::{EntityInit, PreviousPosition}, ecs::{entities::{item::Life, living::EntityWorldInteraction}, EntityRef, systems::entities::living::hostile::zombie::MobPhysics}, physics::Physics, aabb::AABBSize, network::ids::NetworkID, protocol::packets::EnumMobType, item::{window::Window, inventory::{reference::BackingWindow, Inventory}}, entity_loader::RegularEntitySaver};
 
 use super::super::{PreviousHealth, Health, PreviousHunger, Hunger};
 pub struct SheepEntity;
@@ -17,7 +17,8 @@ impl SheepEntityBuilder {
             builder.add(position);
             builder.add(PreviousPosition(position));
         }
-
+        builder.add(crate::network::metadata::Metadata::new());
+        builder.add(EntityWorldInteraction::default());
         builder.add(Health(health, DamageType::None, false));
         builder.add(PreviousHealth(Health(health, DamageType::None, false)));
         builder.add(SheepEntity);
@@ -25,7 +26,7 @@ impl SheepEntityBuilder {
         builder.add(NetworkID::new());
         builder.add(AABBSize::new(-0.3, 0.05, -0.3, 0.3, 0.8, 0.3));
         builder.add(Physics::new(true, rand::thread_rng().gen::<f64>(), 1.));
-
+        builder.add(crate::status_effects::StatusEffectsManager::default());
 
         let inventory = Inventory::player();
         builder.add(inventory.new_handle());

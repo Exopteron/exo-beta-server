@@ -4,7 +4,7 @@
 
 use std::ops::Deref;
 
-use crate::{game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}, entities::player::{Player, Gamemode}}, server::Server, network::{ids::NetworkID, metadata::Metadata}, events::{SneakEvent, ViewUpdateEvent, ChangeWorldEvent}, world::view::View, protocol::{ServerPlayPacket, packets::server::LoginRequest, io::String16}};
+use crate::{game::{Game, Position}, ecs::{systems::{SystemExecutor, SysResult}, entities::{player::{Player, Gamemode}, living::EntityWorldInteraction}}, server::Server, network::{ids::NetworkID, metadata::Metadata}, events::{SneakEvent, ViewUpdateEvent, ChangeWorldEvent}, world::view::View, protocol::{ServerPlayPacket, packets::server::LoginRequest, io::String16}, aabb::AABBSize};
 
 use super::{PreviousPosition, metadata::{META_INDEX_POSE, EntityBitMask, EntityMetadata, META_INDEX_ENTITY_BITMASK}};
 
@@ -19,12 +19,15 @@ pub fn register(game: &mut Game, systems: &mut SystemExecutor<Game>) {
 /// Sends entity movement packets.
 fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
     let mut to_switch_dim = Vec::new();
-    for (entity, (&position, prev_position, &network_id)) in game
+    let mut to_collide = vec![];
+    for (entity, (&position, prev_position, &network_id, interactor, aabb)) in game
         .ecs
         .query::<(
             &Position,
             &mut PreviousPosition,
             &NetworkID,
+            &mut EntityWorldInteraction,
+            &AABBSize
         )>()
         .iter()
     {
@@ -37,6 +40,19 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
             switched = true;
         }
         if position != prev_position.0 {
+
+
+            let world = game.worlds.get(&position.world).unwrap();
+            let mut current_collisions = world.get_collisions(&aabb, None, &position);
+            let prev_collisions = world.get_collisions(&aabb, None, &prev_position.0);
+            current_collisions.retain(|v| {
+                !prev_collisions.contains(v)
+            });
+            for collision in current_collisions {
+                to_collide.push((entity, collision));
+            }
+            
+
             server.broadcast_nearby_with(position,  |client| {
                 client.update_entity_position(
                     network_id,
@@ -46,6 +62,9 @@ fn send_entity_movement(game: &mut Game, server: &mut Server) -> SysResult {
             });
             prev_position.0 = position;
         }
+    }
+    for (entity, (a, b, c)) in to_collide {
+        a.on_collide(game, c, b, entity)?;
     }
     for (entity, old_world) in to_switch_dim {
         let eref = game.ecs.entity(entity)?;

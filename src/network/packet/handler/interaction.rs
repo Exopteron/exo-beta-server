@@ -16,7 +16,7 @@ use crate::{
         entities::{
             item::{ItemEntity, ItemEntityBuilder},
             living::Health,
-            player::{Gamemode, HitCooldown, HotbarSlot, Username, SLOT_HOTBAR_OFFSET, ItemInUse, Player, OffgroundHeight, Blocking},
+            player::{Gamemode, HitCooldown, HotbarSlot, Username, SLOT_HOTBAR_OFFSET, ItemInUse, Player, Blocking},
         },
         systems::{world::block::update::BlockUpdateManager, SysResult},
         EntityRef,
@@ -61,7 +61,7 @@ pub fn drop_item(game: &mut Game, item: ItemStack, position: Position) -> SysRes
     itempos.on_ground = false;
     itempos.y += 1.;
     itempos.y += 0.22;
-    let mut item = ItemEntityBuilder::build(game, itempos, item);
+    let mut item = ItemEntityBuilder::build(game, itempos, item, 5);
     let mut physics = item
         .get_mut::<Physics>()
         .ok_or(anyhow::anyhow!("No physics?"))?;
@@ -142,7 +142,7 @@ pub fn handle_player_digging(
                                 let mut pos: Position = pos.into();
                                 pos.x += 0.5;
                                 pos.y += 0.5;
-                                let builder = ItemEntityBuilder::build(game, pos, drop);
+                                let builder = ItemEntityBuilder::build(game, pos, drop, 5);
                                 game.spawn_entity(builder);
                             }
                         }
@@ -200,7 +200,7 @@ pub fn handle_player_digging(
                             pos.x += 0.5;
                             pos.y += 0.5;
                             pos.z += 0.5;
-                            let mut builder = ItemEntityBuilder::build(game, pos, drop);
+                            let mut builder = ItemEntityBuilder::build(game, pos, drop, 5);
                             builder.get_mut::<Physics>().unwrap().add_velocity(0., 0.1, 0.);
                             game.spawn_entity(builder);
                         }
@@ -561,8 +561,8 @@ fn calculate_damage(game: &mut Game, attacker: Entity, target: Entity) -> SysRes
     drop(slot);
     drop(entity_ref);
     let pos = *game.ecs.get::<Position>(attacker)?;
-    let off_g = *game.ecs.get::<OffgroundHeight>(attacker)?;
-    let height = off_g.0 - pos.y as f32;
+    // let off_g = *game.ecs.get::<OffgroundHeight>(attacker)?;
+    let height = 0.0 - pos.y as f32;
     if height > 0.0 {
         log::info!("Critical");
         damage *= 1.5;

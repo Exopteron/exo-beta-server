@@ -47,7 +47,7 @@ impl Physics {
         let mut d6 = movement.x;
         let mut d7 = movement.y;
         let mut d8 = movement.z;
-        let list = world.get_colliding_bbs(&*aabb, Some(real_aabb.add(movement.x as f64, movement.y as f64, movement.z as f64)), &*position);
+        let list = world.get_colliding_bbs(&*aabb, Some(real_aabb.add(movement.x as f64, movement.y as f64, movement.z as f64)), &*position, false);
         for item in list.iter() {
             movement.y = item.y_off(&real_aabb, movement.y as f64);   
         }

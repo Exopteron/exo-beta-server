@@ -8,7 +8,7 @@ use nbt::CompoundTag;
 
 use crate::{
     aabb::AABBSize,
-    ecs::{entities::item::Life, EntityRef, systems::entities::living::hostile::zombie::MobPhysics},
+    ecs::{entities::{item::Life, living::EntityWorldInteraction}, EntityRef, systems::entities::living::hostile::zombie::MobPhysics},
     entities::{EntityInit, PreviousPosition},
     entity_loader::RegularEntitySaver,
     game::{DamageType, Game, Position},
@@ -36,6 +36,9 @@ impl SkeletonEntityBuilder {
             builder.add(position);
             builder.add(PreviousPosition(position));
         }
+        builder.add(crate::status_effects::StatusEffectsManager::default());
+        builder.add(crate::network::metadata::Metadata::new());
+        builder.add(EntityWorldInteraction::default());
         builder.add(Health(health, DamageType::None, false));
         builder.add(PreviousHealth(Health(health, DamageType::None, false)));
         builder.add(SkeletonEntity);

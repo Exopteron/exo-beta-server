@@ -4,7 +4,7 @@ use crate::{
     aabb::AABBSize,
     ecs::{
         entities::{
-            item::ItemEntityBuilder,
+            item::{ItemEntityBuilder, ItemEntity},
             living::{Dead, Health, Hunger, PreviousHealth, PreviousHunger, Regenerator},
             player::{
                 Chatbox, Gamemode, HitCooldown, HotbarSlot, ItemInUse, Player,
@@ -314,16 +314,16 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         game.ecs.insert(dead, Dead)?;
         let entity_ref = game.ecs.entity(dead)?;
         let pos = *entity_ref.get::<Position>()?;
-        let inventory = entity_ref.get::<Window>()?.inner().clone();
-        for item in inventory.to_vec() {
-            if let InventorySlot::Filled(item) = item {
-                let builder = ItemEntityBuilder::build(game, pos, item);
-                game.spawn_entity(builder);
+        if let Ok(inventory) = entity_ref.get::<Window>().map(|v| v.inner().clone()) {
+            for item in inventory.to_vec() {
+                if let InventorySlot::Filled(item) = item {
+                    let builder = ItemEntityBuilder::build(game, pos, item, 5);
+                    game.spawn_entity(builder);
+                }
             }
         }
         let entity_ref = game.ecs.entity(dead)?;
-        let mut real_inv = entity_ref.get_mut::<Inventory>()?;
-        real_inv.clear();
+        let _ = entity_ref.get_mut::<Inventory>().map(|mut v| v.clear());
         let health = entity_ref.get::<Health>()?;
         let pos = entity_ref.get::<Position>()?;
         let id = entity_ref.get::<NetworkID>()?;
@@ -332,11 +332,12 @@ fn update_health(game: &mut Game, server: &mut Server) -> SysResult {
         }
         log::info!("Sending dead");
         server.broadcast_entity_status(*pos, pos.world, *id, EntityStatusKind::EntityDead);
-        drop(real_inv);
         drop(health);
         drop(pos);
         drop(id);
-        if entity_ref.get::<Player>().is_err() {
+        if entity_ref.get::<ItemEntity>().is_ok() {
+            game.remove_entity(dead)?;
+        } else if entity_ref.get::<Player>().is_err() {
             game.schedule_at(game.ticks + 20, move |game| {
                 game.remove_entity(dead);
                 None

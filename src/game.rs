@@ -1212,7 +1212,7 @@ impl Game {
                 let zv = *args.get::<i32>(2)?;
                 let executor = game.ecs.entity(executor)?;
                 let pos = *executor.get::<Position>()?;
-                let entity = ItemEntityBuilder::build(game, pos, ItemStack::new(1, 1, 0));
+                let entity = ItemEntityBuilder::build(game, pos, ItemStack::new(1, 1, 0), 5);
                 let entity = game.spawn_entity(entity);
                 let mut physics = game.ecs.get_mut::<Physics>(entity)?;
                 physics.add_velocity(xv as f64, yv as f64, zv as f64);

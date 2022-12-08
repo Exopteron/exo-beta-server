@@ -7,22 +7,28 @@ use rand::Rng;
 use crate::{
     block_entity::{BlockEntity, BlockEntityLoader, BlockEntitySaver},
     ecs::{
-        entities::{player::{BlockInventoryOpen, Chatbox}, item::ItemEntityBuilder},
+        entities::{
+            item::ItemEntityBuilder,
+            player::{BlockInventoryOpen, Chatbox},
+        },
         systems::SysResult,
         EntityRef,
     },
     events::block_interact::BlockPlacementEvent,
     game::{BlockPosition, Game, Position},
     item::{
-        inventory::{reference::BackingWindow, Inventory},
+        inventory::{reference::{BackingWindow, Area}, Inventory},
+        inventory_slot::InventorySlot,
         item::block::{ActionResult, AtomicRegistryBlock, NonBoxedRegBlock},
         stack::{ItemStack, ItemStackType},
-        window::Window, inventory_slot::InventorySlot,
+        window::Window,
     },
     network::ids::NetworkID,
+    physics::Physics,
+    player_dat::NBTItem,
     protocol::packets::{Face, SoundEffectKind, WindowKind},
     server::Server,
-    world::chunks::BlockState, physics::Physics,
+    world::chunks::BlockState,
 };
 
 use crate::item::item::{block::Block, BlockIdentifier, Item, ItemIdentifier, ItemRegistry};
@@ -103,6 +109,25 @@ impl Block for ChestBlock {
         entity_builder.add(BlockEntitySaver::new(
             |entity| {
                 let mut tag = CompoundTag::new();
+
+                let mut items = vec![];
+
+                let data = entity.get::<ChestData>()?;
+                for (idx, item) in data.0.to_vec().iter().enumerate() {
+                    if let InventorySlot::Filled(item) = item {
+                        items.push(
+                            NBTItem {
+                                id: item.id(),
+                                count: item.count(),
+                                damage: item.damage_taken(),
+                                slot: idx as i8,
+                            }
+                            .to_old(),
+                        )
+                    }
+                }
+                tag.insert_compound_tag_vec("Items", items);
+
                 Ok(tag)
             },
             "Chest".to_string(),
@@ -124,7 +149,19 @@ impl Block for ChestBlock {
         loaders.insert(
             "Chest",
             Box::new(|tag, blockpos, builder| {
-                builder.add(ChestData::new());
+                let items: Vec<NBTItem> = tag
+                    .get_compound_tag_vec("Items")
+                    .map_err(|_| anyhow::anyhow!("No tag {} {}", line!(), file!()))?
+                    .into_iter()
+                    .flat_map(|v| NBTItem::from_old(v))
+                    .collect();
+
+                let mut chest = ChestData::new();
+                for item in items {
+                    let _ = chest.0.item(Area::Storage, item.slot as usize).map(|mut v| *v = InventorySlot::Filled(item.into()));
+                }
+
+                builder.add(chest);
                 Ok(())
             }),
         );
@@ -167,7 +204,7 @@ pub fn drop_item(game: &mut Game, item: ItemStack, position: Position) -> SysRes
     itempos.on_ground = false;
     itempos.y += 1.;
     itempos.y += 0.22;
-    let mut item = ItemEntityBuilder::build(game, itempos, item);
+    let mut item = ItemEntityBuilder::build(game, itempos, item, 5);
     let mut physics = item
         .get_mut::<Physics>()
         .ok_or(anyhow::anyhow!("No physics?"))?;

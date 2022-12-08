@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     aabb::AABBSize,
     ecs::{
-        entities::{living::Health, player::Gamemode},
+        entities::{living::Health, player::Gamemode, item::ItemEntity},
         systems::SysResult, EntityRef,
     },
     entities::metadata::{EntityBitMask, META_INDEX_ENTITY_BITMASK},
@@ -16,7 +16,7 @@ use crate::{
 use super::StatusEffect;
 
 pub struct FireEffect {
-    time_ticks: u128,
+    pub time_ticks: u128,
     timer: i32,
     registry: Arc<ItemRegistry>,
 }
@@ -78,9 +78,17 @@ impl StatusEffect for FireEffect {
                     self.time_ticks = 0;
                     return Ok(());
                 }
-                if !matches!(*game.ecs.get::<Gamemode>(entity)?, Gamemode::Creative) {
+
+                let is_creative = game.ecs.get::<Gamemode>(entity).map(|v| matches!(*v, Gamemode::Creative)).unwrap_or(false);
+                
+                let amount_of_damage = if game.ecs.get::<ItemEntity>(entity).is_ok() {
+                    20
+                } else {
+                    1
+                };
+                if !is_creative {
                     let mut health = game.ecs.get_mut::<Health>(entity)?;
-                    health.damage(1, DamageType::Fire);
+                    health.damage(amount_of_damage, DamageType::Fire);
                 }
             } else {
                 self.timer -= 1;

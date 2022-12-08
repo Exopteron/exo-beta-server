@@ -1,5 +1,6 @@
 use std::{path::PathBuf, fs::File, ops::Deref};
 
+use nbt::CompoundTag;
 use serde::*;
 use hemnbt::Blob;
 
@@ -20,6 +21,30 @@ impl From<NBTItem> for ItemStack {
         ItemStack::new(other.id, other.count, other.damage)
     }
 }
+
+
+
+impl NBTItem {
+    pub fn to_old(self) -> CompoundTag {
+        let mut tag = CompoundTag::new();
+        tag.insert_i8("Slot", self.slot);
+        tag.insert_i16("id", self.id);
+        tag.insert_i16("Damage", self.damage);
+        tag.insert_i8("Count", self.count);
+        tag
+    }
+
+    pub fn from_old(c: &CompoundTag) -> Option<Self> {
+        Some(Self {
+            slot: c.get_i8("Slot").ok()?,
+            id: c.get_i16("id").ok()?,
+            damage: c.get_i16("Damage").ok()?,
+            count: c.get_i8("Count").ok()?,
+        })
+    }
+}
+
+
 #[derive(Serialize, Deserialize)]
 pub struct PlayerDat {
     #[serde(rename = "Pos")]

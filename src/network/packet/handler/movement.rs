@@ -1,5 +1,5 @@
 use crate::{
-    ecs::{entities::player::OffgroundHeight, systems::SysResult, EntityRef},
+    ecs::{systems::SysResult, EntityRef},
     game::Position,
     network::ids::NetworkID,
     protocol::packets::client::{
@@ -37,21 +37,21 @@ fn update_client_position(server: &Server, player: &EntityRef, pos: Position) ->
     }
     Ok(())
 }
-fn update_offground_height(player: &EntityRef, prev: Position, pos: Position) -> SysResult {
-    if pos.on_ground {
-        let mut h = player.get_mut::<OffgroundHeight>()?;
-        h.1 = h.0;
-        h.0 = 0.0;
-    } else {
-        let mut height = player.get_mut::<OffgroundHeight>()?;
-        //log::info!("Height is: {}", height.0);
-        if pos.y as f32 > height.0 {
-            //log::info!("Setting the height to {} because it is greater than {}", pos.y as f32, height.0);
-            *height = OffgroundHeight(pos.y as f32, height.1);
-        }
-    }
-    Ok(())
-}
+// fn update_offground_height(player: &EntityRef, prev: Position, pos: Position) -> SysResult {
+//     if pos.on_ground {
+//         let mut h = player.get_mut::<OffgroundHeight>()?;
+//         h.1 = h.0;
+//         h.0 = 0.0;
+//     } else {
+//         let mut height = player.get_mut::<OffgroundHeight>()?;
+//         //log::info!("Height is: {}", height.0);
+//         if pos.y as f32 > height.0 {
+//             //log::info!("Setting the height to {} because it is greater than {}", pos.y as f32, height.0);
+//             *height = OffgroundHeight(pos.y as f32, height.1);
+//         }
+//     }
+//     Ok(())
+// }
 pub fn handle_player_position(
     server: &Server,
     player: EntityRef,
@@ -67,7 +67,7 @@ pub fn handle_player_position(
     pos.z = packet.z;
     pos.stance = packet.stance;
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, previous_pos, *pos)?;
+    // update_offground_height(&player, previous_pos, *pos)?;
     update_client_position(server, &player, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
@@ -88,7 +88,7 @@ pub fn handle_player_position_and_look(
     pos.yaw = packet.yaw;
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, previous_pos, *pos)?;
+    // update_offground_height(&player, previous_pos, *pos)?;
     update_client_position(server, &player, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
@@ -102,7 +102,7 @@ pub fn handle_player_look(server: &Server, player: EntityRef, packet: PlayerLook
     pos.yaw = packet.yaw;
     pos.pitch = packet.pitch;
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, previous_pos, *pos)?;
+    // update_offground_height(&player, previous_pos, *pos)?;
     update_client_position(server, &player, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
@@ -111,7 +111,7 @@ pub fn handle_player_movement(player: EntityRef, packet: PlayerMovement) -> SysR
     let mut pos = player.get_mut::<Position>()?;
     let previous_pos = pos.clone();
     pos.on_ground = packet.on_ground;
-    update_offground_height(&player, previous_pos, *pos)?;
+    // update_offground_height(&player, previous_pos, *pos)?;
     on_movement(&player, previous_pos, &mut pos)?;
     Ok(())
 }

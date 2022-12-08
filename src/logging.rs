@@ -21,7 +21,7 @@ pub fn setup_logging() -> LogManager {
                 record.target(),
                 args,
             );
-            appender.append(format);
+            //appender.append(format);
             let args = args.replace("§4", &color::Fg(color::Red).to_string());
             let args = args.replace("§c", &color::Fg(color::LightRed).to_string());
             let args = args.replace("§6", &color::Fg(color::Yellow).to_string());

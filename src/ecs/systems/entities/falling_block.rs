@@ -47,7 +47,7 @@ fn epic_system(game: &mut Game) -> SysResult {
                 if !game.can_be_placed_at(block_pos) {
                     let mut pos = real_pos;
                     pos.on_ground = false;
-                    let builder = ItemEntityBuilder::build(game, real_pos, ItemStack::new(data.block_id().into(), 1, 0));
+                    let builder = ItemEntityBuilder::build(game, real_pos, ItemStack::new(data.block_id().into(), 1, 0), 5);
                     game.spawn_entity(builder);
                 } else {
                     game.set_block(block_pos, BlockState::from_id(data.block_id()), block_pos.world);

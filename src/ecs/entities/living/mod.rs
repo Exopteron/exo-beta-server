@@ -1,4 +1,4 @@
-use crate::game::DamageType;
+use crate::game::{DamageType, BlockPosition};
 pub mod hostile;
 pub mod passive;
 
@@ -38,4 +38,16 @@ pub struct PreviousHunger(pub Hunger);
 
 pub struct Regenerator(pub u128);
 
-pub struct EntityDamager;
+pub struct EntityWorldInteraction {
+    pub last_void_damage: u32,
+    pub within_lava: bool
+}
+
+impl Default for EntityWorldInteraction {
+    fn default() -> Self {
+        Self {
+            last_void_damage: 0,
+            within_lava: false
+        }
+    }
+}
